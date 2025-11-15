@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Admin - Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css" />
+</head>
+<body>
+<header>
+    <h1>Admin Dashboard</h1>
+</header>
+<main>
+    <ul>
+        <li><a th:href="@{/admin/products}">Products</a></li>
+        <li><a th:href="@{/admin/orders}">Orders</a></li>
+        <li><a th:href="@{/admin/customers}">Customers</a></li>
+    </ul>
+</main>
+</body>
+</html>
