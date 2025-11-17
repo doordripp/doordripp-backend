@@ -8,9 +8,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.List;
 
 @Service
 public class CartService {
@@ -19,7 +19,10 @@ public class CartService {
     private final CustomerRepository customerRepository;
     private final OrderService orderService;
 
-    public CartService(CartRepository cartRepository, ProductRepository productRepository, CustomerRepository customerRepository, OrderService orderService) {
+    public CartService(CartRepository cartRepository,
+                       ProductRepository productRepository,
+                       CustomerRepository customerRepository,
+                       OrderService orderService) {
         this.cartRepository = cartRepository;
         this.productRepository = productRepository;
         this.customerRepository = customerRepository;
@@ -30,8 +33,10 @@ public class CartService {
         return cartRepository.findByCustomerId(customerId).orElseGet(() -> createCartForCustomer(customerId));
     }
 
-    private Cart createCartForCustomer(Long customerId) {
-        Customer customer = customerRepository.findById(customerId).orElseThrow(() -> new IllegalArgumentException("Invalid customer"));
+    @SuppressWarnings("null")
+	private Cart createCartForCustomer(Long customerId) {
+        Customer customer = customerRepository.findById(customerId)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid customer"));
         Cart cart = new Cart();
         cart.setCustomer(customer);
         cart.setTotal(BigDecimal.ZERO);
@@ -42,23 +47,30 @@ public class CartService {
     public Cart addItem(Long customerId, Long productId, int quantity) {
         if (quantity <= 0) throw new IllegalArgumentException("Quantity must be positive");
         Cart cart = getCartForCustomer(customerId);
-        Product product = productRepository.findById(productId).orElseThrow(() -> new IllegalArgumentException("Invalid product"));
+        @SuppressWarnings("null")
+		Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid product"));
 
-        Optional<CartItem> existing = cart.getItems().stream().filter(i -> i.getProduct().getId().equals(productId)).findFirst();
+        Optional<CartItem> existing = cart.getItems().stream()
+                .filter(i -> i.getProduct().getId().equals(productId))
+                .findFirst();
+
         if (existing.isPresent()) {
+            // Do NOT change the existing price snapshot by default; keep original price when incrementing
             CartItem item = existing.get();
             item.setQuantity(item.getQuantity() + quantity);
-            // update price snapshot
-            item.setPrice(product.getPrice());
         } else {
             CartItem item = new CartItem();
             item.setProduct(product);
             item.setQuantity(quantity);
+            // snapshot price at the time item was first added
             item.setPrice(product.getPrice());
+            // set back-reference so JPA knows owning side
+            item.setCart(cart);
             cart.getItems().add(item);
         }
 
-        recalcTotal(cart);
+        cart.recalcTotal();
         return cartRepository.save(cart);
     }
 
@@ -66,7 +78,7 @@ public class CartService {
     public Cart removeItem(Long customerId, Long productId) {
         Cart cart = getCartForCustomer(customerId);
         cart.getItems().removeIf(i -> i.getProduct().getId().equals(productId));
-        recalcTotal(cart);
+        cart.recalcTotal();
         return cartRepository.save(cart);
     }
 
@@ -84,6 +96,7 @@ public class CartService {
         }).collect(Collectors.toList());
 
         PurchaseOrder order = orderService.placeOrder(customerId, orderItems);
+
         // clear cart
         cart.getItems().clear();
         cart.setTotal(BigDecimal.ZERO);
@@ -91,10 +104,8 @@ public class CartService {
         return order;
     }
 
-    private void recalcTotal(Cart cart) {
-        BigDecimal total = cart.getItems().stream()
-                .map(i -> i.getPrice().multiply(BigDecimal.valueOf(i.getQuantity())))
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        cart.setTotal(total);
+    @SuppressWarnings("unused")
+	private void recalcTotal(Cart cart) {
+        cart.recalcTotal();
     }
 }

@@ -1,0 +1,12 @@
+HTTP/1.1 405 
+Allow: POST
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 0
+Cache-Control: no-cache, no-store, max-age=0, must-revalidate
+Pragma: no-cache
+Expires: 0
+Content-Type: application/json
+Transfer-Encoding: chunked
+Date: Sun, 16 Nov 2025 18:10:57 GMT
+
+{"timestamp":"2025-11-16T18:10:57.101+00:00","status":405,"error":"Method Not Allowed","path":"/api/orders"}

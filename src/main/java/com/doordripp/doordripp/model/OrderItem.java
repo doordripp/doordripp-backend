@@ -1,9 +1,7 @@
 package com.doordripp.doordripp.model;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.math.BigDecimal;
 
@@ -17,12 +15,18 @@ public class OrderItem {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // owning side
     @ManyToOne(optional = false)
+    @JoinColumn(name = "order_id", nullable = false)
+    private PurchaseOrder order;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
     @Column(nullable = false)
-    private Integer quantity;
+    private int quantity;
 
-    @Column(nullable = false)
-    private BigDecimal price; // snapshot of product price
+    @Column(nullable = false, precision = 19, scale = 4)
+    private BigDecimal price;
 }

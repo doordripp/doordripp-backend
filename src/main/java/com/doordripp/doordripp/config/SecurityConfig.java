@@ -1,62 +1,62 @@
 package com.doordripp.doordripp.config;
 
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.SecurityFilterChain;
 import com.doordripp.doordripp.repository.CustomerRepository;
 import com.doordripp.doordripp.model.Customer;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.core.userdetails.*;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
-@EnableWebSecurity
 public class SecurityConfig {
+
+    private final CustomerRepository customerRepository;
+
+    public SecurityConfig(CustomerRepository customerRepository) {
+        this.customerRepository = customerRepository;
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
 
+    // simple UserDetailsService backed by CustomerRepository (assumes Customer has email & password fields)
     @Bean
-    public UserDetailsService userDetailsService(CustomerRepository customerRepository, PasswordEncoder passwordEncoder) {
+    public UserDetailsService userDetailsService() {
         return username -> {
-            // admin user (in-memory) - simple for demo
-            if ("admin".equals(username)) {
-                UserDetails admin = User.builder()
-                        .username("admin")
-                        .password(passwordEncoder.encode("adminpass"))
-                        .roles("ADMIN")
-                        .build();
-                return admin;
-            }
-
-            // customers are identified by email
-            return customerRepository.findByEmail(username)
-                    .map((Customer c) -> User.withUsername(c.getEmail())
-                            .password(c.getPassword())
-                            .roles("CUSTOMER")
-                            .build())
+            Customer c = customerRepository.findByEmail(username)
                     .orElseThrow(() -> new UsernameNotFoundException("User not found: " + username));
+            return User.withUsername(c.getEmail())
+                    .password(c.getPassword())
+                    .roles("USER")
+                    .build();
         };
     }
 
+    // basic security filter chain - authenticate by default, keep H2 console accessible in dev if needed
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http.authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/admin/**", "/h2-console/**").hasRole("ADMIN")
-                        .requestMatchers("/login", "/register", "/css/**", "/js/**").permitAll()
-                        .anyRequest().permitAll()
-                )
-                .formLogin(form -> form.loginPage("/login").defaultSuccessUrl("/", true))
-                .logout(logout -> logout.logoutUrl("/logout").logoutSuccessUrl("/"))
-                .csrf(csrf -> csrf.disable())
-                .headers(headers -> headers.frameOptions(frame -> frame.disable()));
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        http
+            .csrf(csrf -> csrf.disable()) // disable for development; enable for production
+            .authorizeHttpRequests(auth -> auth
+                    .requestMatchers("/h2-console/**").permitAll()
+                    .requestMatchers("/", "/demo/**", "/demo/index.html", "/demo/app.js").permitAll()
+                    .requestMatchers("/api/**").permitAll()
+                    .requestMatchers("/public/**", "/login", "/register").permitAll()
+                    .anyRequest().authenticated()
+            )
+            .formLogin(form -> form
+                    .loginPage("/login")
+                    .permitAll()
+            )
+            .logout(logout -> logout.permitAll());
+
+        // allow frames for H2 console
+        http.headers(headers -> headers.frameOptions(frame -> frame.sameOrigin()));
 
         return http.build();
     }

@@ -28,7 +28,8 @@ public class ProductController {
         return p == null ? ResponseEntity.notFound().build() : ResponseEntity.ok(p);
     }
 
-    @PostMapping
+    @SuppressWarnings("null")
+	@PostMapping
     public ResponseEntity<Product> create(@RequestBody Product product) {
         Product saved = productService.save(product);
         return ResponseEntity.created(URI.create("/api/products/" + saved.getId())).body(saved);

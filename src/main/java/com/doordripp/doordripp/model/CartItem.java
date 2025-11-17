@@ -1,9 +1,8 @@
 package com.doordripp.doordripp.model;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
+import com.fasterxml.jackson.annotation.JsonBackReference;
 
 import java.math.BigDecimal;
 
@@ -17,12 +16,20 @@ public class CartItem {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    // Back-reference to cart (owning side)
     @ManyToOne(optional = false)
+    @JoinColumn(name = "cart_id", nullable = false)
+    @JsonBackReference  // Prevent circular reference in JSON
+    private Cart cart;
+
+    @ManyToOne(optional = false)
+    @JoinColumn(name = "product_id", nullable = false)
     private Product product;
 
     @Column(nullable = false)
-    private Integer quantity;
+    private int quantity;
 
-    @Column(nullable = false)
-    private BigDecimal price; // snapshot of product price
+    // Price snapshot when added to cart
+    @Column(nullable = false, precision = 19, scale = 4)
+    private BigDecimal price;
 }

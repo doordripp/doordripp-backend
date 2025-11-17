@@ -18,11 +18,15 @@ public class ProductService {
         return productRepository.findAll();
     }
 
-    public Product findById(Long id) {
+    @SuppressWarnings("null")
+	public Product findById(Long id) {
         return productRepository.findById(id).orElse(null);
     }
 
     public Product save(Product product) {
+        if (product == null) {
+            throw new IllegalArgumentException("Product cannot be null");
+        }
         return productRepository.save(product);
     }
 }

@@ -1,0 +1,1 @@
+{"id":1,"customer":{"id":1,"name":"Demo Customer","email":"demo@doordripp.local","password":"$2a$10$DUmdjfNbXiN6Ujw3R/e7t.r/ZXwv.846tt3eqfqiCSCIEbba0NNUK"},"items":[{"id":1,"product":{"id":1,"name":"T-Shirt","description":"Comfortable cotton t-shirt","price":19.99,"stock":100},"quantity":3,"price":19.99}],"total":59.97}
