@@ -1,9 +1,20 @@
-// Deprecated MongoDB connector placeholder.
-// This project now uses Prisma with a SQL database. Use `src/config/prisma.js` instead.
+const mongoose = require("mongoose");
 
 const connectDB = async () => {
-  console.warn('connectDB() is deprecated. This project uses Prisma/SQL now.');
-  return;
+  const uri = process.env.MONGO_URI || process.env.DATABASE_URL || "";
+
+  if (!uri) {
+    console.warn("MONGO_URI not set. Skipping MongoDB connection.");
+    return;
+  }
+
+  try {
+    await mongoose.connect(uri); // No deprecated options
+    console.log("MongoDB connected");
+  } catch (err) {
+    console.error("MongoDB connection error:", err.message || err);
+    throw err;
+  }
 };
 
 module.exports = connectDB;

@@ -1,63 +1,66 @@
-const prisma = require('../config/prisma');
+const Product = require('../models/Product')
 
 exports.list = async (req, res, next) => {
   try {
-    const { search, category, sort } = req.query;
-    const where = {};
-    if (category && category !== 'All') where.category = category;
-    if (search) where.OR = [
-      { name: { contains: search, mode: 'insensitive' } },
-      { description: { contains: search, mode: 'insensitive' } }
-    ];
+    const { search, category, sort } = req.query
+    const filter = {}
+    if (category && category !== 'All') filter.category = category
+    if (search) filter.$or = [
+      { name: new RegExp(search, 'i') },
+      { description: new RegExp(search, 'i') }
+    ]
 
-    const orderBy = (sort === 'price-low') ? { price: 'asc' }
-      : (sort === 'price-high') ? { price: 'desc' }
-      : (sort === 'name') ? { name: 'asc' }
-      : { createdAt: 'desc' };
+    let query = Product.find(filter).limit(500)
 
-    const products = await prisma.product.findMany({ where, orderBy, take: 500 });
-    res.json(products);
+    if (sort === 'price-low') query = query.sort({ price: 1 })
+    else if (sort === 'price-high') query = query.sort({ price: -1 })
+    else if (sort === 'name') query = query.sort({ name: 1 })
+    else query = query.sort({ createdAt: -1 })
+
+    const products = await query.exec()
+    res.json(products)
   } catch (err) {
-    next(err);
+    next(err)
   }
-};
+}
 
 exports.get = async (req, res, next) => {
   try {
-    const product = await prisma.product.findUnique({ where: { id: req.params.id } });
-    if (!product) return res.status(404).json({ error: 'Not found' });
-    res.json(product);
+    const product = await Product.findById(req.params.id)
+    if (!product) return res.status(404).json({ error: 'Not found' })
+    res.json(product)
   } catch (err) {
-    next(err);
+    next(err)
   }
-};
+}
 
 exports.create = async (req, res, next) => {
   try {
-    const payload = req.body;
-    const existing = await prisma.product.findFirst({ where: { slug: payload.slug } });
-    if (existing) return res.status(400).json({ error: 'Slug already exists' });
-    const product = await prisma.product.create({ data: payload });
-    res.status(201).json(product);
+    const payload = req.body
+    const existing = await Product.findOne({ slug: payload.slug })
+    if (existing) return res.status(400).json({ error: 'Slug already exists' })
+    const product = new Product(payload)
+    await product.save()
+    res.status(201).json(product)
   } catch (err) {
-    next(err);
+    next(err)
   }
-};
+}
 
 exports.update = async (req, res, next) => {
   try {
-    const updated = await prisma.product.update({ where: { id: req.params.id }, data: req.body });
-    res.json(updated);
+    const updated = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    res.json(updated)
   } catch (err) {
-    next(err);
+    next(err)
   }
-};
+}
 
 exports.remove = async (req, res, next) => {
   try {
-    await prisma.product.delete({ where: { id: req.params.id } });
-    res.json({ ok: true });
+    await Product.findByIdAndDelete(req.params.id)
+    res.json({ ok: true })
   } catch (err) {
-    next(err);
+    next(err)
   }
-};
+}
