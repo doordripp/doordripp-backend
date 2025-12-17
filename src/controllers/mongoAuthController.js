@@ -13,9 +13,10 @@ exports.createTokenForUser = async (user) => {
   const token = generateToken(user);
   const cookieOptions = {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    sameSite: 'none', // Required for cross-origin cookie transmission
+    secure: true, // HTTPS only in production
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    domain: process.env.NODE_ENV === 'production' ? '.doordripp.com' : undefined, // Allows both doordripp.com and www.doordripp.com
   };
   return { token, cookieOptions };
 };

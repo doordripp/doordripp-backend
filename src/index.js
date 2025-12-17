@@ -21,16 +21,31 @@ const PORT = process.env.PORT || 4000;
 // Middlewares
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://doordripp.com';
 const corsOptions = {
-  origin: [
-    'https://doordripp.com',
-    'https://doordripp.com',
-    'https://doordripp.com',
-    'https://doordripp.com',
-    'https://doordripp.com',
-    FRONTEND_URL
-  ],
+  origin: (origin, callback) => {
+    const allowedOrigins = [
+      'https://doordripp.com',
+      'https://www.doordripp.com',
+      'http://localhost:3000', // Local development (React)
+      'http://localhost:3001', // Alternative local dev port
+      'http://localhost:5173', // Vite dev server
+    ];
+    
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 86400, // 24 hours
 };
+
+// Preflight request handler (MUST be before routes)
+app.options('*', cors(corsOptions));
+
+// Apply CORS to all routes
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
