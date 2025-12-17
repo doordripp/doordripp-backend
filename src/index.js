@@ -25,9 +25,7 @@ const corsOptions = {
     const allowedOrigins = [
       'https://doordripp.com',
       'https://www.doordripp.com',
-      'http://localhost:3000', // Local development (React)
-      'http://localhost:3001', // Alternative local dev port
-      'http://localhost:5173', // Vite dev server
+      
     ];
     
     if (!origin || allowedOrigins.includes(origin)) {

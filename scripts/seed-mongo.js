@@ -6,7 +6,7 @@ const Product = require('../src/models/Product')
 const { ALL_PRODUCTS } = require('../src/data/frontendProducts')
 
 async function connectDB() {
-  const uri = process.env.MONGO_URI || 'mongodb://localhost:27017/doordripp'
+  const uri = process.env.MONGO_URI
   try {
     await mongoose.connect(uri)
     console.log('MongoDB connected for seeding')
