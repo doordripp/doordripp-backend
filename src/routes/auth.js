@@ -5,7 +5,7 @@ const router = express.Router();
 const authController = require('../controllers/mongoAuthController');
 const passport = require('../config/passport');
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://:5173'
 
 const bcrypt = require('bcryptjs')
 const Otp = require('../models/Otp')

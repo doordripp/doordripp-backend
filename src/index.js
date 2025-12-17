@@ -19,14 +19,14 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middlewares
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://doordripp.com';
 const corsOptions = {
   origin: [
-    'http://localhost:5173',
-    'http://localhost:5174',
-    'http://localhost:5175',
-    'http://localhost:5176',
-    'http://localhost:5177',
+    'https://doordripp.com',
+    'https://doordripp.com',
+    'https://doordripp.com',
+    'https://doordripp.com',
+    'https://doordripp.com',
     FRONTEND_URL
   ],
   credentials: true,

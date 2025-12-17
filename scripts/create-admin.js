@@ -77,8 +77,8 @@ async function createAdmin() {
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     }
     
-    console.log('🔐 Login at: http://localhost:5173/login');
-    console.log('📊 Admin Panel: http://localhost:5173/admin');
+    console.log('🔐 Login at: https://doordripp.com/login');
+    console.log('📊 Admin Panel: https://doordripp.com/admin');
     
   } catch (error) {
     console.error('❌ Error:', error.message);

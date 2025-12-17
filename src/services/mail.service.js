@@ -234,8 +234,9 @@ class MailService {
       expiryMinutes: '5',
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
+      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://doordripp.com'
     });
+
 
     return this.sendEmail({
       to: email,
@@ -275,7 +276,7 @@ class MailService {
       trackingUrl: `${process.env.CLIENT_URL || process.env.FRONTEND_URL}/orders/${orderData.orderId}`,
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
+      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com'
     });
 
     return this.sendEmail({
@@ -310,7 +311,7 @@ class MailService {
       expiryHours: '1',
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
+      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com'
     });
 
     return this.sendEmail({
@@ -349,7 +350,7 @@ class MailService {
       trackingUrl: shippingData.trackingUrl || `${process.env.CLIENT_URL}/orders/${shippingData.orderId}`,
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
+      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com'
     });
 
     return this.sendEmail({
