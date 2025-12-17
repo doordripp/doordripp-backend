@@ -305,6 +305,13 @@ exports.forgotPassword = async (req, res, next) => {
       return res.json({ message: successMessage });
     }
 
+    // Require JWT secret for secure token issuance
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('JWT_SECRET is not set; cannot issue reset token');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
     // Generate password reset token (JWT)
     // Token payload includes user ID and purpose
     const resetToken = jwt.sign(
@@ -314,7 +321,7 @@ exports.forgotPassword = async (req, res, next) => {
         // Add timestamp to make each token unique
         iat: Date.now()
       },
-      process.env.JWT_SECRET || 'secret',
+      jwtSecret,
       { expiresIn: '1h' } // 1 hour expiration
     );
 
@@ -383,10 +390,16 @@ exports.resetPassword = async (req, res, next) => {
       });
     }
 
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      console.error('JWT_SECRET is not set; cannot validate reset token');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
     // Verify JWT token
     let decoded;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+      decoded = jwt.verify(token, jwtSecret);
     } catch (err) {
       return res.status(400).json({ 
         error: 'Invalid or expired reset token' 
@@ -444,6 +457,13 @@ exports.resetPassword = async (req, res, next) => {
     await user.save();
 
     console.log(`✅ Password reset successful for user: ${user._id}`);
+
+    // Notify user of successful password reset (best-effort)
+    try {
+      await mailService.sendPasswordResetSuccessEmail(user.email, user.name || 'User');
+    } catch (notifyErr) {
+      console.error('Failed to send password reset success email:', notifyErr);
+    }
 
     res.json({ 
       message: 'Password reset successful. You can now login with your new password.' 

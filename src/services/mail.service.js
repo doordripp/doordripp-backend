@@ -323,6 +323,37 @@ class MailService {
   }
 
   /**
+   * Notify user after successful password reset
+   * Best-effort; failure should not block the API response
+   */
+  async sendPasswordResetSuccessEmail(email, userName = 'User') {
+    const safeUserName = userName || 'User';
+    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com';
+    const html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
+        <h2 style="color: #111;">Your password was reset</h2>
+        <p>Hi ${safeUserName},</p>
+        <p>This is a confirmation that your DoorDripp account password was just changed.</p>
+        <p>If you did not perform this action, please reset your password immediately and contact support.</p>
+        <p>
+          <a href="${clientUrl}/reset-password" style="background:#111;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">
+            Reset Password Again
+          </a>
+        </p>
+        <p style="font-size: 12px; color: #555;">If the button doesn’t work, visit ${clientUrl}/reset-password</p>
+        <p style="margin-top:24px;font-size: 12px; color: #777;">If this wasn’t you, please secure your account immediately.</p>
+      </div>
+    `;
+
+    return this.sendEmail({
+      to: email,
+      subject: 'Your DoorDripp password was changed',
+      html,
+      text: `Your DoorDripp account password was changed. If this wasn't you, reset it immediately at ${clientUrl}/reset-password.`
+    });
+  }
+
+  /**
    * Send shipping status update email
    * 
    * @param {Object} shippingData - Shipping information

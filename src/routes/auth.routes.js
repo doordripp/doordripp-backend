@@ -87,6 +87,19 @@ const passwordResetLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// Rate limiter for password reset token consumption
+// Limit: 10 attempts per 15 minutes per IP to reduce brute force surface
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    error: 'Too many password reset attempts. Please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
 // ========== Validation Middleware ==========
 
 /**
@@ -224,6 +237,7 @@ router.post(
  */
 router.post(
   '/reset-password',
+  resetPasswordLimiter,
   [
     body('token')
       .notEmpty()
