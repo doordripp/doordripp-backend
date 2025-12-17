@@ -6,7 +6,8 @@ const cookieParser = require('cookie-parser');
 // Passport (OAuth strategies)
 const passport = require('./config/passport');
 
-const authRoutes = require('./routes/auth');
+// Auth routes (full set including forgot/reset password)
+const authRoutes = require('./routes/auth.routes');
 const productRoutes = require('./routes/products');
 const orderRoutes = require('./routes/orders');
 const frontendProductRoutes = require('./routes/frontendProducts');
