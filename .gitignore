@@ -1,9 +1,7 @@
-node-backend/.env.backup
-node-backend/cookies.txt
-.env
-node-backend/.env
-.env.local
-node-backend/.env.local
 node_modules/
-npm-debug.log
-node-backend/*.log
+.env
+.DS_Store
+coverage/
+logs/
+*.log
+dist/

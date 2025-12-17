@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shipping Update - DoorDripp</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f4f6f9;
+    }
+    .container {
+      max-width: 600px;
+      margin: 40px auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .header {
+      background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+      padding: 40px 30px;
+      text-align: center;
+      color: #ffffff;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+    }
+    .header p {
+      margin: 10px 0 0 0;
+      font-size: 14px;
+      opacity: 0.95;
+    }
+    .icon {
+      width: 80px;
+      height: 80px;
+      background-color: rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 40px;
+    }
+    .content {
+      padding: 40px 30px;
+    }
+    .greeting {
+      font-size: 18px;
+      color: #2d3748;
+      margin: 0 0 20px 0;
+      font-weight: 600;
+    }
+    .message {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #4a5568;
+      margin: 0 0 30px 0;
+    }
+    .status-card {
+      background: linear-gradient(135deg, #4299e115 0%, #3182ce15 100%);
+      border: 2px solid #4299e1;
+      border-radius: 12px;
+      padding: 30px;
+      text-align: center;
+      margin: 30px 0;
+    }
+    .status-badge {
+      display: inline-block;
+      background-color: #4299e1;
+      color: #ffffff;
+      padding: 8px 20px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 15px;
+    }
+    .status-message {
+      font-size: 20px;
+      color: #2d3748;
+      font-weight: 600;
+      margin: 15px 0;
+    }
+    .tracking-info {
+      background-color: #f7fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 25px;
+      margin: 25px 0;
+    }
+    .tracking-info h3 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      font-size: 14px;
+      padding: 10px 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    .info-row .label {
+      color: #718096;
+      font-weight: 500;
+    }
+    .info-row .value {
+      color: #2d3748;
+      font-weight: 600;
+      text-align: right;
+    }
+    .cta-button {
+      display: inline-block;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #ffffff !important;
+      text-decoration: none;
+      padding: 15px 40px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    .button-container {
+      text-align: center;
+      margin: 30px 0;
+    }
+    .footer {
+      background-color: #f7fafc;
+      padding: 30px;
+      text-align: center;
+      border-top: 1px solid #e2e8f0;
+    }
+    .footer p {
+      margin: 0 0 10px 0;
+      font-size: 13px;
+      color: #718096;
+    }
+    .footer a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    @media only screen and (max-width: 600px) {
+      .container {
+        margin: 20px;
+      }
+      .header, .content, .footer {
+        padding: 25px 20px;
+      }
+      .info-row {
+        flex-direction: column;
+      }
+      .info-row .value {
+        text-align: left;
+        margin-top: 5px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="icon">📦</div>
+      <h1>Shipping Update</h1>
+      <p>Your order is on its way!</p>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <p class="greeting">Hi {{customerName}},</p>
+      
+      <p class="message">
+        Great news! We have an update on your order. Here's the latest status:
+      </p>
+
+      <!-- Status Card -->
+      <div class="status-card">
+        <div class="status-badge">{{status}}</div>
+        <div class="status-message">{{statusMessage}}</div>
+      </div>
+
+      <!-- Tracking Information -->
+      <div class="tracking-info">
+        <h3>📋 Shipment Details</h3>
+        
+        <div class="info-row">
+          <span class="label">Order Number:</span>
+          <span class="value">#{{orderId}}</span>
+        </div>
+        
+        <div class="info-row">
+          <span class="label">Tracking Number:</span>
+          <span class="value">{{trackingNumber}}</span>
+        </div>
+        
+        <div class="info-row">
+          <span class="label">Carrier:</span>
+          <span class="value">{{carrier}}</span>
+        </div>
+        
+        <div class="info-row">
+          <span class="label">Estimated Delivery:</span>
+          <span class="value">{{estimatedDelivery}}</span>
+        </div>
+      </div>
+
+      <!-- Track Order Button -->
+      <div class="button-container">
+        <a href="{{trackingUrl}}" class="cta-button">Track Your Package</a>
+      </div>
+
+      <p class="message">
+        You can track your shipment in real-time using the tracking number above. 
+        If you have any questions, our customer support team is here to help!
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>
+        Need help? Contact us at 
+        <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>
+      </p>
+      <p>
+        <a href="{{clientUrl}}">Visit DoorDripp</a> • 
+        <a href="{{clientUrl}}/orders">My Orders</a> • 
+        <a href="{{clientUrl}}/support">Support</a>
+      </p>
+      <p style="margin-top: 20px; color: #a0aec0;">
+        © {{currentYear}} DoorDripp. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>

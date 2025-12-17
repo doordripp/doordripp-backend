@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Confirmation - DoorDripp</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f4f6f9;
+    }
+    .container {
+      max-width: 650px;
+      margin: 40px auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .header {
+      background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+      padding: 40px 30px;
+      text-align: center;
+      color: #ffffff;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+    }
+    .header p {
+      margin: 10px 0 0 0;
+      font-size: 14px;
+      opacity: 0.95;
+    }
+    .success-icon {
+      width: 80px;
+      height: 80px;
+      background-color: rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 40px;
+    }
+    .content {
+      padding: 40px 30px;
+    }
+    .greeting {
+      font-size: 18px;
+      color: #2d3748;
+      margin: 0 0 10px 0;
+      font-weight: 600;
+    }
+    .message {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #4a5568;
+      margin: 0 0 30px 0;
+    }
+    .order-summary {
+      background-color: #f7fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 25px;
+      margin: 25px 0;
+    }
+    .order-summary h2 {
+      margin: 0 0 20px 0;
+      font-size: 18px;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .order-info {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+    .order-info .label {
+      color: #718096;
+      font-weight: 500;
+    }
+    .order-info .value {
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 25px 0;
+    }
+    .items-table th {
+      background-color: #f7fafc;
+      padding: 12px;
+      text-align: left;
+      font-size: 13px;
+      color: #4a5568;
+      font-weight: 600;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    .items-table td {
+      padding: 15px 12px;
+      font-size: 14px;
+      color: #2d3748;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .items-table td:last-child {
+      text-align: right;
+    }
+    .total-section {
+      background-color: #f0fff4;
+      border: 2px solid #48bb78;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 25px 0;
+      text-align: right;
+    }
+    .total-section .label {
+      font-size: 16px;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .total-section .amount {
+      font-size: 28px;
+      color: #38a169;
+      font-weight: 800;
+      margin-top: 5px;
+    }
+    .shipping-info {
+      background-color: #fffaf0;
+      border-left: 4px solid #ed8936;
+      padding: 20px;
+      margin: 25px 0;
+      border-radius: 4px;
+    }
+    .shipping-info h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .shipping-info p {
+      margin: 5px 0;
+      font-size: 13px;
+      color: #4a5568;
+      line-height: 1.6;
+    }
+    .cta-button {
+      display: inline-block;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #ffffff;
+      text-decoration: none;
+      padding: 15px 40px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    .footer {
+      background-color: #f7fafc;
+      padding: 30px;
+      text-align: center;
+      border-top: 1px solid #e2e8f0;
+    }
+    .footer p {
+      margin: 0 0 10px 0;
+      font-size: 13px;
+      color: #718096;
+    }
+    .footer a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    @media only screen and (max-width: 600px) {
+      .container {
+        margin: 20px;
+      }
+      .header, .content, .footer {
+        padding: 25px 20px;
+      }
+      .items-table th, .items-table td {
+        padding: 10px 8px;
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="success-icon">✓</div>
+      <h1>Order Confirmed!</h1>
+      <p>Thank you for your purchase</p>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <p class="greeting">Hi {{customerName}},</p>
+      
+      <p class="message">
+        We're excited to let you know that your order has been confirmed and is being processed. 
+        You'll receive another email when your items are shipped.
+      </p>
+
+      <!-- Order Summary -->
+      <div class="order-summary">
+        <h2>Order Summary</h2>
+        <div class="order-info">
+          <span class="label">Order Number:</span>
+          <span class="value">#{{orderId}}</span>
+        </div>
+        <div class="order-info">
+          <span class="label">Order Date:</span>
+          <span class="value">{{orderDate}}</span>
+        </div>
+        <div class="order-info">
+          <span class="label">Total Items:</span>
+          <span class="value">{{itemCount}}</span>
+        </div>
+      </div>
+
+      <!-- Items Table -->
+      <table class="items-table">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th style="text-align: center;">Quantity</th>
+            <th style="text-align: right;">Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{items}}
+        </tbody>
+      </table>
+
+      <!-- Total -->
+      <div class="total-section">
+        <div class="label">Total Amount</div>
+        <div class="amount">{{totalAmount}}</div>
+      </div>
+
+      <!-- Shipping Info -->
+      <div class="shipping-info">
+        <h3>📦 Shipping Information</h3>
+        <p><strong>Delivery Address:</strong></p>
+        <p>{{shippingAddress}}</p>
+        <p style="margin-top: 15px;">
+          <strong>Estimated Delivery:</strong> {{estimatedDelivery}}
+        </p>
+      </div>
+
+      <!-- Track Order Button -->
+      <div style="text-align: center;">
+        <a href="{{trackingUrl}}" class="cta-button">Track Your Order</a>
+      </div>
+
+      <p class="message" style="margin-top: 30px;">
+        If you have any questions about your order, feel free to reach out to our support team. 
+        We're here to help!
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>
+        Need help? Contact us at 
+        <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>
+      </p>
+      <p>
+        <a href="{{clientUrl}}">Visit DoorDripp</a> • 
+        <a href="{{clientUrl}}/orders">My Orders</a> • 
+        <a href="{{clientUrl}}/support">Support</a>
+      </p>
+      <p style="margin-top: 20px; color: #a0aec0;">
+        © {{currentYear}} DoorDripp. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>

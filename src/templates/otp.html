@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email Verification - DoorDripp</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f4f6f9;
+    }
+    .container {
+      max-width: 600px;
+      margin: 40px auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 40px 30px;
+      text-align: center;
+      color: #ffffff;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .header p {
+      margin: 10px 0 0 0;
+      font-size: 14px;
+      opacity: 0.95;
+    }
+    .content {
+      padding: 40px 30px;
+    }
+    .greeting {
+      font-size: 18px;
+      color: #2d3748;
+      margin: 0 0 20px 0;
+      font-weight: 600;
+    }
+    .message {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #4a5568;
+      margin: 0 0 30px 0;
+    }
+    .otp-container {
+      background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+      border: 2px solid #667eea;
+      border-radius: 12px;
+      padding: 30px;
+      text-align: center;
+      margin: 30px 0;
+    }
+    .otp-label {
+      font-size: 13px;
+      color: #718096;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin: 0 0 15px 0;
+      font-weight: 600;
+    }
+    .otp-code {
+      font-size: 48px;
+      font-weight: 800;
+      color: #667eea;
+      letter-spacing: 8px;
+      font-family: 'Courier New', monospace;
+      margin: 0;
+      text-align: center;
+      user-select: all;
+    }
+    .expiry-notice {
+      background-color: #fff5f5;
+      border-left: 4px solid #fc8181;
+      padding: 15px 20px;
+      margin: 25px 0;
+      border-radius: 4px;
+    }
+    .expiry-notice p {
+      margin: 0;
+      font-size: 14px;
+      color: #742a2a;
+    }
+    .expiry-notice strong {
+      color: #c53030;
+    }
+    .security-notice {
+      background-color: #f7fafc;
+      border: 1px solid #e2e8f0;
+      padding: 20px;
+      border-radius: 8px;
+      margin: 25px 0;
+    }
+    .security-notice h3 {
+      margin: 0 0 10px 0;
+      font-size: 14px;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .security-notice p {
+      margin: 0;
+      font-size: 13px;
+      color: #718096;
+      line-height: 1.5;
+    }
+    .footer {
+      background-color: #f7fafc;
+      padding: 30px;
+      text-align: center;
+      border-top: 1px solid #e2e8f0;
+    }
+    .footer p {
+      margin: 0 0 10px 0;
+      font-size: 13px;
+      color: #718096;
+    }
+    .footer a {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .footer a:hover {
+      text-decoration: underline;
+    }
+    .logo {
+      font-size: 32px;
+      font-weight: 900;
+      letter-spacing: -1px;
+      margin: 0;
+    }
+    @media only screen and (max-width: 600px) {
+      .container {
+        margin: 20px;
+      }
+      .header, .content, .footer {
+        padding: 25px 20px;
+      }
+      .otp-code {
+        font-size: 36px;
+        letter-spacing: 6px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1 class="logo">DOORDRIPP</h1>
+      <p>Your Trusted Shopping Partner</p>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <p class="greeting">Hello!</p>
+      
+      <p class="message">
+        Thank you for choosing DoorDripp! To {{purpose}}, please use the verification code below:
+      </p>
+
+      <!-- OTP Display -->
+      <div class="otp-container">
+        <p class="otp-label">Verification Code</p>
+        <p class="otp-code">{{otp}}</p>
+      </div>
+
+      <!-- Expiry Notice -->
+      <div class="expiry-notice">
+        <p>
+          ⏰ This code will expire in <strong>{{expiryMinutes}} minutes</strong>. 
+          Please use it promptly to complete your verification.
+        </p>
+      </div>
+
+      <!-- Security Notice -->
+      <div class="security-notice">
+        <h3>🔒 Security Notice</h3>
+        <p>
+          If you didn't request this verification code, please ignore this email. 
+          Your account is secure, and no action is needed. Never share this code with anyone, 
+          including DoorDripp staff.
+        </p>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>
+        Need help? Contact us at 
+        <a href="mailto:{{supportEmail}}">{{supportEmail}}</a>
+      </p>
+      <p>
+        <a href="{{clientUrl}}">Visit DoorDripp</a> • 
+        <a href="{{clientUrl}}/privacy">Privacy Policy</a> • 
+        <a href="{{clientUrl}}/terms">Terms of Service</a>
+      </p>
+      <p style="margin-top: 20px; color: #a0aec0;">
+        © {{currentYear}} DoorDripp. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
