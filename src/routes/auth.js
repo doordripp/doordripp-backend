@@ -25,15 +25,19 @@ const registerOtpLimiter = rateLimit({
   handler: (req, res) => res.status(429).json({ error: 'Too many OTP requests. Please try again in an hour.' }),
 });
 
+// NOTE: Alias the legacy /register endpoint to the new initiate flow
+// to ensure no user is created before email verification.
 router.post(
   '/register',
-  body('name').isLength({ min: 3 }),
-  body('email').isEmail(),
-  body('password').isLength({ min: 6 }),
+  registerOtpLimiter,
+  body('name').isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('termsAccepted').isBoolean().custom((v) => v === true).withMessage('Terms must be accepted'),
   async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
-    return authController.register(req, res, next);
+    return authController.registerInitiate(req, res, next);
   }
 );
 
@@ -93,6 +97,18 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
     return authController.verifyEmailRegistration(req, res, next);
+  }
+);
+
+// Resend OTP for pending registration
+router.post(
+  '/register-resend',
+  registerOtpLimiter,
+  body('email').isEmail().withMessage('Valid email is required'),
+  async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    return authController.resendRegisterOtp(req, res, next);
   }
 );
 

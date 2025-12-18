@@ -120,16 +120,30 @@ exports.verifyEmailRegistration = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid OTP' });
     }
 
-    // Create the user using pre-hashed password and mark email verified
-    const user = new User({
-      name: pending.name,
-      email: sanitizedEmail,
-      password: pending.passwordHash,
-      emailVerified: true,
-      termsAccepted: true,
-    });
-    user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
-    await user.save();
+    // If an unverified user exists (from legacy flow), update it; otherwise create a new user
+    let user = await User.findOne({ email: sanitizedEmail });
+    if (user) {
+      if (user.emailVerified) {
+        // Race-condition safety check (should have been caught above)
+        await PendingUser.deleteOne({ email: sanitizedEmail });
+        return res.status(400).json({ error: 'Email already registered. Please login instead.' });
+      }
+      user.password = pending.passwordHash;
+      user.emailVerified = true;
+      user.termsAccepted = true;
+      user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
+      await user.save();
+    } else {
+      user = new User({
+        name: pending.name,
+        email: sanitizedEmail,
+        password: pending.passwordHash,
+        emailVerified: true,
+        termsAccepted: true,
+      });
+      user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
+      await user.save();
+    }
 
     // Clean up pending record
     await PendingUser.deleteOne({ email: sanitizedEmail });
@@ -141,6 +155,42 @@ exports.verifyEmailRegistration = async (req, res, next) => {
       message: 'Registration complete and email verified',
       user: { id: user._id, email: user.email, name: user.name },
       token
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Resend OTP for pending registration
+exports.resendRegisterOtp = async (req, res, next) => {
+  try {
+    const { email } = req.body || {};
+    if (!email || !otpUtil.sanitizeEmail(email)) {
+      return res.status(400).json({ error: 'Valid email address is required' });
+    }
+    const sanitizedEmail = otpUtil.sanitizeEmail(email);
+
+    const pending = await PendingUser.findOne({ email: sanitizedEmail });
+    if (!pending) {
+      return res.status(400).json({ error: 'No pending registration found for this email' });
+    }
+
+    // Generate new OTP and update
+    const otp = otpUtil.generateOTP();
+    const otpHash = await otpUtil.hashOTP(otp);
+    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES || '10', 10);
+    const expiresAt = otpUtil.getExpirationTime(isNaN(expiryMinutes) ? 10 : expiryMinutes);
+
+    pending.otpHash = otpHash;
+    pending.expiresAt = expiresAt;
+    await pending.save();
+
+    await mailService.sendOtpEmail(sanitizedEmail, otp, 'signup');
+
+    return res.json({
+      message: 'OTP resent successfully. Please check your email.',
+      email: otpUtil.maskEmail(sanitizedEmail),
+      expiresIn: expiryMinutes * 60
     });
   } catch (err) {
     next(err);
