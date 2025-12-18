@@ -75,7 +75,28 @@ router.post('/logout', authController.logout);
 
 // Refresh auth token (re-issue token if current token is valid)
 router.post('/refresh', authController.refresh);
+// Profile endpoint - returns current user data
+router.get('/profile', authController.me);
 
+// Forgot password - request password reset
+router.post('/forgot-password', async (req, res, next) => {
+  try {
+    return authController.forgotPassword(req, res, next);
+  } catch (e) {
+    console.error('forgot-password error', e);
+    return res.status(500).json({ error: 'Failed to process password reset request' });
+  }
+});
+
+// Reset password with token
+router.post('/reset-password', async (req, res, next) => {
+  try {
+    return authController.resetPassword(req, res, next);
+  } catch (e) {
+    console.error('reset-password error', e);
+    return res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
 // Email verification endpoints
 router.post(
   '/verify-email-otp',
