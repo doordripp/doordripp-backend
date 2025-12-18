@@ -2,8 +2,10 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const router = express.Router();
-// Use MongoDB-based auth controller
+// Primary auth controller (MongoDB-backed)
 const authController = require('../controllers/mongoAuthController');
+// Password reset and legacy handlers
+const passwordController = require('../controllers/auth.controller');
 const passport = require('../config/passport');
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://:5173'
@@ -81,7 +83,7 @@ router.get('/profile', authController.me);
 // Forgot password - request password reset
 router.post('/forgot-password', async (req, res, next) => {
   try {
-    return authController.forgotPassword(req, res, next);
+    return passwordController.forgotPassword(req, res, next);
   } catch (e) {
     console.error('forgot-password error', e);
     return res.status(500).json({ error: 'Failed to process password reset request' });
@@ -91,7 +93,7 @@ router.post('/forgot-password', async (req, res, next) => {
 // Reset password with token
 router.post('/reset-password', async (req, res, next) => {
   try {
-    return authController.resetPassword(req, res, next);
+    return passwordController.resetPassword(req, res, next);
   } catch (e) {
     console.error('reset-password error', e);
     return res.status(500).json({ error: 'Failed to reset password' });
