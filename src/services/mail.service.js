@@ -296,7 +296,7 @@ class MailService {
       expiryMinutes: '5',
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://doordripp.com'
+      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
     });
 
 
@@ -338,7 +338,7 @@ class MailService {
       trackingUrl: `${process.env.CLIENT_URL || process.env.FRONTEND_URL}/orders/${orderData.orderId}`,
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com'
+      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
     });
 
     return this.sendEmail({
@@ -366,7 +366,7 @@ class MailService {
     const template = await this.loadTemplate('reset-password.html');
     
     // Build reset URL - use FRONTEND_URL first, fallback to CLIENT_URL, fallback to default
-    const baseUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://doordripp.com';
+    const baseUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173';
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
     
     const html = this.replacePlaceholders(template, {
@@ -392,7 +392,7 @@ class MailService {
    */
   async sendPasswordResetSuccessEmail(email, userName = 'User') {
     const safeUserName = userName || 'User';
-    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com';
+    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
         <h2 style="color: #111;">Your password was reset</h2>
@@ -445,7 +445,7 @@ class MailService {
       trackingUrl: shippingData.trackingUrl || `${process.env.CLIENT_URL}/orders/${shippingData.orderId}`,
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com'
+      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
     });
 
     return this.sendEmail({
