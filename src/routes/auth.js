@@ -43,6 +43,9 @@ router.get('/me', authController.me);
 // Logout
 router.post('/logout', authController.logout);
 
+// Refresh auth token (re-issue token if current token is valid)
+router.post('/refresh', authController.refresh);
+
 // Email verification endpoints
 router.post(
   '/verify-email-otp',

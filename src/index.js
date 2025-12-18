@@ -6,8 +6,8 @@ const cookieParser = require('cookie-parser');
 // Passport (OAuth strategies)
 const passport = require('./config/passport');
 
-// Auth routes (full set including forgot/reset password)
-const authRoutes = require('./routes/auth.routes');
+// Auth routes (register/login/me + OTP/email flows)
+const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
 const orderRoutes = require('./routes/orders');
 const frontendProductRoutes = require('./routes/frontendProducts');
@@ -20,20 +20,32 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middlewares
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://doordripp.com';
+// Support single FRONTEND_URL and/or comma-separated FRONTEND_URLS
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const FRONTEND_URLS = (process.env.FRONTEND_URLS || '')
+  .split(',')
+  .map(u => u.trim())
+  .filter(Boolean);
+
+const defaultOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'http://localhost:5175',
+  'http://localhost:5176',
+  'http://localhost:5177',
+  'https://doordripp.com',
+  'https://www.doordripp.com',
+];
+
+const allowedOrigins = Array.from(new Set([...defaultOrigins, FRONTEND_URL, ...FRONTEND_URLS]));
+
 const corsOptions = {
-  origin: (origin, callback) => {
-    const allowedOrigins = [
-      'https://doordripp.com',
-      'https://www.doordripp.com',
-      
-    ];
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like curl, mobile apps)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (process.env.CORS_ALLOW_ALL === 'true') return callback(null, true);
+    return callback(new Error('CORS not allowed for origin: ' + origin), false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],

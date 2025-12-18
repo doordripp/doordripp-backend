@@ -16,9 +16,33 @@ exports.createTokenForUser = async (user) => {
     sameSite: 'none', // Required for cross-origin cookie transmission
     secure: true, // HTTPS only in production
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    domain: process.env.NODE_ENV === 'production' ? '.doordripp.com' : undefined, // Allows both doordripp.com and www.doordripp.com
+    // Use explicit cookie domain if provided; otherwise let browser set host-only cookie
+    domain: process.env.COOKIE_DOMAIN || undefined,
   };
   return { token, cookieOptions };
+};
+
+// Refresh JWT by issuing a new token if the existing one is valid
+exports.refresh = async (req, res) => {
+  try {
+    let token = null;
+    if (req.cookies && req.cookies.token) token = req.cookies.token;
+    if (!token && req.headers.authorization) {
+      const parts = req.headers.authorization.split(' ');
+      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
+    }
+    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+
+    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const user = await User.findById(payload.id);
+    if (!user) return res.status(401).json({ error: 'Invalid token user' });
+
+    const { token: newToken, cookieOptions } = await exports.createTokenForUser(user);
+    res.cookie('token', newToken, cookieOptions);
+    return res.json({ ok: true, token: newToken });
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
 };
 
 exports.register = async (req, res, next) => {
