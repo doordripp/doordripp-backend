@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const fs = require('fs').promises;
 const path = require('path');
+let SibApiV3Sdk = null; // Lazy-load Brevo SDK
 
 /**
  * Centralized Email Service using Nodemailer + Brevo (Sendinblue) SMTP
@@ -81,7 +82,23 @@ class MailService {
       this.initialized = true;
     } catch (error) {
       console.error('❌ Failed to initialize email service:', error.message);
-      console.warn('📧 Emails will be logged to console instead.');
+      // Try initializing Brevo API as fallback if API key is provided
+      if (process.env.BREVO_API_KEY) {
+        try {
+          if (!SibApiV3Sdk) {
+            SibApiV3Sdk = require('sib-api-v3-sdk');
+          }
+          SibApiV3Sdk.ApiClient.instance.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
+          this.brevoApi = new SibApiV3Sdk.TransactionalEmailsApi();
+          console.log('✅ Brevo API initialized (fallback mode)');
+        } catch (apiErr) {
+          console.error('❌ Failed to initialize Brevo API fallback:', apiErr.message);
+          console.warn('📧 Emails will be logged to console instead.');
+          this.brevoApi = null;
+        }
+      } else {
+        console.warn('📧 Emails will be logged to console instead.');
+      }
       this.transporter = null;
       this.initialized = true; // Still mark as initialized to prevent retry loops
     }
@@ -185,8 +202,27 @@ class MailService {
       text: text || this.stripHtml(html) // Fallback to stripped HTML if no text provided
     };
 
-    // If SMTP not configured, log to console (development mode)
+    // If SMTP not configured or failed, try Brevo API fallback
     if (!this.transporter) {
+      if (this.brevoApi) {
+        try {
+          const senderEmail = process.env.MAIL_FROM || process.env.SMTP_USER;
+          const senderName = process.env.MAIL_FROM_NAME || 'DoorDripp';
+          const sendResult = await this.brevoApi.sendTransacEmail({
+            sender: { email: senderEmail, name: senderName },
+            to: [{ email: sanitizedTo }],
+            subject: sanitizedSubject,
+            htmlContent: html,
+            textContent: text || this.stripHtml(html)
+          });
+          console.log(`✅ Email sent via Brevo API to ${to}`);
+          return { success: true, messageId: sendResult?.messageId || 'brevo-api', mode: 'brevo-api' };
+        } catch (apiErr) {
+          console.error(`❌ Brevo API send failed for ${to}:`, apiErr.message);
+          // Fallthrough to console logging
+        }
+      }
+      // Final fallback: console logging
       console.log('\n📧 ===== EMAIL (Console Mode) =====');
       console.log(`To: ${to}`);
       console.log(`Subject: ${subject}`);
