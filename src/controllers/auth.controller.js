@@ -334,7 +334,15 @@ exports.forgotPassword = async (req, res, next) => {
     
     user.resetPasswordToken = tokenHash;
     user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
-    await user.save();
+    
+    try {
+      await user.save();
+    } catch (saveError) {
+      console.error('Failed to save password reset token to user:', saveError);
+      return res.status(500).json({ 
+        error: 'Failed to process password reset request' 
+      });
+    }
 
     // Send password reset email
     try {
@@ -347,7 +355,7 @@ exports.forgotPassword = async (req, res, next) => {
       console.log(`✅ Password reset email sent to ${otpUtil.maskEmail(sanitizedEmail)}`);
     } catch (emailError) {
       console.error('Failed to send reset email:', emailError);
-      // Don't reveal email sending failure to user
+      // Don't reveal email sending failure to user - they should still see success
     }
 
     res.json({ message: successMessage });

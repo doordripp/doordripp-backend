@@ -339,7 +339,9 @@ class MailService {
   async sendPasswordResetEmail(email, resetToken, userName = 'User') {
     const template = await this.loadTemplate('reset-password.html');
     
-    const resetUrl = `${process.env.CLIENT_URL || process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+    // Build reset URL - use FRONTEND_URL first, fallback to CLIENT_URL, fallback to default
+    const baseUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://doordripp.com';
+    const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
     
     const html = this.replacePlaceholders(template, {
       userName,
@@ -347,7 +349,7 @@ class MailService {
       expiryHours: '1',
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com'
+      clientUrl: baseUrl
     });
 
     return this.sendEmail({
