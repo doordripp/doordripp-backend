@@ -362,8 +362,10 @@ exports.forgotPassword = async (req, res, next) => {
 
   } catch (error) {
     console.error('Forgot password error:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({ 
-      error: 'Failed to process password reset request' 
+      error: 'Failed to process password reset request',
+      message: error.message
     });
   }
 };

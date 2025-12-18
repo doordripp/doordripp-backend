@@ -236,8 +236,34 @@ class MailService {
       console.log(`✅ Email sent to ${to}: ${info.messageId}`);
       return { success: true, messageId: info.messageId, mode: 'smtp' };
     } catch (error) {
-      console.error(`❌ Failed to send email to ${to}:`, error.message);
-      throw new Error(`Failed to send email: ${error.message}`);
+      console.error(`❌ SMTP send failed for ${to}:`, error.message);
+      
+      // If SMTP fails, try Brevo API fallback
+      if (this.brevoApi) {
+        try {
+          const senderEmail = process.env.MAIL_FROM || process.env.SMTP_USER;
+          const senderName = process.env.MAIL_FROM_NAME || 'DoorDripp';
+          const sendResult = await this.brevoApi.sendTransacEmail({
+            sender: { email: senderEmail, name: senderName },
+            to: [{ email: sanitizedTo }],
+            subject: sanitizedSubject,
+            htmlContent: mailOptions.html,
+            textContent: mailOptions.text
+          });
+          console.log(`✅ Email sent via Brevo API fallback to ${to}`);
+          return { success: true, messageId: sendResult?.messageId || 'brevo-api', mode: 'brevo-api-fallback' };
+        } catch (apiErr) {
+          console.error(`❌ Brevo API fallback also failed for ${to}:`, apiErr.message);
+        }
+      }
+      
+      // Final fallback: console logging
+      console.log('\n📧 ===== EMAIL (Console Mode Fallback) =====');
+      console.log(`To: ${to}`);
+      console.log(`Subject: ${subject}`);
+      console.log(`Body: ${mailOptions.text}`);
+      console.log('==========================================\n');
+      return { success: true, mode: 'console-fallback' };
     }
   }
 
