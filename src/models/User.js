@@ -30,8 +30,10 @@ UserSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password)
 }
 
+// Allow pre-hashed password to be set when skipPasswordHash flag is true (used for verified OTP flow)
 UserSchema.pre('save', async function () {
   if (!this.isModified('password')) return
+  if (this.skipPasswordHash) return
   const salt = await bcrypt.genSalt(10)
   this.password = await bcrypt.hash(this.password, salt)
 })

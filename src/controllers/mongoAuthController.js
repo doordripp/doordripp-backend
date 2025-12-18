@@ -3,6 +3,9 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Otp = require('../models/Otp');
 const { sendEmailOTP } = require('../utils/email');
+const PendingUser = require('../models/PendingUser');
+const otpUtil = require('../utils/otp.util');
+const mailService = require('../services/mail.service');
 
 const generateToken = (user) => {
   const payload = { id: user._id, roles: user.roles || [] };
@@ -20,6 +23,128 @@ exports.createTokenForUser = async (user) => {
     domain: process.env.COOKIE_DOMAIN || undefined,
   };
   return { token, cookieOptions };
+};
+
+// Step 1: Initiate registration with email OTP, without creating a user record yet
+exports.registerInitiate = async (req, res, next) => {
+  try {
+    const { name, email, password, termsAccepted } = req.body || {};
+
+    if (!termsAccepted) {
+      return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
+    }
+
+    if (!name || name.trim().length < 3) {
+      return res.status(400).json({ error: 'Name must be at least 3 characters' });
+    }
+
+    if (!email || !otpUtil.sanitizeEmail(email)) {
+      return res.status(400).json({ error: 'Valid email address is required' });
+    }
+
+    if (!password || password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    }
+
+    const sanitizedEmail = otpUtil.sanitizeEmail(email);
+
+    // Block duplicate registrations if a verified user already exists
+    const existingUser = await User.findOne({ email: sanitizedEmail, emailVerified: true });
+    if (existingUser) {
+      return res.status(400).json({ error: 'Email already registered. Please login instead.' });
+    }
+
+    // Hash password now; will reuse after OTP verification without rehashing
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Generate OTP and hashes
+    const otp = otpUtil.generateOTP();
+    const otpHash = await otpUtil.hashOTP(otp);
+    const expiryMinutes = parseInt(process.env.OTP_EXPIRY_MINUTES || '10', 10);
+    const expiresAt = otpUtil.getExpirationTime(isNaN(expiryMinutes) ? 10 : expiryMinutes);
+
+    // Upsert pending record
+    await PendingUser.findOneAndUpdate(
+      { email: sanitizedEmail },
+      { email: sanitizedEmail, name: name.trim(), passwordHash, otpHash, expiresAt, attempts: 0 },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    // Send OTP via email
+    await mailService.sendOtpEmail(sanitizedEmail, otp, 'signup');
+
+    return res.json({
+      message: 'OTP sent successfully. Please check your email.',
+      email: otpUtil.maskEmail(sanitizedEmail),
+      expiresIn: expiryMinutes * 60
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Step 2: Verify OTP and create the user, marking email as verified
+exports.verifyEmailRegistration = async (req, res, next) => {
+  try {
+    const { email, otp } = req.body || {};
+
+    if (!email || !otpUtil.sanitizeEmail(email)) {
+      return res.status(400).json({ error: 'Valid email address is required' });
+    }
+
+    if (!otpUtil.isValidOTPFormat(otp)) {
+      return res.status(400).json({ error: 'OTP must be a 6-digit code' });
+    }
+
+    const sanitizedEmail = otpUtil.sanitizeEmail(email);
+
+    const verifiedUser = await User.findOne({ email: sanitizedEmail, emailVerified: true });
+    if (verifiedUser) {
+      return res.status(400).json({ error: 'Email already registered. Please login instead.' });
+    }
+
+    const pending = await PendingUser.findOne({ email: sanitizedEmail });
+    if (!pending) {
+      return res.status(400).json({ error: 'No pending registration found for this email' });
+    }
+
+    if (otpUtil.isExpired(pending.expiresAt)) {
+      await PendingUser.deleteOne({ email: sanitizedEmail });
+      return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
+    }
+
+    const isMatch = await otpUtil.verifyOTP(otp, pending.otpHash);
+    if (!isMatch) {
+      // Increment attempts and optionally cap in future
+      await PendingUser.findOneAndUpdate({ email: sanitizedEmail }, { $inc: { attempts: 1 } });
+      return res.status(400).json({ error: 'Invalid OTP' });
+    }
+
+    // Create the user using pre-hashed password and mark email verified
+    const user = new User({
+      name: pending.name,
+      email: sanitizedEmail,
+      password: pending.passwordHash,
+      emailVerified: true,
+      termsAccepted: true,
+    });
+    user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
+    await user.save();
+
+    // Clean up pending record
+    await PendingUser.deleteOne({ email: sanitizedEmail });
+
+    const { token, cookieOptions } = await exports.createTokenForUser(user);
+    res.cookie('token', token, cookieOptions);
+
+    return res.json({
+      message: 'Registration complete and email verified',
+      user: { id: user._id, email: user.email, name: user.name },
+      token
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 // Refresh JWT by issuing a new token if the existing one is valid

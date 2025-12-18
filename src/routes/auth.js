@@ -1,5 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 // Use MongoDB-based auth controller
 const authController = require('../controllers/mongoAuthController');
@@ -14,6 +15,16 @@ const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
 const TWILIO_FROM = process.env.TWILIO_FROM
 
+// Rate limiter: max 3 OTP requests per email per hour for registration
+const registerOtpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.body?.email ? req.body.email.toLowerCase() : req.ip),
+  handler: (req, res) => res.status(429).json({ error: 'Too many OTP requests. Please try again in an hour.' }),
+});
+
 router.post(
   '/register',
   body('name').isLength({ min: 3 }),
@@ -23,6 +34,21 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
     return authController.register(req, res, next);
+  }
+);
+
+// Step 1: Initiate registration with email OTP (no user created yet)
+router.post(
+  '/register-initiate',
+  registerOtpLimiter,
+  body('name').isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('termsAccepted').isBoolean().custom((v) => v === true).withMessage('Terms must be accepted'),
+  async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    return authController.registerInitiate(req, res, next);
   }
 );
 
@@ -55,6 +81,18 @@ router.post(
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
     return authController.verifyEmailOTP(req, res, next);
+  }
+);
+
+// Step 2: Verify OTP and create user
+router.post(
+  '/verify-email',
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits').isNumeric(),
+  async (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+    return authController.verifyEmailRegistration(req, res, next);
   }
 );
 
