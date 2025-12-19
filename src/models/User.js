@@ -21,6 +21,8 @@ const UserSchema = new mongoose.Schema({
   termsAccepted: { type: Boolean, default: false },
   blocked: { type: Boolean, default: false },
   refreshToken: { type: String, default: null },
+  // OAuth fields
+  googleId: { type: String, unique: true, sparse: true },
   // Password reset fields
   resetPasswordToken: { type: String, default: null },
   resetPasswordExpires: { type: Date, default: null }
