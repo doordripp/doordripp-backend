@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const RazorpayUtil = require('../utils/razorpay');
+const mailService = require('../services/mail.service');
 
 exports.create = async (req, res, next) => {
   try {
@@ -13,7 +14,9 @@ exports.create = async (req, res, next) => {
     for (const it of items) {
       const product = await Product.findById(it.product);
       if (!product) return res.status(400).json({ error: 'Invalid product ' + it.product });
-      if (product.stock < it.quantity) return res.status(400).json({ error: 'Out of stock for ' + product.name });
+      // Check available stock (stock - reserved)
+      const availableStock = product.stock - (product.reserved || 0);
+      if (availableStock < it.quantity) return res.status(400).json({ error: 'Out of stock for ' + product.name });
       const price = product.price;
       total += price * it.quantity;
       orderItems.push({ product: product._id, name: product.name, quantity: it.quantity, price });
@@ -27,16 +30,113 @@ exports.create = async (req, res, next) => {
       items: orderItems,
       total,
       status: 'pending',
-      payment: { razorpayOrderId: razorOrder.id },
+      payment: { razorpayOrderId: razorOrder.id, status: 'pending' },
       shippingAddress
     });
 
-    // reduce stock
+    // RESERVE stock (mark as reserved but don't reduce available stock yet)
     for (const it of orderItems) {
-      await Product.findByIdAndUpdate(it.product, { $inc: { stock: -it.quantity } });
+      await Product.findByIdAndUpdate(it.product, { $inc: { reserved: it.quantity } });
     }
 
     res.status(201).json({ order, razorOrder });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Verify Razorpay payment signature and finalize order
+ * Called after successful payment
+ */
+exports.verifyPayment = async (req, res, next) => {
+  try {
+    const { orderId, razorpayPaymentId, razorpaySignature } = req.body;
+    
+    if (!orderId || !razorpayPaymentId || !razorpaySignature) {
+      console.error('❌ Missing payment details:', { orderId, razorpayPaymentId, razorpaySignature });
+      return res.status(400).json({ error: 'Missing payment details' });
+    }
+
+    const order = await Order.findById(orderId).populate('customer');
+    if (!order) {
+      console.error('❌ Order not found:', orderId);
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Verify user owns this order
+    if (String(order.customer._id) !== String(req.user.id)) {
+      console.error('❌ Unauthorized access to order:', orderId);
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Verify Razorpay signature
+    console.log('🔍 Verifying payment signature...');
+    
+    // In test mode, allow bypass if RAZORPAY_TEST_MODE_SKIP_VERIFICATION is set
+    const isTestMode = process.env.RAZORPAY_KEY_ID?.includes('rzp_test');
+    const skipVerification = isTestMode && process.env.RAZORPAY_TEST_MODE_SKIP_VERIFICATION === 'true';
+    
+    let isValid = false;
+    if (skipVerification) {
+      console.warn('⚠️ SKIPPING signature verification (test mode enabled)');
+      isValid = true;
+    } else {
+      isValid = RazorpayUtil.verifyPaymentSignature(
+        order.payment.razorpayOrderId,
+        razorpayPaymentId,
+        razorpaySignature
+      );
+    }
+
+    if (!isValid) {
+      console.error('❌ Invalid payment signature for order:', orderId);
+      // Release reserved stock on failed verification
+      for (const it of order.items) {
+        await Product.findByIdAndUpdate(it.product, { $inc: { reserved: -it.quantity } });
+      }
+      return res.status(400).json({ error: 'Invalid payment signature' });
+    }
+    
+    if (skipVerification) {
+      console.log('✅ Payment verification SKIPPED (test mode)');
+    } else {
+      console.log('✅ Payment signature verified');
+    }
+
+    // Update order payment status
+    order.payment.transactionId = razorpayPaymentId;
+    order.payment.status = 'success';
+    order.status = 'confirmed';
+    await order.save();
+    console.log('✅ Payment verified successfully for order:', orderId);
+
+    // DECREMENT actual stock (payment successful)
+    for (const it of order.items) {
+      await Product.findByIdAndUpdate(it.product, { 
+        $inc: { stock: -it.quantity, reserved: -it.quantity } 
+      });
+    }
+    console.log('✅ Stock updated for order:', orderId);
+
+    // Send confirmation email (non-blocking)
+    if (mailService && mailService.sendOrderConfirmation) {
+      mailService.sendOrderConfirmation({
+        customerName: order.customer.name,
+        customerEmail: order.customer.email,
+        orderId: order._id.toString(),
+        orderDate: order.createdAt,
+        items: order.items.map(it => ({
+          name: it.name,
+          quantity: it.quantity,
+          price: it.price
+        })),
+        totalAmount: order.total,
+        shippingAddress: order.shippingAddress
+      }).catch(err => console.error('Email send failed:', err));
+    }
+
+    res.json({ message: 'Payment verified successfully', order });
   } catch (err) {
     next(err);
   }
@@ -49,6 +149,114 @@ exports.get = async (req, res, next) => {
     if (String(order.customer._id) !== String(req.user.id) && !req.user.roles.includes('admin'))
       return res.status(403).json({ error: 'Forbidden' });
     res.json(order);
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * List all orders (admin only)
+ */
+exports.list = async (req, res, next) => {
+  try {
+    if (!req.user.roles || !req.user.roles.includes('admin')) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { status, sort = '-createdAt', limit = 20, page = 1 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    let query = {};
+    if (status) query.status = status;
+
+    const orders = await Order.find(query)
+      .populate('customer', 'name email phone')
+      .sort(sort)
+      .skip(skip)
+      .limit(parseInt(limit));
+
+    const total = await Order.countDocuments(query);
+
+    res.json({
+      orders,
+      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Update order status (admin only)
+ */
+exports.updateStatus = async (req, res, next) => {
+  try {
+    if (!req.user.roles || !req.user.roles.includes('admin')) {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const { status, trackingNumber } = req.body;
+    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+
+    if (!status || !validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Valid statuses: ${validStatuses.join(', ')}` });
+    }
+
+    const order = await Order.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status,
+        ...(trackingNumber && { trackingNumber })
+      },
+      { new: true }
+    ).populate('customer');
+
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    res.json({ message: 'Order status updated', order });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Cancel order and release stock (admin or customer)
+ */
+exports.cancel = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('customer');
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    // Check authorization
+    const isOwner = String(order.customer._id) === String(req.user.id);
+    const isAdmin = req.user.roles && req.user.roles.includes('admin');
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    // Only allow cancellation of pending/confirmed orders
+    if (['shipped', 'delivered', 'cancelled'].includes(order.status)) {
+      return res.status(400).json({ error: `Cannot cancel order with status: ${order.status}` });
+    }
+
+    // Release reserved stock
+    for (const it of order.items) {
+      if (order.status === 'pending') {
+        // For pending: release reserved only
+        await Product.findByIdAndUpdate(it.product, { $inc: { reserved: -it.quantity } });
+      } else if (order.status === 'confirmed') {
+        // For confirmed: restore stock and release reserved
+        await Product.findByIdAndUpdate(it.product, {
+          $inc: { stock: it.quantity, reserved: -it.quantity }
+        });
+      }
+    }
+
+    order.status = 'cancelled';
+    await order.save();
+
+    res.json({ message: 'Order cancelled successfully', order });
   } catch (err) {
     next(err);
   }

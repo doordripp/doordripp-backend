@@ -10,8 +10,6 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true },
   avatar: { type: String, default: null },
   roles: { type: [String], default: [] },
-  gender: { type: String, enum: ['male', 'female', 'other'], default: null },
-  dob: { type: Date, default: null },
   address: {
     street: { type: String },
     city: { type: String },

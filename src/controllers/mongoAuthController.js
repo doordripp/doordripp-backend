@@ -28,7 +28,7 @@ exports.createTokenForUser = async (user) => {
 // Step 1: Initiate registration with email OTP, without creating a user record yet
 exports.registerInitiate = async (req, res, next) => {
   try {
-    const { name, email, password, termsAccepted } = req.body || {};
+    const { name, email, password, termsAccepted, phone } = req.body || {};
 
     if (!termsAccepted) {
       return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
@@ -48,6 +48,24 @@ exports.registerInitiate = async (req, res, next) => {
 
     const sanitizedEmail = otpUtil.sanitizeEmail(email);
 
+    // Optional phone validation & uniqueness check
+    let normalizedPhone = null;
+    if (phone && String(phone).trim()) {
+      const raw = String(phone).trim();
+      // Basic normalization: remove spaces and hyphens; keep digits only
+      const digits = raw.replace(/\D/g, '');
+      // Accept common 10-13 digit formats; you can tighten this to your locale
+      if (digits.length < 10 || digits.length > 13) {
+        return res.status(400).json({ error: 'Please provide a valid phone number' });
+      }
+      normalizedPhone = digits;
+      // Prevent duplicate phone if already used by a verified user
+      const existingPhoneUser = await User.findOne({ phone: normalizedPhone });
+      if (existingPhoneUser && existingPhoneUser.emailVerified) {
+        return res.status(400).json({ error: 'Phone number already registered' });
+      }
+    }
+
     // Block duplicate registrations if a verified user already exists
     const existingUser = await User.findOne({ email: sanitizedEmail, emailVerified: true });
     if (existingUser) {
@@ -66,7 +84,15 @@ exports.registerInitiate = async (req, res, next) => {
     // Upsert pending record
     await PendingUser.findOneAndUpdate(
       { email: sanitizedEmail },
-      { email: sanitizedEmail, name: name.trim(), passwordHash, otpHash, expiresAt, attempts: 0 },
+      {
+        email: sanitizedEmail,
+        name: name.trim(),
+        passwordHash,
+        otpHash,
+        expiresAt,
+        attempts: 0,
+        phone: normalizedPhone || undefined,
+      },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
@@ -132,6 +158,16 @@ exports.verifyEmailRegistration = async (req, res, next) => {
       user.emailVerified = true;
       user.termsAccepted = true;
       user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
+      // If pending had phone/gender/dob, set them where appropriate
+      if (pending.phone) {
+        // Ensure phone is not taken by another user
+        const other = await User.findOne({ phone: pending.phone, _id: { $ne: user._id } });
+        if (other) {
+          return res.status(400).json({ error: 'Phone number already in use by another account' });
+        }
+        user.phone = pending.phone;
+        user.phoneVerified = false;
+      }
       await user.save();
     } else {
       user = new User({
@@ -140,6 +176,8 @@ exports.verifyEmailRegistration = async (req, res, next) => {
         password: pending.passwordHash,
         emailVerified: true,
         termsAccepted: true,
+        phone: pending.phone || undefined,
+        phoneVerified: false,
       });
       user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
       await user.save();
@@ -429,9 +467,7 @@ exports.me = async (req, res, next) => {
       roles: user.roles,
       avatar: user.avatar,
       phone: user.phone || null,
-      address: user.address || null,
-      gender: user.gender || null,
-      dob: user.dob || null
+      address: user.address || null
     });
   } catch (e) {
     return res.status(401).json({ error: 'Invalid token' });

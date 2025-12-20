@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 const router = express.Router();
 // Primary auth controller (MongoDB-backed)
 const authController = require('../controllers/mongoAuthController');
@@ -23,7 +24,7 @@ const registerOtpLimiter = rateLimit({
   max: 3,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => (req.body?.email ? req.body.email.toLowerCase() : req.ip),
+  keyGenerator: (req) => (req.body?.email ? req.body.email.toLowerCase() : ipKeyGenerator(req)),
   handler: (req, res) => res.status(429).json({ error: 'Too many OTP requests. Please try again in an hour.' }),
 });
 
@@ -51,6 +52,7 @@ router.post(
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
   body('termsAccepted').isBoolean().custom((v) => v === true).withMessage('Terms must be accepted'),
+  body('phone').optional().isString().withMessage('Phone must be a string'),
   async (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });

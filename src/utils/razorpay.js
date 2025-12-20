@@ -17,9 +17,36 @@ const createOrder = async ({ amount, currency = 'INR', receipt = undefined }) =>
   return instance.orders.create(options);
 };
 
+const crypto = require('crypto');
+
 const verifySignature = (payload, signature, secret) => {
-  // Implement signature verification for webhooks if needed
-  return true; // placeholder — replace with real verification logic
+  // Verify Razorpay signature for webhook/payment validation
+  const generatedSignature = crypto
+    .createHmac('sha256', secret)
+    .update(JSON.stringify(payload))
+    .digest('hex');
+  
+  return generatedSignature === signature;
 };
 
-module.exports = { instance, createOrder, verifySignature };
+const verifyPaymentSignature = (razorpayOrderId, razorpayPaymentId, razorpaySignature) => {
+  // Verify payment signature using order and payment IDs
+  const body = `${razorpayOrderId}|${razorpayPaymentId}`;
+  const expectedSignature = crypto
+    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || '')
+    .update(body)
+    .digest('hex');
+  
+  const isValid = expectedSignature === razorpaySignature;
+  
+  // In test mode, log for debugging
+  if (!isValid && process.env.RAZORPAY_KEY_ID?.includes('rzp_test')) {
+    console.warn('⚠️ Signature mismatch (test mode):');
+    console.warn('  Expected:', expectedSignature);
+    console.warn('  Received:', razorpaySignature);
+  }
+  
+  return isValid;
+};
+
+module.exports = { instance, createOrder, verifySignature, verifyPaymentSignature };

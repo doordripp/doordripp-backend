@@ -29,20 +29,6 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
             googleId: profile.id
           }
 
-          // Extract gender if available (Google may provide it)
-          if (profile.gender) {
-            googleData.gender = profile.gender.toLowerCase()
-          }
-
-          // Extract birthday/DOB if available (requires birthday scope)
-          if (profile._json && profile._json.birthday) {
-            try {
-              googleData.dob = new Date(profile._json.birthday)
-            } catch (e) {
-              console.warn('Could not parse Google birthday:', e.message)
-            }
-          }
-
           // Extract profile photo
           let avatarUrl = null
           if (profile.photos && profile.photos.length > 0) {
@@ -103,18 +89,6 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
             // Update name if not set
             if (!user.name || user.name === email.split('@')[0]) {
               user.name = googleData.name
-              updated = true
-            }
-            
-            // Update gender if available and not set
-            if (googleData.gender && !user.gender) {
-              user.gender = googleData.gender
-              updated = true
-            }
-            
-            // Update DOB if available and not set
-            if (googleData.dob && !user.dob) {
-              user.dob = googleData.dob
               updated = true
             }
             

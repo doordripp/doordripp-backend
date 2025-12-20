@@ -7,6 +7,8 @@ const PendingUserSchema = new mongoose.Schema({
   otpHash: { type: String, required: true },
   expiresAt: { type: Date, required: true },
   attempts: { type: Number, default: 0 },
+  // Optional fields captured during signup
+  phone: { type: String },
 }, { timestamps: true });
 
 // TTL index to auto-clean expired pending users

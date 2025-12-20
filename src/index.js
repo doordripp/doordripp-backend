@@ -15,6 +15,7 @@ const cartRoutes = require('./routes/cart');
 const healthRoutes = require('./routes/health');
 const adminRoutes = require('./routes/admin');
 const imagekitRoutes = require('./routes/imagekit');
+const webhookRoutes = require('./routes/webhooks');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -81,6 +82,7 @@ app.use('/api/cart', cartRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', imagekitRoutes);
+app.use('/webhooks', webhookRoutes);
 
 // Health
 app.get('/', (req, res) => res.json({ ok: true, version: '0.1.0' }));

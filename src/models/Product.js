@@ -8,6 +8,7 @@ const ProductSchema = new mongoose.Schema({
   originalPrice: { type: Number },
   discount: { type: Number },
   stock: { type: Number, default: 0 },
+  reserved: { type: Number, default: 0 },
   images: { type: [String], default: [] },
   category: { type: String },
   subcategory: { type: String },
