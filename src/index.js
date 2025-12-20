@@ -112,6 +112,30 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`Doordripp Node backend listening on port ${PORT}`);
-});
+function startServer(port, attempts = 0) {
+  const maxAttempts = 5;
+  const server = app.listen(port);
+
+  server.on('listening', () => {
+    console.log(`Doordripp Node backend listening on port ${port}`);
+  });
+
+  server.on('error', err => {
+    if (err && err.code === 'EADDRINUSE') {
+      console.error(`Port ${port} is already in use.`);
+      if (attempts < maxAttempts) {
+        const nextPort = Number(port) + 1;
+        console.warn(`Trying next port ${nextPort} (attempt ${attempts + 1}/${maxAttempts})`);
+        // Give the OS a short moment before retrying
+        setTimeout(() => startServer(nextPort, attempts + 1), 200);
+        return;
+      }
+      console.error(`Failed to bind after ${maxAttempts} attempts. Exiting.`);
+      process.exit(1);
+    }
+    console.error('Server error:', err);
+    process.exit(1);
+  });
+}
+
+startServer(PORT);

@@ -427,7 +427,11 @@ exports.me = async (req, res, next) => {
       name: user.name, 
       email: user.email, 
       roles: user.roles,
-      avatar: user.avatar 
+      avatar: user.avatar,
+      phone: user.phone || null,
+      address: user.address || null,
+      gender: user.gender || null,
+      dob: user.dob || null
     });
   } catch (e) {
     return res.status(401).json({ error: 'Invalid token' });

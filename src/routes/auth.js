@@ -212,6 +212,71 @@ router.post('/avatar', async (req, res) => {
   }
 });
 
+// Update profile (address, phone, name, gender)
+router.put('/profile', async (req, res) => {
+  try {
+    const jwt = require('jsonwebtoken');
+    const User = require('../models/User');
+    let token = null;
+    if (req.cookies && req.cookies.token) token = req.cookies.token;
+    if (!token && req.headers.authorization) {
+      const parts = req.headers.authorization.split(' ');
+      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
+    }
+    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const user = await User.findById(payload.id);
+    if (!user) return res.status(401).json({ error: 'Invalid token user' });
+
+    const { name, phone, address } = req.body || {};
+    if (typeof name === 'string' && name.trim()) user.name = name.trim();
+    if (typeof phone === 'string' && phone.trim()) user.phone = phone.trim();
+    if (address && typeof address === 'object') {
+      user.address = user.address || {};
+      user.address.street = address.street || user.address.street;
+      user.address.city = address.city || user.address.city;
+      user.address.state = address.state || user.address.state;
+      user.address.zip = address.zip || user.address.zip;
+    }
+    await user.save();
+    return res.json({ ok: true, user: { id: user._id, name: user.name, email: user.email, phone: user.phone, address: user.address } });
+  } catch (e) {
+    console.error('profile update error', e);
+    return res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// Change password (authenticated)
+router.put('/change-password', async (req, res) => {
+  try {
+    const jwt = require('jsonwebtoken');
+    const User = require('../models/User');
+    let token = null;
+    if (req.cookies && req.cookies.token) token = req.cookies.token;
+    if (!token && req.headers.authorization) {
+      const parts = req.headers.authorization.split(' ');
+      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
+    }
+    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const user = await User.findById(payload.id);
+    if (!user) return res.status(401).json({ error: 'Invalid token user' });
+
+    const { currentPassword, newPassword } = req.body || {};
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required' });
+    const match = await user.matchPassword(currentPassword);
+    if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
+    if (typeof newPassword !== 'string' || newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+
+    user.password = newPassword;
+    await user.save();
+    return res.json({ ok: true, message: 'Password updated' });
+  } catch (e) {
+    console.error('change-password error', e);
+    return res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
 // POST /api/auth/send-otp
 router.post('/send-otp', async (req, res) => {
   try {
