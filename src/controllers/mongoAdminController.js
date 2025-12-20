@@ -297,6 +297,8 @@ exports.listOrders = async (req, res, next) => {
       Order.countDocuments(filter)
     ]);
 
+    console.log(`📦 Admin fetching orders: ${orders.length} found, ${total} total in DB`);
+
     const formattedOrders = orders.map(order => ({
       id: order._id,
       _id: order._id,
@@ -317,6 +319,7 @@ exports.listOrders = async (req, res, next) => {
       totalPages: Math.ceil(total / parseInt(limit))
     });
   } catch (err) {
+    console.error('❌ Error fetching orders:', err);
     next(err);
   }
 };
