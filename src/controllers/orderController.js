@@ -159,28 +159,34 @@ exports.get = async (req, res, next) => {
  */
 exports.list = async (req, res, next) => {
   try {
-    if (!req.user.roles || !req.user.roles.includes('admin')) {
-      return res.status(403).json({ error: 'Admin access required' });
-    }
-
+    // Allow admins to list all orders. For regular users, return only their orders.
+    const isAdmin = req.user.roles && req.user.roles.includes('admin')
     const { status, sort = '-createdAt', limit = 20, page = 1 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    let query = {};
-    if (status) query.status = status;
+    let query = {}
+    if (status) query.status = status
 
-    const orders = await Order.find(query)
-      .populate('customer', 'name email phone')
+    if (!isAdmin) {
+      // restrict to current user's orders
+      query.customer = req.user.id
+    }
+
+    // Populate customer for admins, and product references for items for richer client-side rendering
+    const q = Order.find(query)
       .sort(sort)
       .skip(skip)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
 
-    const total = await Order.countDocuments(query);
+    if (isAdmin) q.populate('customer', 'name email phone')
+    // always populate products inside items where possible
+    q.populate('items.product')
 
-    res.json({
-      orders,
-      pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) }
-    });
+    const orders = await q.exec()
+
+    const total = await Order.countDocuments(query)
+
+    res.json({ orders, pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) } })
   } catch (err) {
     next(err);
   }
