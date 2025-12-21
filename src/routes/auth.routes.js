@@ -18,6 +18,19 @@ const authController = require('../controllers/auth.controller');
 
 // ========== Rate Limiters ==========
 
+// Check if rate limiting is disabled (for development)
+const DISABLE_RATE_LIMIT = process.env.DISABLE_RATE_LIMIT === 'true'
+
+// Middleware to skip rate limiting if disabled
+const skipIfDisabled = (limiter) => {
+  return (req, res, next) => {
+    if (DISABLE_RATE_LIMIT) {
+      return next()
+    }
+    return limiter(req, res, next)
+  }
+}
+
 /**
  * Rate limiter for OTP sending
  * Prevents spam and abuse
@@ -135,7 +148,7 @@ const validate = (req, res, next) => {
  */
 router.post(
   '/send-otp',
-  otpSendLimiter,
+  skipIfDisabled(otpSendLimiter),
   [
     body('email')
       .isEmail()
@@ -171,7 +184,7 @@ router.post(
  */
 router.post(
   '/verify-otp',
-  otpVerifyLimiter,
+  skipIfDisabled(otpVerifyLimiter),
   [
     body('email')
       .isEmail()
@@ -207,7 +220,7 @@ router.post(
  */
 router.post(
   '/forgot-password',
-  passwordResetLimiter,
+  skipIfDisabled(passwordResetLimiter),
   [
     body('email')
       .isEmail()
@@ -237,7 +250,7 @@ router.post(
  */
 router.post(
   '/reset-password',
-  resetPasswordLimiter,
+  skipIfDisabled(resetPasswordLimiter),
   [
     body('token')
       .notEmpty()

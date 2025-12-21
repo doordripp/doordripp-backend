@@ -18,10 +18,23 @@ const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
 const TWILIO_FROM = process.env.TWILIO_FROM
 
-// Rate limiter: max 3 OTP requests per email per hour for registration
+// Check if rate limiting is disabled (for development)
+const DISABLE_RATE_LIMIT = process.env.DISABLE_RATE_LIMIT === 'true'
+
+// Middleware to skip rate limiting if disabled
+const skipIfDisabled = (limiter) => {
+  return (req, res, next) => {
+    if (DISABLE_RATE_LIMIT) {
+      return next()
+    }
+    return limiter(req, res, next)
+  }
+}
+
+// Rate limiter: max 10 OTP requests per email per hour for registration (increased for development)
 const registerOtpLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => (req.body?.email ? req.body.email.toLowerCase() : ipKeyGenerator(req)),
@@ -32,7 +45,7 @@ const registerOtpLimiter = rateLimit({
 // to ensure no user is created before email verification.
 router.post(
   '/register',
-  registerOtpLimiter,
+  skipIfDisabled(registerOtpLimiter),
   body('name').isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
@@ -47,7 +60,7 @@ router.post(
 // Step 1: Initiate registration with email OTP (no user created yet)
 router.post(
   '/register-initiate',
-  registerOtpLimiter,
+  skipIfDisabled(registerOtpLimiter),
   body('name').isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
