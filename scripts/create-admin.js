@@ -18,6 +18,7 @@ const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  emailVerified: { type: Boolean, default: false },
   roles: { type: [String], default: [] },
   blocked: { type: Boolean, default: false },
   termsAccepted: { type: Boolean, default: true }
@@ -53,6 +54,15 @@ async function createAdmin() {
       } else {
         console.log('   Already has ADMIN role');
       }
+
+      // Verify email if not already verified
+      if (!existingAdmin.emailVerified) {
+        existingAdmin.emailVerified = true;
+        await existingAdmin.save();
+        console.log('   ✅ Email verified');
+      } else {
+        console.log('   Email already verified');
+      }
     } else {
       // Hash password
       const salt = await bcrypt.genSalt(10);
@@ -63,6 +73,7 @@ async function createAdmin() {
         name: ADMIN_NAME,
         email: ADMIN_EMAIL,
         password: hashedPassword,
+        emailVerified: true,
         roles: ['ADMIN'],
         blocked: false,
         termsAccepted: true

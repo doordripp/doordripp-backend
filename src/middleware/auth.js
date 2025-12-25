@@ -22,7 +22,15 @@ exports.verifyToken = async (req, res, next) => {
     const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
     const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
-    req.user = { id: user._id, roles: user.roles || [] };
+    // Normalize user shape for downstream handlers
+    req.user = {
+      _id: user._id,
+      id: user._id,
+      roles: user.roles || [],
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+    };
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
