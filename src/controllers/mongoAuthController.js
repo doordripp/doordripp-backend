@@ -14,12 +14,14 @@ const generateToken = (user) => {
 
 exports.createTokenForUser = async (user) => {
   const token = generateToken(user);
+  // Allow cookies to work in local HTTP dev; tighten in prod/HTTPS.
+  const isProdLike = process.env.NODE_ENV === 'production' || (process.env.BACKEND_URL || '').startsWith('https://');
+  const secure = process.env.COOKIE_SECURE === 'true' || isProdLike;
   const cookieOptions = {
     httpOnly: true,
-    sameSite: 'none', // Required for cross-origin cookie transmission
-    secure: true, // HTTPS only in production
+    sameSite: secure ? 'none' : 'lax',
+    secure,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    // Use explicit cookie domain if provided; otherwise let browser set host-only cookie
     domain: process.env.COOKIE_DOMAIN || undefined,
   };
   return { token, cookieOptions };
@@ -448,13 +450,25 @@ exports.resendEmailOTP = async (req, res, next) => {
 
 exports.me = async (req, res, next) => {
   try {
+    console.log('🔍 /me called - checking auth...');
+    console.log('🍪 Cookies received:', Object.keys(req.cookies || {}).length ? Object.keys(req.cookies) : 'none');
+    console.log('📋 Headers auth:', req.headers.authorization ? 'present' : 'none');
     let token = null;
-    if (req.cookies && req.cookies.token) token = req.cookies.token;
+    if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+      console.log('✅ Token found in cookies');
+    }
     if (!token && req.headers.authorization) {
       const parts = req.headers.authorization.split(' ');
-      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
+      if (parts.length === 2 && parts[0] === 'Bearer') {
+        token = parts[1];
+        console.log('✅ Token found in Authorization header');
+      }
     }
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
+    if (!token) {
+      console.log('❌ No token found - returning 401');
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
 
     const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
     const user = await User.findById(payload.id, '-password -refreshToken');

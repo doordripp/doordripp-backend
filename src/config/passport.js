@@ -18,8 +18,14 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
+          console.log('🔐 Google OAuth callback triggered');
+          console.log('📧 Profile emails:', profile.emails);
           const email = profile.emails && profile.emails[0] && profile.emails[0].value
-          if (!email) return done(new Error('No email found on Google profile'))
+          if (!email) {
+            console.error('❌ No email found on Google profile');
+            return done(new Error('No email found on Google profile'));
+          }
+          console.log('✅ Email extracted:', email);
 
           // Extract all available profile data from Google
           const googleData = {

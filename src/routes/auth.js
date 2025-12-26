@@ -413,6 +413,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
   router.get('/google/callback', (req, res, next) => {
     passport.authenticate('google', { session: false }, async (err, user) => {
+      if (err) {
+        console.error('Google OAuth error:', err?.message || err)
+      }
+      if (!user) {
+        console.error('Google OAuth: no user returned from strategy')
+      }
       if (err || !user) {
         const redirect = `${FRONTEND_URL}/login?error=oauth_failed`;
         return res.redirect(redirect);
@@ -420,8 +426,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       try {
         // create token + set cookie or redirect with token
         const { token, cookieOptions } = await authController.createTokenForUser(user);
+        console.log('✅ Google OAuth success for:', user.email);
+        console.log('🍪 Setting cookie with options:', JSON.stringify(cookieOptions, null, 2));
+        console.log('🎫 Token length:', token.length);
         // Set httpOnly cookie for token (frontend will rely on cookies)
         res.cookie('token', token, cookieOptions);
+        console.log('🔀 Redirecting to:', FRONTEND_URL);
         // Redirect back to the frontend (SPA) home page
         return res.redirect(FRONTEND_URL);
       } catch (e) {

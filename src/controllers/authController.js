@@ -10,12 +10,15 @@ const generateToken = (user) => {
 // Create token and return cookie options (used by OAuth callback)
 exports.createTokenForUser = async (user) => {
   const token = generateToken(user);
+  // Allow http-only cookie to work locally over HTTP; force secure in prod/HTTPS.
+  const isProdLike = process.env.NODE_ENV === 'production' || (process.env.BACKEND_URL || '').startsWith('https://');
+  const secure = process.env.COOKIE_SECURE === 'true' || isProdLike;
   const cookieOptions = {
     httpOnly: true,
-    sameSite: 'none', // Required for cross-origin cookie transmission
-    secure: true, // HTTPS only in production
+    sameSite: secure ? 'none' : 'lax',
+    secure,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    domain: process.env.NODE_ENV === 'production' ? '.doordripp.com' : undefined, // Allows both doordripp.com and www.doordripp.com
+    domain: process.env.COOKIE_DOMAIN || (process.env.NODE_ENV === 'production' ? '.doordripp.com' : undefined),
   };
   return { token, cookieOptions };
 };
