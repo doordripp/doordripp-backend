@@ -17,7 +17,7 @@ router.get('/', async (req, res, next) => {
       ];
     }
     if (category && category !== 'All') {
-      filter.category = category;
+      filter.category = new RegExp(`^${category}$`, 'i');
     }
 
     let sortOption = { createdAt: -1 };
