@@ -134,7 +134,7 @@ addressSchema.index({ location: '2dsphere' });
 addressSchema.index({ userId: 1, isDefault: -1 });
 
 // Update the updatedAt timestamp before saving
-addressSchema.pre('save', async function(next) {
+addressSchema.pre('save', async function() {
   this.updatedAt = Date.now();
   
   // If this address is set as default, unset other defaults for this user
@@ -144,8 +144,6 @@ addressSchema.pre('save', async function(next) {
       { isDefault: false }
     );
   }
-  
-  next();
 });
 
 // Virtual for getting latitude and longitude separately
