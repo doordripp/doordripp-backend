@@ -24,10 +24,16 @@ router.get('/orders/:id', adminController.getOrder);
 router.put('/orders/:id/status', adminController.updateOrderStatus);
 
 // Users
-router.get('/users', adminController.listUsers);
-router.get('/users/:id', adminController.getUser);
-router.put('/users/:id', adminController.updateUser);
-router.delete('/users/:id', adminController.deleteUser);
+router.get('/users', adminController.getAllUsers);
+router.get('/users/:userId', adminController.getUserDetails);
+router.put('/users/:userId/role', adminController.changeUserRole);
+router.post('/users/:userId/ban', adminController.banUser);
+router.post('/users/:userId/unban', adminController.unbanUser);
+
+// Area Manager Assignment
+router.post('/area-managers', adminController.assignManagerToArea);
+router.delete('/area-managers/:assignmentId', adminController.removeManagerFromArea);
+router.get('/area-managers', adminController.getAreaManagerAssignments);
 
 // Reports
 router.get('/reports/best-sellers', adminController.getBestSellers);

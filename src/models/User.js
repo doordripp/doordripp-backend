@@ -9,15 +9,21 @@ const UserSchema = new mongoose.Schema({
   emailVerified: { type: Boolean, default: false },
   password: { type: String, required: true },
   avatar: { type: String, default: null },
-  roles: { type: [String], default: [] },
+  roles: { type: [String], default: ['customer'] }, // Array of roles: admin, manager, customer
+  isBanned: { type: Boolean, default: false },
+  banReason: { type: String, default: null },
+  bannedAt: { type: Date, default: null },
+  bannedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   address: {
     street: { type: String },
     city: { type: String },
     state: { type: String },
     zip: { type: String }
   },
+  // Manager-specific fields
+  managerFor: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryZone', default: null },
   termsAccepted: { type: Boolean, default: false },
-  blocked: { type: Boolean, default: false },
+  blocked: { type: Boolean, default: false }, // Legacy field, use isBanned
   refreshToken: { type: String, default: null },
   // OAuth fields
   googleId: { type: String, unique: true, sparse: true },

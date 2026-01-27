@@ -1,6 +1,8 @@
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
+const AreaManager = require('../models/AreaManager');
 
 // ==================== DASHBOARD STATS ====================
 exports.getDashboardStats = async (req, res, next) => {
@@ -511,3 +513,344 @@ exports.getBestSellers = async (req, res, next) => {
     next(err);
   }
 };
+
+// ==================== USER MANAGEMENT ====================
+
+/**
+ * Get all users with filtering and search
+ */
+exports.getAllUsers = async (req, res, next) => {
+  try {
+    const { search, role, status, page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Build query
+    let query = {};
+
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (role && role !== 'all') {
+      query.roles = role;
+    }
+
+    if (status === 'banned') {
+      query.isBanned = true;
+    } else if (status === 'active') {
+      query.isBanned = false;
+    }
+
+    const [users, total] = await Promise.all([
+      User.find(query)
+        .select('-password -resetPasswordToken')
+        .skip(skip)
+        .limit(parseInt(limit))
+        .sort({ createdAt: -1 }),
+      User.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      users,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get user details by ID
+ */
+exports.getUserDetails = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId)
+      .select('-password')
+      .populate('managerFor', 'name latitude longitude')
+      .exec();
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    // Get area manager assignments if user is a manager
+    let areaAssignments = [];
+    if (user.roles.includes('manager')) {
+      areaAssignments = await AreaManager.find({ manager: userId })
+        .populate('deliveryZone', 'name latitude longitude radius')
+        .sort({ createdAt: -1 });
+    }
+
+    // Get user orders
+    const orders = await Order.find({ customer: userId })
+      .select('_id items total status createdAt')
+      .limit(10)
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      user,
+      areaAssignments,
+      orders,
+      stats: {
+        totalOrders: await Order.countDocuments({ customer: userId }),
+        totalSpent: (await Order.aggregate([
+          { $match: { customer: mongoose.Types.ObjectId(userId) } },
+          { $group: { _id: null, total: { $sum: '$total' } } }
+        ]))[0]?.total || 0
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Change user role(s)
+ */
+exports.changeUserRole = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { roles } = req.body;
+
+    if (!roles || !Array.isArray(roles) || roles.length === 0) {
+      return res.status(400).json({ success: false, error: 'Roles must be a non-empty array' });
+    }
+
+    // Validate roles
+    const validRoles = ['admin', 'manager', 'customer'];
+    const isValid = roles.every(role => validRoles.includes(role));
+    if (!isValid) {
+      return res.status(400).json({ success: false, error: 'Invalid role specified' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    user.roles = roles;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'User roles updated successfully',
+      user
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Ban user
+ */
+exports.banUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    const { reason } = req.body;
+
+    if (!reason || reason.trim().length === 0) {
+      return res.status(400).json({ success: false, error: 'Ban reason is required' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    user.isBanned = true;
+    user.banReason = reason;
+    user.bannedAt = new Date();
+    user.bannedBy = req.user.id;
+    await user.save();
+
+    // If user was a manager, deactivate their assignments
+    if (user.roles.includes('manager')) {
+      await AreaManager.updateMany(
+        { manager: userId },
+        { status: 'suspended' }
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'User banned successfully',
+      user
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Unban user
+ */
+exports.unbanUser = async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    user.isBanned = false;
+    user.banReason = null;
+    user.bannedAt = null;
+    user.bannedBy = null;
+    await user.save();
+
+    // If user is a manager, reactivate their assignments
+    if (user.roles.includes('manager')) {
+      await AreaManager.updateMany(
+        { manager: userId },
+        { status: 'active' }
+      );
+    }
+
+    res.json({
+      success: true,
+      message: 'User unbanned successfully',
+      user
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Assign manager to delivery area
+ */
+exports.assignManagerToArea = async (req, res, next) => {
+  try {
+    const { managerId, deliveryZoneId } = req.body;
+
+    if (!managerId || !deliveryZoneId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Manager ID and Delivery Zone ID are required'
+      });
+    }
+
+    // Verify manager exists and has manager role
+    const manager = await User.findById(managerId);
+    if (!manager) {
+      return res.status(404).json({ success: false, error: 'Manager not found' });
+    }
+
+    if (!manager.roles.includes('manager')) {
+      return res.status(400).json({
+        success: false,
+        error: 'User does not have manager role'
+      });
+    }
+
+    // Check if assignment already exists
+    const existing = await AreaManager.findOne({
+      manager: managerId,
+      deliveryZone: deliveryZoneId
+    });
+
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        error: 'Manager is already assigned to this area'
+      });
+    }
+
+    // Create new assignment
+    const assignment = new AreaManager({
+      manager: managerId,
+      deliveryZone: deliveryZoneId,
+      assignedBy: req.user.id
+    });
+
+    await assignment.save();
+    await assignment
+      .populate('manager', 'name email phone')
+      .populate('deliveryZone', 'name latitude longitude radius')
+      .execPopulate();
+
+    res.json({
+      success: true,
+      message: 'Manager assigned to area successfully',
+      assignment
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Remove manager from area
+ */
+exports.removeManagerFromArea = async (req, res, next) => {
+  try {
+    const { assignmentId } = req.params;
+
+    const assignment = await AreaManager.findByIdAndRemove(assignmentId);
+    if (!assignment) {
+      return res.status(404).json({ success: false, error: 'Assignment not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Manager removed from area successfully'
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Get all area manager assignments
+ */
+exports.getAreaManagerAssignments = async (req, res, next) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    let query = {};
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    const [assignments, total] = await Promise.all([
+      AreaManager.find(query)
+        .populate('manager', 'name email phone')
+        .populate('deliveryZone', 'name latitude longitude radius')
+        .populate('assignedBy', 'name')
+        .skip(skip)
+        .limit(parseInt(limit))
+        .sort({ createdAt: -1 }),
+      AreaManager.countDocuments(query)
+    ]);
+
+    res.json({
+      success: true,
+      assignments,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
