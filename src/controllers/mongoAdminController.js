@@ -745,16 +745,16 @@ exports.assignManagerToArea = async (req, res, next) => {
       });
     }
 
-    // Verify manager exists and has manager role
+    // Verify manager exists and has manager or admin role
     const manager = await User.findById(managerId);
     if (!manager) {
       return res.status(404).json({ success: false, error: 'Manager not found' });
     }
 
-    if (!manager.roles.includes('manager')) {
+    if (!manager.roles.includes('manager') && !manager.roles.includes('admin')) {
       return res.status(400).json({
         success: false,
-        error: 'User does not have manager role'
+        error: 'User must have manager or admin role'
       });
     }
 
@@ -779,10 +779,10 @@ exports.assignManagerToArea = async (req, res, next) => {
     });
 
     await assignment.save();
-    await assignment
-      .populate('manager', 'name email phone')
-      .populate('deliveryZone', 'name latitude longitude radius')
-      .execPopulate();
+    
+    // Populate the assignment with manager and zone details
+    await assignment.populate('manager', 'name email phone');
+    await assignment.populate('deliveryZone', 'name latitude longitude radius');
 
     res.json({
       success: true,
@@ -801,7 +801,7 @@ exports.removeManagerFromArea = async (req, res, next) => {
   try {
     const { assignmentId } = req.params;
 
-    const assignment = await AreaManager.findByIdAndRemove(assignmentId);
+    const assignment = await AreaManager.findByIdAndDelete(assignmentId);
     if (!assignment) {
       return res.status(404).json({ success: false, error: 'Assignment not found' });
     }

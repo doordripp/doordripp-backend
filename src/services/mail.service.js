@@ -349,6 +349,58 @@ class MailService {
   }
 
   /**
+   * Send manager order notification email
+   * Alerts delivery zone managers about new orders in their area
+   * 
+   * @param {Object} orderData - Order and customer information
+   * @returns {Promise<Object>} Send result
+   */
+  async sendManagerOrderNotification(orderData) {
+    const template = await this.loadTemplate('manager-order-notification.html');
+    
+    // Format delivery address
+    const address = orderData.shippingAddress;
+    let deliveryAddress = '';
+    if (address) {
+      const parts = [
+        address.street || address.line1,
+        address.line2,
+        address.city,
+        address.state,
+        address.zip
+      ].filter(Boolean);
+      deliveryAddress = parts.join(', ');
+    }
+
+    const html = this.replacePlaceholders(template, {
+      managerName: orderData.managerName || 'Manager',
+      customerName: orderData.customerName || 'Customer',
+      customerPhone: orderData.customerPhone || 'N/A',
+      deliveryAddress: deliveryAddress || 'Address not provided',
+      orderId: orderData.orderId,
+      orderDate: new Date(orderData.orderDate).toLocaleDateString('en-IN', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }),
+      totalAmount: `₹${orderData.totalAmount.toLocaleString('en-IN')}`,
+      itemCount: orderData.items.length,
+      items: this.formatOrderItems(orderData.items),
+      zoneName: orderData.zoneName || 'Your Zone',
+      trackingUrl: `${process.env.CLIENT_URL || process.env.FRONTEND_URL}/admin/orders?id=${orderData.orderId}`,
+      currentYear: new Date().getFullYear()
+    });
+
+    return this.sendEmail({
+      to: orderData.managerEmail,
+      subject: `🚨 New Order in ${orderData.zoneName || 'Your Zone'} - #${orderData.orderId}`,
+      html
+    });
+  }
+
+  /**
    * Send password reset email
    * 
    * Security Notes:

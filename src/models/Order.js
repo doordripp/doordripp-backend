@@ -31,7 +31,9 @@ const OrderSchema = new mongoose.Schema({
     street: { type: String },
     city: { type: String },
     state: { type: String },
-    zip: { type: String }
+    zip: { type: String },
+    latitude: { type: Number },
+    longitude: { type: Number }
   }
 }, { timestamps: true })
 

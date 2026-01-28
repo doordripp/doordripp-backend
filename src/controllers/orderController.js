@@ -2,6 +2,145 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const RazorpayUtil = require('../utils/razorpay');
 const mailService = require('../services/mail.service');
+const DeliveryZone = require('../models/DeliveryZone');
+const AreaManager = require('../models/AreaManager');
+const User = require('../models/User');
+
+/**
+ * Calculate distance between two coordinates (in km) using Haversine formula
+ */
+function calculateDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371; // Earth's radius in kilometers
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/**
+ * Check if a point is inside a polygon using ray casting algorithm
+ */
+function isPointInPolygon(point, polygon) {
+  const lat = point.lat;
+  const lng = point.lng;
+  let isInside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i].lng, yi = polygon[i].lat;
+    const xj = polygon[j].lng, yj = polygon[j].lat;
+
+    const intersect = ((yi > lat) !== (yj > lat)) &&
+                      (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+    if (intersect) isInside = !isInside;
+  }
+
+  return isInside;
+}
+
+/**
+ * Check if address falls within a delivery zone
+ */
+function isAddressInZone(address, zone) {
+  // If address doesn't have coordinates, we can't determine location
+  if (!address?.latitude || !address?.longitude) {
+    console.log(`⚠️ Address missing coordinates: lat=${address?.latitude}, lng=${address?.longitude}`);
+    return false;
+  }
+
+  const addressLat = parseFloat(address.latitude);
+  const addressLng = parseFloat(address.longitude);
+
+  if (isNaN(addressLat) || isNaN(addressLng)) {
+    console.log(`⚠️ Invalid address coordinates`);
+    return false;
+  }
+
+  if (zone.type === 'radius' && zone.center) {
+    // For radius zones, check distance from center
+    const distance = calculateDistance(
+      zone.center.lat,
+      zone.center.lng,
+      addressLat,
+      addressLng
+    );
+    const withinRadius = distance <= zone.radiusKm;
+    console.log(`  📍 Radius zone "${zone.name}": distance=${distance.toFixed(2)}km, radius=${zone.radiusKm}km -> ${withinRadius ? '✅' : '❌'}`);
+    return withinRadius;
+  } else if (zone.type === 'polygon' && zone.polygon && zone.polygon.length > 0) {
+    // For polygon zones, check if point is inside polygon
+    const isInside = isPointInPolygon(
+      { lat: addressLat, lng: addressLng },
+      zone.polygon
+    );
+    console.log(`  🔷 Polygon zone "${zone.name}": point inside polygon -> ${isInside ? '✅' : '❌'}`);
+    return isInside;
+  }
+
+  return false;
+}
+
+/**
+ * Helper: Find delivery zone for an address and get assigned managers
+ */
+async function getDeliveryZoneAndManagers(address) {
+  try {
+    if (!address) {
+      console.log('⚠️ No address provided');
+      return null;
+    }
+
+    console.log(`🔍 Looking for zone matching address:`, {
+      city: address.city,
+      latitude: address.latitude,
+      longitude: address.longitude
+    });
+
+    // Find delivery zones that cover this address
+    const zones = await DeliveryZone.find({ isActive: true });
+    console.log(`📍 Found ${zones.length} active delivery zones`);
+    
+    for (const zone of zones) {
+      console.log(`  Checking zone: "${zone.name}" (type: ${zone.type})`);
+      
+      // Try GPS-based matching first (most accurate)
+      if (address.latitude && address.longitude) {
+        if (isAddressInZone(address, zone)) {
+          console.log(`✅ Address matched to zone via GPS: "${zone.name}"`);
+          
+          // Get assigned managers for this zone
+          const assignments = await AreaManager.find({
+            deliveryZone: zone._id,
+            status: 'active'
+          }).populate('manager', 'name email phone');
+
+          console.log(`👥 Found ${assignments.length} active manager(s) for zone: ${zone.name}`);
+          
+          if (assignments.length === 0) {
+            console.warn(`⚠️ Zone "${zone.name}" has no active assigned managers`);
+          }
+
+          return {
+            zone,
+            managers: assignments.map(a => ({
+              name: a.manager.name,
+              email: a.manager.email,
+              phone: a.manager.phone
+            }))
+          };
+        }
+      }
+    }
+
+    console.log(`❌ No matching zone found for address`);
+    return null;
+  } catch (err) {
+    console.error('Error finding delivery zone:', err);
+    return null;
+  }
+}
 
 exports.create = async (req, res, next) => {
   try {
@@ -119,7 +258,7 @@ exports.verifyPayment = async (req, res, next) => {
     }
     console.log('✅ Stock updated for order:', orderId);
 
-    // Send confirmation email (non-blocking)
+    // Send confirmation email to customer (non-blocking)
     if (mailService && mailService.sendOrderConfirmation) {
       mailService.sendOrderConfirmation({
         customerName: order.customer.name,
@@ -133,7 +272,40 @@ exports.verifyPayment = async (req, res, next) => {
         })),
         totalAmount: order.total,
         shippingAddress: order.shippingAddress
-      }).catch(err => console.error('Email send failed:', err));
+      }).catch(err => console.error('Customer email send failed:', err));
+    }
+
+    // Find assigned managers for this delivery area and send them notifications (non-blocking)
+    const deliveryInfo = await getDeliveryZoneAndManagers(order.shippingAddress);
+    if (deliveryInfo?.managers?.length > 0) {
+      const managerEmails = deliveryInfo.managers.map(m => m.email);
+      console.log(`📧 Sending order notification to ${managerEmails.length} manager(s): ${managerEmails.join(', ')}`);
+      
+      // Send manager notification email with customer details
+      for (const manager of deliveryInfo.managers) {
+        if (mailService && mailService.sendManagerOrderNotification) {
+          mailService.sendManagerOrderNotification({
+            managerName: manager.name,
+            managerEmail: manager.email,
+            customerName: order.customer.name,
+            customerPhone: order.shippingAddress.phone || order.customer.phone || 'N/A',
+            orderId: order._id.toString(),
+            orderDate: order.createdAt,
+            items: order.items.map(it => ({
+              name: it.name,
+              quantity: it.quantity,
+              price: it.price
+            })),
+            totalAmount: order.total,
+            shippingAddress: order.shippingAddress,
+            zoneName: deliveryInfo.zone?.name
+          }).catch(err => console.error('Manager email send failed:', err));
+        }
+      }
+      
+      console.log(`✅ Order notification sent to ${managerEmails.length} manager(s) for zone: ${deliveryInfo.zone.name}`);
+    } else {
+      console.warn('⚠️ No managers found for this delivery area');
     }
 
     res.json({ message: 'Payment verified successfully', order });

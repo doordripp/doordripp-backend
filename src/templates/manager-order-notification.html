@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New Order Alert - DoorDripp Manager</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #f4f6f9;
+    }
+    .container {
+      max-width: 650px;
+      margin: 40px auto;
+      background-color: #ffffff;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .header {
+      background: linear-gradient(135deg, #3182ce 0%, #2c5282 100%);
+      padding: 40px 30px;
+      text-align: center;
+      color: #ffffff;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 28px;
+      font-weight: 700;
+    }
+    .header p {
+      margin: 10px 0 0 0;
+      font-size: 14px;
+      opacity: 0.95;
+    }
+    .alert-icon {
+      width: 80px;
+      height: 80px;
+      background-color: rgba(255, 255, 255, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 40px;
+    }
+    .content {
+      padding: 40px 30px;
+    }
+    .greeting {
+      font-size: 18px;
+      color: #2d3748;
+      margin: 0 0 10px 0;
+      font-weight: 600;
+    }
+    .message {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #4a5568;
+      margin: 0 0 30px 0;
+    }
+    .alert-box {
+      background-color: #fff5f5;
+      border-left: 4px solid #f56565;
+      padding: 20px;
+      margin: 25px 0;
+      border-radius: 4px;
+    }
+    .alert-box strong {
+      color: #c53030;
+      font-size: 16px;
+    }
+    .order-summary {
+      background-color: #f7fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 25px;
+      margin: 25px 0;
+    }
+    .order-summary h2 {
+      margin: 0 0 20px 0;
+      font-size: 18px;
+      color: #2d3748;
+      font-weight: 600;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 10px;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 0;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 14px;
+    }
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    .info-row .label {
+      color: #718096;
+      font-weight: 500;
+      width: 140px;
+      flex-shrink: 0;
+    }
+    .info-row .value {
+      color: #2d3748;
+      font-weight: 600;
+      flex: 1;
+      text-align: right;
+    }
+    .customer-details {
+      background-color: #edf2f7;
+      border: 2px solid #3182ce;
+      border-radius: 8px;
+      padding: 25px;
+      margin: 25px 0;
+    }
+    .customer-details h3 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #2c5282;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+    }
+    .customer-details h3::before {
+      content: "👤";
+      margin-right: 8px;
+      font-size: 20px;
+    }
+    .detail-item {
+      margin: 10px 0;
+      font-size: 14px;
+      color: #2d3748;
+      display: flex;
+      align-items: flex-start;
+    }
+    .detail-item .icon {
+      width: 24px;
+      margin-right: 10px;
+      font-size: 16px;
+    }
+    .detail-item .text {
+      flex: 1;
+      line-height: 1.5;
+    }
+    .detail-item strong {
+      display: block;
+      color: #2c5282;
+      font-size: 13px;
+      margin-bottom: 3px;
+    }
+    .items-section {
+      margin: 25px 0;
+    }
+    .items-section h3 {
+      margin: 0 0 15px 0;
+      font-size: 16px;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .items-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+    }
+    .items-table th {
+      background-color: #f7fafc;
+      padding: 12px;
+      text-align: left;
+      font-size: 13px;
+      color: #4a5568;
+      font-weight: 600;
+      border-bottom: 2px solid #e2e8f0;
+    }
+    .items-table td {
+      padding: 15px 12px;
+      font-size: 14px;
+      color: #2d3748;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .items-table td:last-child {
+      text-align: right;
+    }
+    .total-section {
+      background-color: #ebf8ff;
+      border: 2px solid #3182ce;
+      border-radius: 8px;
+      padding: 20px;
+      margin: 25px 0;
+      text-align: right;
+    }
+    .total-section .label {
+      font-size: 16px;
+      color: #2d3748;
+      font-weight: 600;
+    }
+    .total-section .amount {
+      font-size: 28px;
+      color: #2c5282;
+      font-weight: 800;
+      margin-top: 5px;
+    }
+    .zone-badge {
+      display: inline-block;
+      background-color: #9f7aea;
+      color: white;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      margin: 10px 0;
+    }
+    .cta-button {
+      display: inline-block;
+      background: linear-gradient(135deg, #3182ce 0%, #2c5282 100%);
+      color: #ffffff;
+      text-decoration: none;
+      padding: 15px 40px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    .footer {
+      background-color: #f7fafc;
+      padding: 30px;
+      text-align: center;
+      border-top: 1px solid #e2e8f0;
+    }
+    .footer p {
+      margin: 0 0 10px 0;
+      font-size: 13px;
+      color: #718096;
+    }
+    @media only screen and (max-width: 600px) {
+      .container {
+        margin: 20px;
+      }
+      .header, .content, .footer {
+        padding: 25px 20px;
+      }
+      .info-row {
+        flex-direction: column;
+      }
+      .info-row .label {
+        margin-bottom: 5px;
+      }
+      .info-row .value {
+        text-align: left;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="alert-icon">📦</div>
+      <h1>New Order Received</h1>
+      <p>Manager Notification - Action Required</p>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+      <p class="greeting">Hi {{managerName}},</p>
+      <p class="message">
+        A new order has been placed in your delivery zone and requires your attention.
+      </p>
+
+      <!-- Alert Box -->
+      <div class="alert-box">
+        <strong>⚡ Action Required:</strong> Please review and process this order for delivery preparation.
+      </div>
+
+      <!-- Zone Badge -->
+      <div style="text-align: center;">
+        <span class="zone-badge">📍 Zone: {{zoneName}}</span>
+      </div>
+
+      <!-- Order Summary -->
+      <div class="order-summary">
+        <h2>Order Details</h2>
+        <div class="info-row">
+          <span class="label">Order ID</span>
+          <span class="value">#{{orderId}}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Order Date</span>
+          <span class="value">{{orderDate}}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Total Items</span>
+          <span class="value">{{itemCount}}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Payment Status</span>
+          <span class="value" style="color: #48bb78;">✓ Paid</span>
+        </div>
+      </div>
+
+      <!-- Customer Details -->
+      <div class="customer-details">
+        <h3>Customer Information</h3>
+        
+        <div class="detail-item">
+          <span class="icon">👤</span>
+          <div class="text">
+            <strong>Customer Name</strong>
+            {{customerName}}
+          </div>
+        </div>
+
+        <div class="detail-item">
+          <span class="icon">📱</span>
+          <div class="text">
+            <strong>Phone Number</strong>
+            {{customerPhone}}
+          </div>
+        </div>
+
+        <div class="detail-item">
+          <span class="icon">📍</span>
+          <div class="text">
+            <strong>Delivery Address</strong>
+            {{deliveryAddress}}
+          </div>
+        </div>
+      </div>
+
+      <!-- Items -->
+      <div class="items-section">
+        <h3>Order Items</h3>
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th style="text-align: center;">Quantity</th>
+              <th style="text-align: right;">Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {{items}}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Total -->
+      <div class="total-section">
+        <div class="label">Total Amount</div>
+        <div class="amount">{{totalAmount}}</div>
+      </div>
+
+      <!-- CTA Button -->
+      <div style="text-align: center;">
+        <a href="{{trackingUrl}}" class="cta-button">View Order Details</a>
+      </div>
+
+      <p style="font-size: 13px; color: #718096; margin-top: 30px; line-height: 1.6;">
+        <strong>Next Steps:</strong><br>
+        • Verify product availability<br>
+        • Prepare items for delivery<br>
+        • Coordinate with delivery team<br>
+        • Contact customer if needed
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>You're receiving this because you're a manager for the <strong>{{zoneName}}</strong> delivery zone.</p>
+      <p style="margin-top: 15px;">
+        <strong>DoorDripp Manager Portal</strong><br>
+        © {{currentYear}} DoorDripp. All rights reserved.
+      </p>
+    </div>
+  </div>
+</body>
+</html>
