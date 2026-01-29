@@ -9,6 +9,7 @@ const passport = require('./config/passport');
 // Auth routes (register/login/me + OTP/email flows)
 const authRoutes = require('./routes/auth');
 const productRoutes = require('./routes/products');
+const reviewRoutes = require('./routes/reviews');
 const orderRoutes = require('./routes/orders');
 const frontendProductRoutes = require('./routes/frontendProducts');
 const cartRoutes = require('./routes/cart');
@@ -78,6 +79,7 @@ try {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/reviews', reviewRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/frontend/products', frontendProductRoutes);
 app.use('/api/cart', cartRoutes);
