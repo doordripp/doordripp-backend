@@ -8,11 +8,15 @@ exports.getDashboardStats = async (req, res, next) => {
     const totalUsers = await prisma.user.count();
     const totalOrders = await prisma.order.count();
     
-    // Get total sales
+    // Get total sales from non-cancelled orders (cancelled orders are excluded/deducted)
     const orders = await prisma.order.findMany({
+      where: {
+        status: { not: 'cancelled' }
+      },
       select: { total: true }
     });
-    const totalSales = orders.reduce((sum, order) => sum + order.total, 0);
+    // Calculate total sales - cancelled order amounts are automatically deducted by exclusion
+    const totalSales = orders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
 
     // Get recent orders for growth calculation (last 30 days)
     const thirtyDaysAgo = new Date();

@@ -5,13 +5,28 @@ const OrderItemSchema = new mongoose.Schema({
   name: { type: String, required: true },
   quantity: { type: Number, required: true },
   price: { type: Number, required: true },
-  image: { type: String }
+  image: { type: String },
+  // GST Details per item
+  gstRate: { type: Number, default: 18 }, // 5, 12, 18, 28, etc.
+  cgst: { type: Number, default: 0 },
+  sgst: { type: Number, default: 0 },
+  igst: { type: Number, default: 0 },
+  itemTotal: { type: Number } // price * quantity + GST
 })
 
 const OrderSchema = new mongoose.Schema({
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   items: [OrderItemSchema],
-  total: { type: Number, required: true },
+  
+  // Financial Breakdown
+  subtotal: { type: Number, required: true }, // Sum of (price * quantity) before GST
+  cgstTotal: { type: Number, default: 0 }, // Total CGST for all items
+  sgstTotal: { type: Number, default: 0 }, // Total SGST for all items
+  igstTotal: { type: Number, default: 0 }, // Total IGST for all items
+  totalGST: { type: Number, default: 0 }, // Total GST (CGST+SGST or IGST)
+  deliveryFee: { type: Number, default: 0 },
+  total: { type: Number, required: true }, // subtotal + GST + delivery
+  
   status: { 
     type: String, 
     default: 'pending', 
@@ -31,10 +46,13 @@ const OrderSchema = new mongoose.Schema({
     street: { type: String },
     city: { type: String },
     state: { type: String },
+    pincode: { type: String },
     zip: { type: String },
     latitude: { type: Number },
     longitude: { type: Number }
-  }
+  },
+  // Store buyer state code for tax calculation
+  buyerStateCode: { type: String, default: '27' }
 }, { timestamps: true })
 
 module.exports = mongoose.models.Order || mongoose.model('Order', OrderSchema)

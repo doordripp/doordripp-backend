@@ -5,6 +5,7 @@ const mailService = require('../services/mail.service');
 const DeliveryZone = require('../models/DeliveryZone');
 const AreaManager = require('../models/AreaManager');
 const User = require('../models/User');
+const { calculateItemGST } = require('../utils/gstCalculator');
 
 /**
  * Calculate distance between two coordinates (in km) using Haversine formula
@@ -144,22 +145,61 @@ async function getDeliveryZoneAndManagers(address) {
 
 exports.create = async (req, res, next) => {
   try {
-    const { items, shippingAddress } = req.body;
+    const { items, shippingAddress, deliveryFee = 0 } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'No items' });
 
-    // build order items and calculate total
-    let total = 0;
+    // Get buyer's state code from shipping address (default to seller state if not provided)
+    const buyerStateCode = shippingAddress?.stateCode || process.env.SELLER_STATE_CODE || '27'; // Default: Maharashtra
+
+    // build order items and calculate GST
+    let subtotal = 0;
+    let cgstTotal = 0;
+    let sgstTotal = 0;
+    let igstTotal = 0;
     const orderItems = [];
+    
     for (const it of items) {
       const product = await Product.findById(it.product);
       if (!product) return res.status(400).json({ error: 'Invalid product ' + it.product });
       // Check available stock (stock - reserved)
       const availableStock = product.stock - (product.reserved || 0);
       if (availableStock < it.quantity) return res.status(400).json({ error: 'Out of stock for ' + product.name });
+      
       const price = product.price;
-      total += price * it.quantity;
-      orderItems.push({ product: product._id, name: product.name, quantity: it.quantity, price });
+      const itemTotal = price * it.quantity;
+      subtotal += itemTotal;
+      
+      // Calculate GST for this item
+      const gstRate = product.gstRate || 12; // Default to 12% if not specified
+      const sellerStateCode = process.env.SELLER_STATE_CODE || '27'; // Default: Maharashtra
+      
+      const gstBreakdown = calculateItemGST({
+        taxableAmount: itemTotal,
+        gstRate,
+        sellerStateCode,
+        buyerStateCode
+      });
+      
+      cgstTotal += gstBreakdown.cgst;
+      sgstTotal += gstBreakdown.sgst;
+      igstTotal += gstBreakdown.igst;
+      
+      orderItems.push({
+        product: product._id,
+        name: product.name,
+        quantity: it.quantity,
+        price,
+        itemTotal,
+        gstRate,
+        cgst: gstBreakdown.cgst,
+        sgst: gstBreakdown.sgst,
+        igst: gstBreakdown.igst
+      });
     }
+
+    // Calculate final totals
+    const totalGST = cgstTotal + sgstTotal + igstTotal;
+    const total = subtotal + totalGST + deliveryFee;
 
     // create a Razorpay order (amount in paise)
     const razorOrder = await RazorpayUtil.createOrder({ amount: Math.round(total * 100), currency: 'INR' });
@@ -167,10 +207,17 @@ exports.create = async (req, res, next) => {
     const order = await Order.create({
       customer: req.user.id,
       items: orderItems,
+      subtotal,
+      cgstTotal,
+      sgstTotal,
+      igstTotal,
+      totalGST,
+      deliveryFee,
       total,
       status: 'pending',
       payment: { razorpayOrderId: razorOrder.id, status: 'pending' },
-      shippingAddress
+      shippingAddress,
+      buyerStateCode
     });
 
     // RESERVE stock (mark as reserved but don't reduce available stock yet)
@@ -257,6 +304,23 @@ exports.verifyPayment = async (req, res, next) => {
       });
     }
     console.log('✅ Stock updated for order:', orderId);
+
+    // Generate invoice for paid order (non-blocking)
+    const InvoiceService = require('../services/invoiceService');
+    InvoiceService.generateInvoice(order._id.toString())
+      .then(invoiceResult => {
+        console.log(`✅ Invoice generated: ${invoiceResult.invoice.invoiceNumber}`);
+        // Send invoice email if mail service available
+        if (mailService && mailService.sendInvoiceEmail) {
+          mailService.sendInvoiceEmail({
+            customerName: order.customer.name,
+            customerEmail: order.customer.email,
+            invoiceNumber: invoiceResult.invoice.invoiceNumber,
+            pdfPath: invoiceResult.pdfPath
+          }).catch(err => console.error('Invoice email send failed:', err));
+        }
+      })
+      .catch(err => console.error('Invoice generation failed:', err));
 
     // Send confirmation email to customer (non-blocking)
     if (mailService && mailService.sendOrderConfirmation) {

@@ -11,10 +11,12 @@ exports.getDashboardStats = async (req, res, next) => {
       Product.countDocuments(),
       User.countDocuments(),
       Order.countDocuments(),
-      Order.find({}, 'total status createdAt')
+      // Get all non-cancelled orders for total sales calculation
+      Order.find({ status: { $ne: 'cancelled' } }, 'total status createdAt')
     ]);
 
-    const totalSales = orders.reduce((sum, order) => sum + (order.total || 0), 0);
+    // Calculate total sales excluding cancelled orders
+    const totalSales = orders.reduce((sum, order) => sum + (Number(order.total) || 0), 0);
 
     // Orders by status
     const ordersByStatus = orders.reduce((acc, order) => {
@@ -358,8 +360,33 @@ exports.updateOrderStatus = async (req, res, next) => {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    const order = await Order.findByIdAndUpdate(id, { status }, { new: true });
+    const order = await Order.findByIdAndUpdate(id, { status }, { new: true }).populate('customer');
     if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    // Generate invoice when order is delivered (for COD orders)
+    if (status === 'delivered' && order.payment?.method === 'cod') {
+      const InvoiceService = require('../services/invoiceService');
+      InvoiceService.generateInvoice(order._id.toString())
+        .then(invoiceResult => {
+          console.log(`✅ Invoice generated for delivered COD order: ${invoiceResult.invoice.invoiceNumber}`);
+          // Send invoice email if mail service available
+          const mailService = require('../services/mail.service');
+          if (mailService && mailService.sendInvoiceEmail) {
+            mailService.sendInvoiceEmail({
+              customerName: order.customer?.name || 'Customer',
+              customerEmail: order.customer?.email,
+              invoiceNumber: invoiceResult.invoice.invoiceNumber,
+              pdfPath: invoiceResult.pdfPath
+            }).catch(err => console.error('Invoice email send failed:', err));
+          }
+        })
+        .catch(err => {
+          // Don't fail the status update if invoice generation fails
+          if (!err.message.includes('already exists')) {
+            console.error('Invoice generation failed:', err);
+          }
+        });
+    }
 
     res.json({ ok: true, order });
   } catch (err) {

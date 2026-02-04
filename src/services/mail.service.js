@@ -507,6 +507,125 @@ class MailService {
     });
   }
 
+  /**
+   * Send invoice email with PDF attachment
+   * 
+   * @param {Object} invoiceData - Invoice information
+   * @param {String} invoiceData.customerName - Customer name
+   * @param {String} invoiceData.customerEmail - Customer email
+   * @param {String} invoiceData.invoiceNumber - Invoice number
+   * @param {String} invoiceData.pdfPath - Path to invoice PDF file
+   * @returns {Promise<Object>} Send result
+   */
+  async sendInvoiceEmail(invoiceData) {
+    await this.initialize();
+
+    const { customerName, customerEmail, invoiceNumber, pdfPath } = invoiceData;
+
+    if (!customerEmail || !this.isValidEmail(customerEmail)) {
+      throw new Error('Invalid customer email address');
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      </head>
+      <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+          <h1 style="color: white; margin: 0; font-size: 28px;">Tax Invoice</h1>
+        </div>
+        
+        <div style="background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px;">
+          <p style="font-size: 16px; margin-bottom: 20px;">Dear ${customerName || 'Valued Customer'},</p>
+          
+          <p style="font-size: 14px; line-height: 1.8; margin-bottom: 20px;">
+            Thank you for your purchase! Please find your GST invoice attached to this email.
+          </p>
+          
+          <div style="background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #667eea;">
+            <p style="margin: 0; font-size: 14px; color: #666;">Invoice Number</p>
+            <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">${invoiceNumber}</p>
+          </div>
+          
+          <p style="font-size: 14px; line-height: 1.8; margin-bottom: 20px;">
+            This is a GST-compliant tax invoice for your records. Please keep it safe for any future reference or warranty claims.
+          </p>
+          
+          <div style="background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 0; font-size: 13px; color: #856404;">
+              <strong>Note:</strong> If you have any questions about your invoice, please contact our support team.
+            </p>
+          </div>
+          
+          <p style="font-size: 14px; color: #666; margin-top: 30px;">
+            Best regards,<br>
+            <strong>Team DoorDripp</strong>
+          </p>
+        </div>
+        
+        <div style="text-align: center; padding: 20px; font-size: 12px; color: #999;">
+          <p>This is an automated email. Please do not reply to this message.</p>
+          <p>&copy; ${new Date().getFullYear()} DoorDripp. All rights reserved.</p>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const mailOptions = {
+      from: `"${process.env.MAIL_FROM_NAME || 'DoorDripp'}" <${process.env.MAIL_FROM || process.env.SMTP_USER}>`,
+      to: this.sanitizeEmailInput(customerEmail),
+      subject: `Your Invoice ${invoiceNumber} - DoorDripp`,
+      html,
+      text: `Dear ${customerName}, Thank you for your purchase! Your invoice ${invoiceNumber} is attached. Best regards, Team DoorDripp`
+    };
+
+    // Attach PDF if available
+    if (pdfPath) {
+      try {
+        const fs = require('fs');
+        if (fs.existsSync(pdfPath)) {
+          mailOptions.attachments = [{
+            filename: `Invoice-${invoiceNumber.replace(/\//g, '-')}.pdf`,
+            path: pdfPath,
+            contentType: 'application/pdf'
+          }];
+        } else {
+          console.warn(`Invoice PDF not found: ${pdfPath}`);
+        }
+      } catch (err) {
+        console.error('Error attaching invoice PDF:', err);
+      }
+    }
+
+    // Send email
+    if (!this.transporter) {
+      console.log('\n📧 ===== INVOICE EMAIL (Console Mode) =====');
+      console.log(`To: ${customerEmail}`);
+      console.log(`Subject: Your Invoice ${invoiceNumber}`);
+      console.log(`Invoice PDF: ${pdfPath || 'Not attached'}`);
+      console.log('==========================================\n');
+      return { success: true, mode: 'console' };
+    }
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Invoice email sent to ${customerEmail}: ${info.messageId}`);
+      return { success: true, messageId: info.messageId, mode: 'smtp' };
+    } catch (error) {
+      console.error(`❌ Failed to send invoice email to ${customerEmail}:`, error.message);
+      // Fallback to console
+      console.log('\n📧 ===== INVOICE EMAIL (Console Fallback) =====');
+      console.log(`To: ${customerEmail}`);
+      console.log(`Subject: Your Invoice ${invoiceNumber}`);
+      console.log(`Invoice PDF: ${pdfPath || 'Not attached'}`);
+      console.log('=============================================\n');
+      return { success: true, mode: 'console-fallback' };
+    }
+  }
+
   // ========== Helper Methods ==========
 
   /**
