@@ -158,7 +158,7 @@ node-backend/
 # Required for OAuth
 GOOGLE_CLIENT_ID=your_google_client_id
 GOOGLE_CLIENT_SECRET=your_google_client_secret
-GOOGLE_CALLBACK_URL=http://localhost:4000/api/auth/google/callback
+GOOGLE_CALLBACK_URL=http://localhost:4000//api/auth/google/callback
 
 # Required for ImageKit photo storage
 IMAGEKIT_PUBLIC_KEY=public_xxxxx

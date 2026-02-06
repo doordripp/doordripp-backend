@@ -35,7 +35,7 @@ async function createTestProduct() {
     stock: 100,
     category: 'Clothing',
     subcategory: 'T-Shirts',
-    images: ['https://via.placeholder.com/300'],
+    images: ['https://placeholder.com/300'],
     hsnSac: '6109', // HSN code for T-shirts
     gstRate: 12, // 12% GST for clothing
     isNewArrival: true
