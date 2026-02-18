@@ -404,6 +404,19 @@ router.post('/verify-otp', async (req, res) => {
   }
 })
 
+// Google Sign-In with idToken (POST - for Flutter/mobile apps)
+// Receives idToken from client, verifies it, and signs in or creates user
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  router.post('/google', async (req, res, next) => {
+    try {
+      return authController.signInWithGoogle(req, res, next);
+    } catch (e) {
+      console.error('google idToken sign-in error', e);
+      return res.status(500).json({ error: 'Failed to sign in with Google' });
+    }
+  });
+}
+
 // Google OAuth routes - only enable if Google creds are configured
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   router.get('/google', (req, res, next) => {

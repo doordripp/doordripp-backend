@@ -48,6 +48,12 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like curl, mobile apps)
     if (!origin) return callback(null, true);
+    
+    // Allow all localhost origins in development
+    if (origin && origin.startsWith('http://localhost:')) {
+      return callback(null, true);
+    }
+    
     if (allowedOrigins.includes(origin)) return callback(null, true);
     if (process.env.CORS_ALLOW_ALL === 'true') return callback(null, true);
     return callback(new Error('CORS not allowed for origin: ' + origin), false);

@@ -172,7 +172,6 @@ const invoiceSchema = new mongoose.Schema({
 // Indexes for efficient queries
 invoiceSchema.index({ financialYear: 1, invoiceNumber: 1 });
 invoiceSchema.index({ invoiceDate: -1 });
-invoiceSchema.index({ orderId: 1 });
 
 // Static method to generate next invoice number
 invoiceSchema.statics.generateNextInvoiceNumber = async function(financialYear) {

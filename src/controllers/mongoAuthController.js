@@ -448,6 +448,91 @@ exports.resendEmailOTP = async (req, res, next) => {
   }
 };
 
+// Verify Google idToken and sign in or create user
+exports.signInWithGoogle = async (req, res, next) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      return res.status(400).json({ error: 'idToken is required' });
+    }
+
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+    let ticket;
+    try {
+      ticket = await client.verifyIdToken({
+        idToken: idToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+    } catch (err) {
+      console.error('❌ Google idToken verification failed:', err.message);
+      return res.status(401).json({ error: 'Invalid Google token' });
+    }
+
+    const payload = ticket.getPayload();
+    const email = payload.email;
+    const name = payload.name || payload.email.split('@')[0];
+    const picture = payload.picture;
+
+    console.log(`✅ Google token verified for: ${email}`);
+
+    // Find or create user
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      // Create new user
+      const pwd = Math.random().toString(36).slice(-12);
+      user = new User({
+        name,
+        email,
+        password: pwd,
+        emailVerified: true,
+        avatar: picture || null,
+        roles: [],
+        termsAccepted: true,
+      });
+      await user.save();
+      console.log(`✅ New user created from Google: ${email}`);
+    } else {
+      // Update existing user if needed
+      let updated = false;
+      if (!user.emailVerified) {
+        user.emailVerified = true;
+        updated = true;
+      }
+      if (picture && (!user.avatar || user.avatar.includes('googleusercontent.com'))) {
+        user.avatar = picture;
+        updated = true;
+      }
+      if (updated) {
+        await user.save();
+      }
+      console.log(`✅ Existing user accessed via Google: ${email}`);
+    }
+
+    // Generate JWT token
+    const { token, cookieOptions } = await exports.createTokenForUser(user);
+
+    return res.json({
+      token,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        roles: user.roles,
+        avatar: user.avatar,
+        phone: user.phone || null,
+        emailVerified: user.emailVerified,
+      },
+    });
+  } catch (err) {
+    console.error('❌ signInWithGoogle error:', err.message);
+    return res.status(500).json({ error: 'Failed to sign in with Google' });
+  }
+};
+
 exports.me = async (req, res, next) => {
   try {
     console.log('🔍 /me called - checking auth...');
