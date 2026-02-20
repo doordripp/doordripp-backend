@@ -23,16 +23,22 @@ exports.addItem = async (req, res, next) => {
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ error: 'Product not found' });
     
+    const requestedQty = Math.max(1, parseInt(quantity) || 1);
+
     let cart = await Cart.findOne({ user: userId });
     if (!cart) {
       cart = await Cart.create({ user: userId, items: [] });
     }
     
     const existing = cart.items.find(i => i.product.toString() === productId);
+    const existingQty = existing ? existing.quantity : 0;
+    if (product.stock <= 0 || existingQty + requestedQty > product.stock) {
+      return res.status(400).json({ error: 'Out of stock' });
+    }
     if (existing) {
-      existing.quantity += quantity;
+      existing.quantity += requestedQty;
     } else {
-      cart.items.push({ product: productId, quantity });
+      cart.items.push({ product: productId, quantity: requestedQty });
     }
     
     await cart.save();
