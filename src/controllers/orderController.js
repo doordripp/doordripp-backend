@@ -5,7 +5,12 @@ const mailService = require('../services/mail.service');
 const DeliveryZone = require('../models/DeliveryZone');
 const AreaManager = require('../models/AreaManager');
 const User = require('../models/User');
-const { calculateItemGST } = require('../utils/gstCalculator');
+
+const DELIVERY_OPTIONS = {
+  regular: { charge: 80, eta: '45 minutes', label: 'Regular Delivery' },
+  standard: { charge: 100, eta: '35 minutes', label: 'Standard Delivery' },
+  priority: { charge: 120, eta: '25 minutes', label: 'Priority Delivery' }
+};
 
 /**
  * Calculate distance between two coordinates (in km) using Haversine formula
@@ -145,17 +150,16 @@ async function getDeliveryZoneAndManagers(address) {
 
 exports.create = async (req, res, next) => {
   try {
-    const { items, shippingAddress, deliveryFee = 0 } = req.body;
+    const { items, shippingAddress, deliveryType = 'regular' } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'No items' });
 
-    // Get buyer's state code from shipping address (default to seller state if not provided)
-    const buyerStateCode = shippingAddress?.stateCode || process.env.SELLER_STATE_CODE || '27'; // Default: Maharashtra
+    // Validate and use delivery options constants
+    const selectedDelivery = DELIVERY_OPTIONS[deliveryType] || DELIVERY_OPTIONS.regular;
+    const deliveryFee = selectedDelivery.charge;
+    const deliveryETA = selectedDelivery.eta;
 
-    // build order items and calculate GST
+    // build order items
     let subtotal = 0;
-    let cgstTotal = 0;
-    let sgstTotal = 0;
-    let igstTotal = 0;
     const orderItems = [];
     
     for (const it of items) {
@@ -169,37 +173,22 @@ exports.create = async (req, res, next) => {
       const itemTotal = price * it.quantity;
       subtotal += itemTotal;
       
-      // Calculate GST for this item
-      const gstRate = product.gstRate || 12; // Default to 12% if not specified
-      const sellerStateCode = process.env.SELLER_STATE_CODE || '27'; // Default: Maharashtra
-      
-      const gstBreakdown = calculateItemGST({
-        taxableAmount: itemTotal,
-        gstRate,
-        sellerStateCode,
-        buyerStateCode
-      });
-      
-      cgstTotal += gstBreakdown.cgst;
-      sgstTotal += gstBreakdown.sgst;
-      igstTotal += gstBreakdown.igst;
-      
       orderItems.push({
         product: product._id,
         name: product.name,
         quantity: it.quantity,
         price,
         itemTotal,
-        gstRate,
-        cgst: gstBreakdown.cgst,
-        sgst: gstBreakdown.sgst,
-        igst: gstBreakdown.igst
+        gstRate: 0,
+        cgst: 0,
+        sgst: 0,
+        igst: 0
       });
     }
 
     // Calculate final totals
-    const totalGST = cgstTotal + sgstTotal + igstTotal;
-    const total = subtotal + totalGST + deliveryFee;
+    const totalGST = 0;
+    const total = subtotal + deliveryFee;
 
     // create a Razorpay order (amount in paise)
     const razorOrder = await RazorpayUtil.createOrder({ amount: Math.round(total * 100), currency: 'INR' });
@@ -208,16 +197,17 @@ exports.create = async (req, res, next) => {
       customer: req.user.id,
       items: orderItems,
       subtotal,
-      cgstTotal,
-      sgstTotal,
-      igstTotal,
-      totalGST,
+      cgstTotal: 0,
+      sgstTotal: 0,
+      igstTotal: 0,
+      totalGST: 0,
       deliveryFee,
+      deliveryType,
+      deliveryETA,
       total,
       status: 'pending',
       payment: { razorpayOrderId: razorOrder.id, status: 'pending' },
-      shippingAddress,
-      buyerStateCode
+      shippingAddress
     });
 
     // RESERVE stock (mark as reserved but don't reduce available stock yet)

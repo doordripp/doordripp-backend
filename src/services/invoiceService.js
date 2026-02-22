@@ -57,7 +57,7 @@ class InvoiceService {
         unitPrice: item.price,
         discount: 0,
         taxableValue: item.price * item.quantity,
-        gstRate: item.product?.gstRate || 18 // Default 18% if not specified
+        gstRate: item.product?.gstRate || 0 // Default 0% if not specified
       }));
 
       // 7. Calculate GST

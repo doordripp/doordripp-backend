@@ -7,7 +7,7 @@ const OrderItemSchema = new mongoose.Schema({
   price: { type: Number, required: true },
   image: { type: String },
   // GST Details per item
-  gstRate: { type: Number, default: 18 }, // 5, 12, 18, 28, etc.
+  gstRate: { type: Number, default: 0 }, // 5, 12, 18, 28, etc.
   cgst: { type: Number, default: 0 },
   sgst: { type: Number, default: 0 },
   igst: { type: Number, default: 0 },
@@ -25,6 +25,12 @@ const OrderSchema = new mongoose.Schema({
   igstTotal: { type: Number, default: 0 }, // Total IGST for all items
   totalGST: { type: Number, default: 0 }, // Total GST (CGST+SGST or IGST)
   deliveryFee: { type: Number, default: 0 },
+  deliveryType: { 
+    type: String, 
+    enum: ['regular', 'standard', 'priority'],
+    default: 'regular' 
+  },
+  deliveryETA: { type: String, default: '45 minutes' },
   total: { type: Number, required: true }, // subtotal + GST + delivery
   
   status: { 

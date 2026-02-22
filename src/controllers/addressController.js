@@ -132,6 +132,15 @@ exports.saveAddress = async (req, res) => {
       });
     }
 
+    // ENFORCE LIMIT: Only 3 addresses max
+    const existingCount = await Address.countDocuments({ userId: req.user._id });
+    if (existingCount >= 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'You can only save up to 3 addresses. Please delete an existing address to add a new one.'
+      });
+    }
+
     const lat = parseFloat(latitude);
     const lng = parseFloat(longitude);
 

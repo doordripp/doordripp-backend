@@ -32,7 +32,7 @@ const ProductSchema = new mongoose.Schema({
   },
   gstRate: { 
     type: Number, 
-    default: 18,
+    default: 0,
     min: 0,
     max: 28,
     comment: 'GST rate in percentage (0, 5, 12, 18, 28)'

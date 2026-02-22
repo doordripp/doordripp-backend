@@ -8,23 +8,23 @@ const mongoose = require('mongoose');
 const Product = require('../src/models/Product');
 
 const CATEGORY_GST_MAP = {
-  clothing: { hsnSac: '6109', gstRate: 12 },
-  apparel: { hsnSac: '6109', gstRate: 12 },
-  fashion: { hsnSac: '6109', gstRate: 12 },
-  electronics: { hsnSac: '8517', gstRate: 18 },
-  mobile: { hsnSac: '8517', gstRate: 18 },
-  gadgets: { hsnSac: '8517', gstRate: 18 },
+  clothing: { hsnSac: '6109', gstRate: 0 },
+  apparel: { hsnSac: '6109', gstRate: 0 },
+  fashion: { hsnSac: '6109', gstRate: 0 },
+  electronics: { hsnSac: '8517', gstRate: 0 },
+  mobile: { hsnSac: '8517', gstRate: 0 },
+  gadgets: { hsnSac: '8517', gstRate: 0 },
   books: { hsnSac: '4901', gstRate: 0 },
-  food: { hsnSac: '2106', gstRate: 5 },
-  grocery: { hsnSac: '2106', gstRate: 5 },
-  furniture: { hsnSac: '9403', gstRate: 18 },
-  toys: { hsnSac: '9503', gstRate: 18 },
-  footwear: { hsnSac: '6403', gstRate: 18 },
-  beauty: { hsnSac: '3304', gstRate: 18 },
-  personalcare: { hsnSac: '3304', gstRate: 18 }
+  food: { hsnSac: '2106', gstRate: 0 },
+  grocery: { hsnSac: '2106', gstRate: 0 },
+  furniture: { hsnSac: '9403', gstRate: 0 },
+  toys: { hsnSac: '9503', gstRate: 0 },
+  footwear: { hsnSac: '6403', gstRate: 0 },
+  beauty: { hsnSac: '3304', gstRate: 0 },
+  personalcare: { hsnSac: '3304', gstRate: 0 }
 };
 
-const DEFAULT_GST = { hsnSac: '9973', gstRate: 18 };
+const DEFAULT_GST = { hsnSac: '9973', gstRate: 0 };
 
 async function connectDB() {
   await mongoose.connect(process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://localhost:27017/doordripp');
@@ -45,15 +45,11 @@ async function updateProducts() {
     const categoryKey = normalizeCategory(product.category);
     const mapping = CATEGORY_GST_MAP[categoryKey] || DEFAULT_GST;
 
-    const needsUpdate =
-      !product.hsnSac ||
-      !product.gstRate ||
-      product.hsnSac === '9973' ||
-      product.gstRate === 18;
+    const needsUpdate = product.gstRate !== 0;
 
     if (needsUpdate) {
-      product.hsnSac = product.hsnSac || mapping.hsnSac;
-      product.gstRate = product.gstRate || mapping.gstRate;
+      product.hsnSac = mapping.hsnSac;
+      product.gstRate = 0;
 
       await product.save();
       updated += 1;

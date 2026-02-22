@@ -56,13 +56,25 @@ async function seed() {
     for (const productData of ALL_PRODUCTS) {
       const exists = await Product.findOne({ name: productData.name })
       if (!exists) {
+        // Default sizes and colors for seeding if not provided
+        const defaultSizes = productData.sizes || ['S', 'M', 'L', 'XL', 'XXL']
+        const defaultColors = productData.colors || ['Black', 'White', 'Navy Blue', 'Gray']
+        
         const product = new Product({
           name: productData.name,
-          description: productData.description || `High-quality ${productData.name}`,
+          slug: productData.name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, ''),
+          description: productData.description || `High-quality ${productData.name} in various sizes and colors. Perfect for everyday wear.`,
           price: productData.price,
-          stock: Math.floor(Math.random() * 100) + 10, // Random stock 10-110
+          originalPrice: productData.originalPrice || Math.round(productData.price * 1.2),
+          discount: productData.discount || 0,
+          stock: Math.floor(Math.random() * 100) + 10,
           category: productData.category || 'general',
-          images: productData.images || []
+          images: productData.images || [productData.image],
+          sizes: defaultSizes,
+          colors: defaultColors,
+          rating: productData.rating || { rating: 4.5, reviews: 10 },
+          gstRate: 0,
+          hsnSac: '9973'
         })
         await product.save()
         productsCreated++
