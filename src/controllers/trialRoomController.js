@@ -22,7 +22,7 @@ const Product = require('../models/Product');
 const TRIAL_CONSTANTS = {
   MAX_ITEMS: 3,
   MIN_ITEMS: 1,
-  TRIAL_FEE: 200
+  TRIAL_FEE: 119
 };
 
 /**
@@ -270,24 +270,14 @@ exports.createTrialOrder = async (req, res) => {
  */
 exports.checkDailyUsage = async (req, res) => {
   try {
-    const userId = req.user._id;
-
-    const hasUsedToday = await TrialOrder.countDocuments({
-      userId,
-      createdAt: {
-        $gte: getTodayStart(),
-        $lte: getTodayEnd()
-      },
-      status: { $ne: 'cancelled' }
-    });
-
+    // Daily limit removed — users can use trial room multiple times per day
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.set('Pragma', 'no-cache');
     res.json({
       success: true,
-      hasUsedToday: hasUsedToday > 0,
-      message: hasUsedToday > 0 
-        ? 'Trial already used today. Come back tomorrow!' 
-        : 'Trial room available',
-      nextAvailableDate: hasUsedToday > 0 ? getTodayEnd() : null
+      hasUsedToday: false,
+      message: 'Trial room available',
+      nextAvailableDate: null
     });
 
   } catch (error) {
