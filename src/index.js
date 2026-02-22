@@ -21,6 +21,7 @@ const webhookRoutes = require('./routes/webhooks');
 const addressRoutes = require('./routes/address');
 const invoiceRoutes = require('./routes/invoice');
 const supportRoutes = require('./routes/support');
+const trialRoomRoutes = require('./routes/trialRoom');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -92,6 +93,7 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/frontend/products', frontendProductRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/trial-room', trialRoomRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', imagekitRoutes);

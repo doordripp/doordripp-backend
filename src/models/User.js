@@ -29,7 +29,9 @@ const UserSchema = new mongoose.Schema({
   googleId: { type: String, unique: true, sparse: true },
   // Password reset fields
   resetPasswordToken: { type: String, default: null },
-  resetPasswordExpires: { type: Date, default: null }
+  resetPasswordExpires: { type: Date, default: null },
+  // Trial Room fields
+  lastTrialDate: { type: Date, default: null, index: true }
 }, { timestamps: true })
 
 UserSchema.methods.matchPassword = async function (enteredPassword) {
