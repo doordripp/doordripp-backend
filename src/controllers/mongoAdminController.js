@@ -311,6 +311,10 @@ exports.listOrders = async (req, res, next) => {
       items: order.items,
       total: order.total,
       status: order.status,
+      isTrial: order.isTrial || false,
+      trialItems: order.trialItems || [],
+      trialFee: order.trialFee || 0,
+      deliveryFee: order.deliveryFee || 0,
       shippingAddress: order.shippingAddress,
       payment: order.payment,
       date: order.createdAt
@@ -341,6 +345,10 @@ exports.getOrder = async (req, res, next) => {
       items: order.items,
       total: order.total,
       status: order.status,
+      isTrial: order.isTrial || false,
+      trialItems: order.trialItems || [],
+      trialFee: order.trialFee || 0,
+      deliveryFee: order.deliveryFee || 0,
       shippingAddress: order.shippingAddress,
       payment: order.payment,
       date: order.createdAt

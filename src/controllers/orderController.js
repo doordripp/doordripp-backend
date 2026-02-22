@@ -150,7 +150,7 @@ async function getDeliveryZoneAndManagers(address) {
 
 exports.create = async (req, res, next) => {
   try {
-    const { items, shippingAddress, deliveryType = 'regular' } = req.body;
+    const { items, shippingAddress, deliveryType = 'regular', trialFee = 0, isTrial = false, trialItems = [] } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'No items' });
 
     // Validate and use delivery options constants
@@ -188,7 +188,7 @@ exports.create = async (req, res, next) => {
 
     // Calculate final totals
     const totalGST = 0;
-    const total = subtotal + deliveryFee;
+    const total = subtotal + deliveryFee + trialFee;
 
     // create a Razorpay order (amount in paise)
     const razorOrder = await RazorpayUtil.createOrder({ amount: Math.round(total * 100), currency: 'INR' });
@@ -202,6 +202,9 @@ exports.create = async (req, res, next) => {
       igstTotal: 0,
       totalGST: 0,
       deliveryFee,
+      trialFee,
+      isTrial,
+      trialItems,
       deliveryType,
       deliveryETA,
       total,

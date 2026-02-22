@@ -25,6 +25,14 @@ const OrderSchema = new mongoose.Schema({
   igstTotal: { type: Number, default: 0 }, // Total IGST for all items
   totalGST: { type: Number, default: 0 }, // Total GST (CGST+SGST or IGST)
   deliveryFee: { type: Number, default: 0 },
+  trialFee: { type: Number, default: 0 },
+  isTrial: { type: Boolean, default: false },
+  trialItems: [{
+    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    name: { type: String },
+    image: { type: String },
+    price: { type: Number }
+  }],
   deliveryType: { 
     type: String, 
     enum: ['regular', 'standard', 'priority'],
