@@ -59,7 +59,7 @@ npm run dev
 npm start
 ```
 
-Server will start on **https://doordripp-backend.onrender.com/**
+Server will start on **http://localhost:4000/**
 
 5. **Create Admin User (Optional)**
 ```bash
@@ -142,7 +142,7 @@ JWT_SECRET=your-super-secret-jwt-key-here
 
 # Server URLs
 FRONTEND_URL=http://localhost:5173
-BACKEND_URL=https://doordripp-backend.onrender.com/
+BACKEND_URL=http://localhost:4000/
 
 # ImageKit (Cloud Image Storage)
 IMAGEKIT_PUBLIC_KEY=public_eZEGOkMzOtu8aYnlvXf0CGYz5gA=
@@ -152,7 +152,7 @@ IMAGEKIT_URL_ENDPOINT=https://ik.imagekit.io/xeuci3es7
 # Google OAuth
 GOOGLE_CLIENT_ID=435840667821-ibluemm3j9cvlaj3pslt2pgj8aklms7n.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=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
-GOOGLE_CALLBACK_URL=https://doordripp-backend.onrender.com//api/auth/google/callback
+GOOGLE_CALLBACK_URL=http://localhost:4000//api/auth/google/callback
 ```
 
 ## 🛠️ Scripts
@@ -192,7 +192,7 @@ npm run create-admin # Create admin user
 node -e "require('./src/config/db.js')"
 
 # Test server health
-curl https://doordripp-backend.onrender.com//api/health
+curl http://localhost:4000//api/health
 ```
 
 ## 📝 Notes
