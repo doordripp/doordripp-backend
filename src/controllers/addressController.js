@@ -379,18 +379,22 @@ exports.updateAddress = async (req, res) => {
  */
 exports.deleteAddress = async (req, res) => {
   try {
+    console.log(`[DELETE ADDRESS] User ${req.user._id} deleting address ${req.params.id}`);
+    
     const address = await Address.findOneAndDelete({
       _id: req.params.id,
       userId: req.user._id
     });
 
     if (!address) {
+      console.log(`[DELETE ADDRESS] Address ${req.params.id} not found for user ${req.user._id}`);
       return res.status(404).json({
         success: false,
         message: 'Address not found'
       });
     }
 
+    console.log(`[DELETE ADDRESS] Successfully deleted address ${req.params.id}`);
     res.json({
       success: true,
       message: 'Address deleted successfully'

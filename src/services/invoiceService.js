@@ -86,7 +86,7 @@ class InvoiceService {
         sellerGSTIN: sellerDetails.gstin,
         sellerAddress: sellerDetails.address,
         sellerStateCode: sellerDetails.stateCode,
-        sellerPAN: sellerDetails.pan,
+        // sellerPAN removed for privacy
         sellerEmail: sellerDetails.email,
         sellerPhone: sellerDetails.phone,
         
