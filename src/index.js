@@ -22,7 +22,8 @@ const addressRoutes = require('./routes/address');
 const invoiceRoutes = require('./routes/invoice');
 const supportRoutes = require('./routes/support');
 const trialRoomRoutes = require('./routes/trialRoom');
-
+// Socket.io setup
+const { setupSocketIO } = require('./sockets')
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -136,8 +137,12 @@ function startServer(port, attempts = 0) {
   const maxAttempts = 5;
   const server = app.listen(port);
 
+  // Initialize Socket.io with CORS options
+  const io = setupSocketIO(server, corsOptions)
+
   server.on('listening', () => {
     console.log(`Doordripp Node backend listening on port ${port}`);
+    console.log(`Socket.io tracking enabled`)
   });
 
   server.on('error', err => {

@@ -3,6 +3,41 @@ const User = require('../models/User');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
 const AreaManager = require('../models/AreaManager');
+const { hasAnyRole } = require('../middleware/auth');
+
+const CURRENT_DELIVERY_ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'processing', 'shipped'];
+
+const parseCoordinate = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = parseFloat(value);
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
+const isOrderInAnyAssignedZone = (order, assignedZones) => {
+  const lat = parseCoordinate(order?.shippingAddress?.latitude);
+  const lng = parseCoordinate(order?.shippingAddress?.longitude);
+
+  if (lat === null || lng === null || !Array.isArray(assignedZones) || assignedZones.length === 0) {
+    return false;
+  }
+
+  return assignedZones.some(zone => {
+    if (!zone || !zone.isActive || typeof zone.containsPoint !== 'function') return false;
+    return zone.containsPoint(lat, lng);
+  });
+};
+
+const getAssignedZonesForDeliveryUser = async (userId) => {
+  const assignments = await AreaManager.find({
+    manager: userId,
+    status: 'active'
+  }).populate('deliveryZone');
+
+  return assignments
+    .map(assignment => assignment.deliveryZone)
+    .filter(Boolean)
+    .filter(zone => zone.isActive);
+};
 
 // ==================== DASHBOARD STATS ====================
 exports.getDashboardStats = async (req, res, next) => {
@@ -286,6 +321,59 @@ exports.listOrders = async (req, res, next) => {
   try {
     const { status, page = 1, limit = 50 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
+    const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
+    const isDeliveryPartner = hasAnyRole(req.user?.roles, ['delivery_partner']);
+
+    if (!isAdmin && !isDeliveryPartner) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    if (isDeliveryPartner) {
+      const assignedZones = await getAssignedZonesForDeliveryUser(req.user.id);
+      if (assignedZones.length === 0) {
+        return res.json({
+          orders: [],
+          total: 0,
+          page: parseInt(page),
+          totalPages: 0
+        });
+      }
+
+      const filter = {
+        status: status && status !== 'all' ? status : { $in: CURRENT_DELIVERY_ORDER_STATUSES }
+      };
+
+      const candidateOrders = await Order.find(filter)
+        .populate('customer', 'name email')
+        .sort({ createdAt: -1 });
+
+      const zoneFilteredOrders = candidateOrders.filter(order => isOrderInAnyAssignedZone(order, assignedZones));
+      const paginatedOrders = zoneFilteredOrders.slice(skip, skip + parseInt(limit));
+
+      const formattedOrders = paginatedOrders.map(order => ({
+        id: order._id,
+        _id: order._id,
+        customer: order.customer?.name || 'Unknown',
+        customerEmail: order.customer?.email || '',
+        items: order.items,
+        total: order.total,
+        status: order.status,
+        isTrial: order.isTrial || false,
+        trialItems: order.trialItems || [],
+        trialFee: order.trialFee || 0,
+        deliveryFee: order.deliveryFee || 0,
+        shippingAddress: order.shippingAddress,
+        payment: order.payment,
+        date: order.createdAt
+      }));
+
+      return res.json({
+        orders: formattedOrders,
+        total: zoneFilteredOrders.length,
+        page: parseInt(page),
+        totalPages: Math.ceil(zoneFilteredOrders.length / parseInt(limit))
+      });
+    }
 
     const filter = {};
     if (status && status !== 'all') {
@@ -337,6 +425,22 @@ exports.getOrder = async (req, res, next) => {
     const order = await Order.findById(req.params.id).populate('customer', 'name email');
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
+    const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
+    const isDeliveryPartner = hasAnyRole(req.user?.roles, ['delivery_partner']);
+
+    if (!isAdmin && isDeliveryPartner) {
+      if (!CURRENT_DELIVERY_ORDER_STATUSES.includes(order.status)) {
+        return res.status(403).json({ error: 'You can only access current orders' });
+      }
+
+      const assignedZones = await getAssignedZonesForDeliveryUser(req.user.id);
+      const canAccessOrder = isOrderInAnyAssignedZone(order, assignedZones);
+
+      if (!canAccessOrder) {
+        return res.status(403).json({ error: 'Order is outside your assigned area' });
+      }
+    }
+
     res.json({
       id: order._id,
       _id: order._id,
@@ -361,15 +465,50 @@ exports.getOrder = async (req, res, next) => {
 exports.updateOrderStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, note } = req.body;
+    const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
+    const isDeliveryPartner = hasAnyRole(req.user?.roles, ['delivery_partner']);
 
-    const validStatuses = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+    if (!isAdmin && !isDeliveryPartner) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    const validStatuses = isAdmin
+      ? ['pending', 'confirmed', 'packed', 'processing', 'shipped', 'delivered', 'cancelled']
+      : ['packed', 'processing', 'shipped', 'delivered'];
+
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    const order = await Order.findByIdAndUpdate(id, { status }, { new: true }).populate('customer');
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const existingOrder = await Order.findById(id);
+    if (!existingOrder) return res.status(404).json({ error: 'Order not found' });
+
+    if (isDeliveryPartner) {
+      const assignedZones = await getAssignedZonesForDeliveryUser(req.user.id);
+      const canAccessOrder = isOrderInAnyAssignedZone(existingOrder, assignedZones);
+
+      if (!canAccessOrder) {
+        return res.status(403).json({ error: 'Order is outside your assigned area' });
+      }
+
+      if (!CURRENT_DELIVERY_ORDER_STATUSES.includes(existingOrder.status) && existingOrder.status !== 'delivered') {
+        return res.status(400).json({ error: `Cannot update order with status: ${existingOrder.status}` });
+      }
+    }
+
+    existingOrder.status = status;
+    existingOrder.deliveryUpdates = existingOrder.deliveryUpdates || [];
+    existingOrder.deliveryUpdates.push({
+      status,
+      note: typeof note === 'string' ? note.trim() : undefined,
+      updatedBy: req.user.id,
+      updatedByRole: isAdmin ? 'admin' : 'delivery_partner',
+      updatedAt: new Date()
+    });
+    await existingOrder.save();
+
+    const order = await Order.findById(id).populate('customer');
 
     // Generate invoice when order is delivered (for COD orders)
     if (status === 'delivered' && order.payment?.method === 'cod') {
@@ -620,9 +759,9 @@ exports.getUserDetails = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    // Get area manager assignments if user is a manager
+    // Get area manager assignments if user handles delivery areas
     let areaAssignments = [];
-    if (user.roles.includes('manager')) {
+    if (user.roles.includes('manager') || user.roles.includes('delivery_partner')) {
       areaAssignments = await AreaManager.find({ manager: userId })
         .populate('deliveryZone', 'name latitude longitude radius')
         .sort({ createdAt: -1 });
@@ -665,7 +804,7 @@ exports.changeUserRole = async (req, res, next) => {
     }
 
     // Validate roles
-    const validRoles = ['admin', 'manager', 'customer'];
+    const validRoles = ['admin', 'manager', 'delivery_partner', 'customer'];
     const isValid = roles.every(role => validRoles.includes(role));
     if (!isValid) {
       return res.status(400).json({ success: false, error: 'Invalid role specified' });
@@ -712,8 +851,8 @@ exports.banUser = async (req, res, next) => {
     user.bannedBy = req.user.id;
     await user.save();
 
-    // If user was a manager, deactivate their assignments
-    if (user.roles.includes('manager')) {
+    // If user handles delivery areas, deactivate their assignments
+    if (user.roles.includes('manager') || user.roles.includes('delivery_partner')) {
       await AreaManager.updateMany(
         { manager: userId },
         { status: 'suspended' }
@@ -748,8 +887,8 @@ exports.unbanUser = async (req, res, next) => {
     user.bannedBy = null;
     await user.save();
 
-    // If user is a manager, reactivate their assignments
-    if (user.roles.includes('manager')) {
+    // If user handles delivery areas, reactivate their assignments
+    if (user.roles.includes('manager') || user.roles.includes('delivery_partner')) {
       await AreaManager.updateMany(
         { manager: userId },
         { status: 'active' }
@@ -780,16 +919,16 @@ exports.assignManagerToArea = async (req, res, next) => {
       });
     }
 
-    // Verify manager exists and has manager or admin role
+    // Verify user exists and has manager, delivery_partner, or admin role
     const manager = await User.findById(managerId);
     if (!manager) {
       return res.status(404).json({ success: false, error: 'Manager not found' });
     }
 
-    if (!manager.roles.includes('manager') && !manager.roles.includes('admin')) {
+    if (!manager.roles.includes('manager') && !manager.roles.includes('delivery_partner') && !manager.roles.includes('admin')) {
       return res.status(400).json({
         success: false,
-        error: 'User must have manager or admin role'
+        error: 'User must have manager, delivery partner, or admin role'
       });
     }
 

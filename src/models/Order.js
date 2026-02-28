@@ -46,6 +46,47 @@ const OrderSchema = new mongoose.Schema({
     default: 'pending', 
     enum: ['pending', 'confirmed', 'packed', 'processing', 'shipped', 'delivered', 'cancelled'] 
   },
+  // Live Tracking Status (for deliveries)
+  orderStatus: {
+    type: String,
+    enum: ['PLACED', 'CONFIRMED', 'PREPARING', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
+    default: 'PLACED'
+  },
+  
+  // Customer location for tracking
+  customerLocation: {
+    lat: { type: Number },
+    lng: { type: Number }
+  },
+  
+  // Delivery partner tracking
+  deliveryPartner: {
+    riderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    name: { type: String },
+    phone: { type: String },
+    photo: { type: String }, // Rider profile photo
+    location: {
+      lat: { type: Number },
+      lng: { type: Number }
+    },
+    rating: { type: Number, default: 4.8 },
+    vehicleType: { type: String, default: 'bike' } // bike, scooter, car
+  },
+  
+  // Timeline of status changes
+  timeline: [{
+    status: { type: String },
+    timestamp: { type: Date, default: Date.now },
+    lat: { type: Number },
+    lng: { type: Number }
+  }],
+  
+  // Estimated arrival time
+  estimatedArrivalTime: { type: Date },
+  
+  // Last location update timestamp
+  lastLocationUpdate: { type: Date },
+  
   payment: {
     method: { type: String },
     transactionId: { type: String },
@@ -65,6 +106,13 @@ const OrderSchema = new mongoose.Schema({
     latitude: { type: Number },
     longitude: { type: Number }
   },
+  deliveryUpdates: [{
+    status: { type: String },
+    note: { type: String },
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    updatedByRole: { type: String },
+    updatedAt: { type: Date, default: Date.now }
+  }],
   // Store buyer state code for tax calculation
   buyerStateCode: { type: String, default: '27' }
 }, { timestamps: true })

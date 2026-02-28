@@ -3,11 +3,11 @@ const router = express.Router()
 const SupportFaq = require('../models/SupportFaq')
 const SupportTicket = require('../models/SupportTicket')
 const supportFaqSeed = require('../data/supportFaqSeed')
+const { getIntelligentResponse, normalizeText } = require('../utils/chatbotIntelligence')
 
 let seedChecked = false
 let faqCache = {}
 const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
-const MAX_TOKEN_LENGTH = 20 // Pre-tokenized words are cached
 
 async function ensureSeedFaqs() {
   if (seedChecked) return
@@ -30,68 +30,6 @@ function setCache(language, data) {
     data,
     expiry: Date.now() + CACHE_TTL
   }
-}
-
-// Pre-compute token cache to avoid recalculation
-const tokenCache = new Map()
-const CACHE_SIZE = 1000
-
-function normalizeText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function tokenize(value) {
-  // Check cache first
-  if (tokenCache.has(value)) return tokenCache.get(value)
-  
-  const normalized = normalizeText(value)
-  if (!normalized) {
-    tokenCache.set(value, [])
-    return []
-  }
-  
-  const tokens = normalized.split(' ').filter(token => token.length > 1)
-  
-  // Simple cache eviction (clear when too large)
-  if (tokenCache.size >= CACHE_SIZE) {
-    tokenCache.clear()
-  }
-  
-  tokenCache.set(value, tokens)
-  return tokens
-}
-
-function scoreFaq(faq, messageTokens, normalizedMessage) {
-  // Use pre-tokenized question with tags
-  const questionText = `${faq.question} ${faq.tags.join(' ')}`
-  const normalizedQuestion = normalizeText(questionText)
-  if (!normalizedQuestion) return 0
-
-  if (normalizedQuestion === normalizedMessage) return 100
-
-  let score = 0
-  
-  // Create token set from FAQ
-  const questionTokens = tokenize(questionText)
-  const tokenSet = new Set(questionTokens)
-
-  // Score matching tokens
-  for (const token of messageTokens) {
-    if (tokenSet.has(token)) {
-      score += 2
-    }
-  }
-
-  // Bonus for substring matches
-  if (normalizedQuestion.includes(normalizedMessage) || normalizedMessage.includes(normalizedQuestion)) {
-    score += 12
-  }
-
-  return score
 }
 
 router.get('/faqs', async (req, res, next) => {
@@ -169,18 +107,18 @@ function setCachedResponse(language, normalizedMessage, response) {
 router.post('/chat', async (req, res, next) => {
   try {
     await ensureSeedFaqs()
-    const { message, language = 'en', questionId } = req.body || {}
+    const { message, language = 'en', questionId, userId } = req.body || {}
     const lang = String(language || 'en').toLowerCase()
 
     if (!message && !questionId) {
       return res.status(400).json({ error: 'Message or questionId is required' })
     }
 
-    // Check response cache for message queries
-    if (message) {
+    // Check response cache for message queries (only for simple FAQ lookups)
+    if (message && !userId) {
       const normalizedMessage = normalizeText(message)
       const cached = getCachedResponse(lang, normalizedMessage)
-      if (cached) {
+      if (cached && !cached.requiresFreshData) {
         return res.json(cached)
       }
     }
@@ -208,58 +146,55 @@ router.post('/chat', async (req, res, next) => {
       })
     }
 
-    let matched = null
-    let bestScore = 0
-
-    if (questionId) {
-      matched = faqs.find(faq => String(faq._id) === String(questionId)) || null
-      bestScore = matched ? 100 : 0
-    }
-
-    if (!matched && message) {
-      const normalizedMessage = normalizeText(message)
-      const messageTokens = tokenize(message)
-
-      // Optimized matching: early exit if perfect match found
-      for (let i = 0; i < faqs.length; i++) {
-        const faq = faqs[i]
-        const score = scoreFaq(faq, messageTokens, normalizedMessage)
-        
-        if (score > bestScore) {
-          matched = faq
-          bestScore = score
-        }
-        
-        // Early exit on perfect match
-        if (bestScore === 100) break
-      }
-    }
-
     let response
-    if (!matched || bestScore < 4) {
-      response = {
-        reply: 'I could not find a perfect match. You can pick a question below or reach out to our support team.',
-        shouldEscalate: true,
-        quickReplies: faqs.slice(0, 5).map(faq => faq.question),
-        suggestedQuestions: faqs.slice(0, 5).map(faq => ({ id: faq._id, question: faq.question }))
+
+    // Handle direct FAQ question ID lookup
+    if (questionId) {
+      const matched = faqs.find(faq => String(faq._id) === String(questionId)) || null
+      
+      if (matched) {
+        response = {
+          reply: matched.answer,
+          matchedFaq: { id: matched._id, question: matched.question },
+          quickReplies: matched.quickReplies && matched.quickReplies.length 
+            ? matched.quickReplies 
+            : faqs.slice(0, 4).map(faq => faq.question),
+          shouldEscalate: false
+        }
+      } else {
+        response = {
+          reply: 'I could not find that question. Please select from the available options below.',
+          shouldEscalate: true,
+          quickReplies: faqs.slice(0, 5).map(faq => faq.question)
+        }
       }
-    } else {
-      response = {
-        reply: matched.answer,
-        matchedFaq: { id: matched._id, question: matched.question },
-        quickReplies: matched.quickReplies && matched.quickReplies.length ? matched.quickReplies : faqs.slice(0, 4).map(faq => faq.question),
-        shouldEscalate: false
+    } else if (message) {
+      // Use intelligent response system for natural language queries
+      response = await getIntelligentResponse(message, faqs, userId)
+      
+      // Mark if response contains dynamic data (shouldn't be cached long-term)
+      if (response.orderData || response.productData || response.deliveryData) {
+        response.requiresFreshData = true
+      }
+      
+      // Add suggested questions if not enough quick replies
+      if (!response.quickReplies || response.quickReplies.length < 3) {
+        response.suggestedQuestions = faqs.slice(0, 5).map(faq => ({ 
+          id: faq._id, 
+          question: faq.question 
+        }))
       }
     }
 
-    // Cache successful response
-    if (message) {
+    // Cache response (with shorter TTL for dynamic data)
+    if (message && !response.requiresFreshData) {
       const normalizedMessage = normalizeText(message)
       setCachedResponse(lang, normalizedMessage, response)
     }
 
     res.json(response)
   } catch (err) {
+    console.error('Chat endpoint error:', err)
     next(err)
   }
 })

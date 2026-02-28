@@ -1,6 +1,19 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+const normalizeRoles = (roles = []) => {
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  return roleArray
+    .filter(Boolean)
+    .map(role => String(role).toLowerCase().trim());
+};
+
+const hasAnyRole = (userRoles, allowedRoles = []) => {
+  const normalizedUserRoles = normalizeRoles(userRoles);
+  const normalizedAllowedRoles = normalizeRoles(allowedRoles);
+  return normalizedAllowedRoles.some(role => normalizedUserRoles.includes(role));
+};
+
 exports.verifyToken = async (req, res, next) => {
   let token = null;
   
@@ -41,10 +54,26 @@ exports.requireAdmin = (req, res, next) => {
   if (!req.user || !req.user.roles) {
     return res.status(403).json({ error: 'Admin required' });
   }
-  const isAdmin = req.user.roles.some(r => r.toUpperCase() === 'ADMIN');
+  const isAdmin = hasAnyRole(req.user.roles, ['admin']);
   if (!isAdmin) {
     return res.status(403).json({ error: 'Admin required' });
   }
   next();
 };
+
+exports.requireAnyRole = (...allowedRoles) => {
+  return (req, res, next) => {
+    if (!req.user || !req.user.roles) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    if (!hasAnyRole(req.user.roles, allowedRoles)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    next();
+  };
+};
+
+exports.hasAnyRole = hasAnyRole;
 
