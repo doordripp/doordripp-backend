@@ -1,7 +1,7 @@
 require('dotenv').config();
 const axios = require('axios');
 
-const API_URL = process.env.API_URL || 'https://doordripp-backend.onrender.com';
+const API_URL = process.env.API_URL || 'http://localhost:4000';
 
 async function testForgotPassword() {
   try {
