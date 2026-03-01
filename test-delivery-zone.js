@@ -5,7 +5,7 @@ async function testDeliveryZone() {
   try {
     // First login as admin
     console.log('1. Logging in as admin...');
-    const loginRes = await axios.post('http://localhost:4000/api/auth/login', {
+    const loginRes = await axios.post('https://doordripp-backend.onrender.com/api/auth/login', {
       emailOrPhone: 'admin2@doordripp.com',
       password: 'Admin@123'
     });
@@ -15,7 +15,7 @@ async function testDeliveryZone() {
     
     // Create a test delivery zone
     console.log('\n2. Creating delivery zone...');
-    const zoneRes = await axios.post('http://localhost:4000/api/admin/delivery-zones', {
+    const zoneRes = await axios.post('https://doordripp-backend.onrender.com/api/admin/delivery-zones', {
       name: 'Test Zone ' + Date.now(),
       type: 'radius',
       center: { lat: 28.6139, lng: 77.2090 },
