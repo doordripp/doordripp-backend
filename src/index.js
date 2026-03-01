@@ -22,13 +22,9 @@ const addressRoutes = require('./routes/address');
 const invoiceRoutes = require('./routes/invoice');
 const supportRoutes = require('./routes/support');
 const trialRoomRoutes = require('./routes/trialRoom');
-<<<<<<< HEAD
 const contentRoutes = require('./routes/content');
-
-=======
 // Socket.io setup
 const { setupSocketIO } = require('./sockets')
->>>>>>> a5fc83ed937b0eda744b7d76299d167020c19577
 const app = express();
 const PORT = process.env.PORT || 4000;
 
