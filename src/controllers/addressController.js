@@ -8,6 +8,29 @@ const axios = require('axios');
  */
 
 /**
+ * Calculate distance between two coordinates in meters using Haversine formula
+ * @param {number} lat1 - Latitude of first point
+ * @param {number} lng1 - Longitude of first point
+ * @param {number} lat2 - Latitude of second point
+ * @param {number} lng2 - Longitude of second point
+ * @returns {number} Distance in meters
+ */
+const calculateDistance = (lat1, lng1, lat2, lng2) => {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lng2 - lng1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // Distance in meters
+};
+
+/**
  * Get delivery settings
  * Returns all active delivery zones for frontend validation
  * @route GET /api/delivery-settings
@@ -132,12 +155,12 @@ exports.saveAddress = async (req, res) => {
       });
     }
 
-    // ENFORCE LIMIT: Only 3 addresses max
+    // ENFORCE LIMIT: Only 4 addresses max
     const existingCount = await Address.countDocuments({ userId: req.user._id });
-    if (existingCount >= 3) {
+    if (existingCount >= 4) {
       return res.status(400).json({
         success: false,
-        message: 'You can only save up to 3 addresses. Please delete an existing address to add a new one.'
+        message: 'You can only save up to 4 addresses. Please delete an existing address to add a new one.'
       });
     }
 
@@ -149,6 +172,32 @@ exports.saveAddress = async (req, res) => {
         success: false,
         message: 'Invalid latitude or longitude values'
       });
+    }
+
+    // CHECK FOR DUPLICATE ADDRESSES
+    // Check if user already has an address at the same or very close location (within 20 meters)
+    const userAddresses = await Address.find({ userId: req.user._id });
+    
+    for (const existingAddress of userAddresses) {
+      const distance = calculateDistance(
+        lat, 
+        lng, 
+        existingAddress.latitude, 
+        existingAddress.longitude
+      );
+      
+      // If address is within 20 meters, consider it a duplicate
+      if (distance < 20) {
+        return res.status(400).json({
+          success: false,
+          message: 'You already have this address saved.',
+          existingAddress: {
+            id: existingAddress._id,
+            formattedAddress: existingAddress.formattedAddress,
+            label: existingAddress.label
+          }
+        });
+      }
     }
 
     // If no formatted address provided, use Google Geocoding API
@@ -379,18 +428,22 @@ exports.updateAddress = async (req, res) => {
  */
 exports.deleteAddress = async (req, res) => {
   try {
+    console.log(`[DELETE ADDRESS] User ${req.user._id} deleting address ${req.params.id}`);
+    
     const address = await Address.findOneAndDelete({
       _id: req.params.id,
       userId: req.user._id
     });
 
     if (!address) {
+      console.log(`[DELETE ADDRESS] Address ${req.params.id} not found for user ${req.user._id}`);
       return res.status(404).json({
         success: false,
         message: 'Address not found'
       });
     }
 
+    console.log(`[DELETE ADDRESS] Successfully deleted address ${req.params.id}`);
     res.json({
       success: true,
       message: 'Address deleted successfully'

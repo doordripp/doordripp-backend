@@ -3,8 +3,11 @@ const router = express.Router()
 const SupportFaq = require('../models/SupportFaq')
 const SupportTicket = require('../models/SupportTicket')
 const supportFaqSeed = require('../data/supportFaqSeed')
+const { getIntelligentResponse, normalizeText } = require('../utils/chatbotIntelligence')
 
 let seedChecked = false
+let faqCache = {}
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 async function ensureSeedFaqs() {
   if (seedChecked) return
@@ -15,40 +18,18 @@ async function ensureSeedFaqs() {
   seedChecked = true
 }
 
-function normalizeText(value) {
-  return String(value || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-function tokenize(value) {
-  const normalized = normalizeText(value)
-  if (!normalized) return []
-  return normalized.split(' ').filter(token => token.length > 1)
-}
-
-function scoreFaq(faq, messageTokens, normalizedMessage) {
-  const questionText = `${faq.question} ${faq.tags.join(' ')}`
-  const normalizedQuestion = normalizeText(questionText)
-  if (!normalizedQuestion) return 0
-
-  if (normalizedQuestion === normalizedMessage) return 100
-
-  let score = 0
-  const questionTokens = tokenize(questionText)
-  const tokenSet = new Set(questionTokens)
-
-  messageTokens.forEach(token => {
-    if (tokenSet.has(token)) score += 2
-  })
-
-  if (normalizedQuestion.includes(normalizedMessage) || normalizedMessage.includes(normalizedQuestion)) {
-    score += 12
+function getFromCache(language) {
+  if (faqCache[language] && faqCache[language].expiry > Date.now()) {
+    return faqCache[language].data
   }
+  return null
+}
 
-  return score
+function setCache(language, data) {
+  faqCache[language] = {
+    data,
+    expiry: Date.now() + CACHE_TTL
+  }
 }
 
 router.get('/faqs', async (req, res, next) => {
@@ -56,15 +37,26 @@ router.get('/faqs', async (req, res, next) => {
     await ensureSeedFaqs()
     const language = (req.query.lang || 'en').toLowerCase()
 
-    let faqs = await SupportFaq.find({ language, isActive: true }).sort({ category: 1, createdAt: 1 })
+    // Check cache first
+    let cached = getFromCache(language)
+    if (cached) {
+      return res.json(cached)
+    }
+
+    let faqs = await SupportFaq.find({ language, isActive: true })
+      .select('_id question answer category quickReplies tags')
+      .lean()
+    
     let fallbackUsed = false
 
     if (!faqs.length && language !== 'en') {
-      faqs = await SupportFaq.find({ language: 'en', isActive: true }).sort({ category: 1, createdAt: 1 })
+      faqs = await SupportFaq.find({ language: 'en', isActive: true })
+        .select('_id question answer category quickReplies tags')
+        .lean()
       fallbackUsed = true
     }
 
-    res.json({
+    const response = {
       language,
       fallbackUsed,
       faqs: faqs.map(faq => ({
@@ -74,25 +66,76 @@ router.get('/faqs', async (req, res, next) => {
         category: faq.category,
         quickReplies: faq.quickReplies || []
       }))
-    })
+    }
+
+    // Cache the response
+    setCache(language, response)
+    res.json(response)
   } catch (err) {
     next(err)
   }
 })
 
+// Response cache for common queries
+const responseCache = new Map()
+const RESPONSE_CACHE_SIZE = 500
+
+function getCachedResponse(language, normalizedMessage) {
+  const key = `${language}:${normalizedMessage}`
+  const cached = responseCache.get(key)
+  if (cached && cached.expiry > Date.now()) {
+    return cached.data
+  }
+  responseCache.delete(key)
+  return null
+}
+
+function setCachedResponse(language, normalizedMessage, response) {
+  const key = `${language}:${normalizedMessage}`
+  
+  // Simple cache eviction
+  if (responseCache.size >= RESPONSE_CACHE_SIZE) {
+    responseCache.delete(responseCache.keys().next().value)
+  }
+  
+  responseCache.set(key, {
+    data: response,
+    expiry: Date.now() + CACHE_TTL
+  })
+}
+
 router.post('/chat', async (req, res, next) => {
   try {
     await ensureSeedFaqs()
-    const { message, language = 'en', questionId } = req.body || {}
+    const { message, language = 'en', questionId, userId } = req.body || {}
     const lang = String(language || 'en').toLowerCase()
 
     if (!message && !questionId) {
       return res.status(400).json({ error: 'Message or questionId is required' })
     }
 
-    let faqs = await SupportFaq.find({ language: lang, isActive: true })
-    if (!faqs.length && lang !== 'en') {
-      faqs = await SupportFaq.find({ language: 'en', isActive: true })
+    // Check response cache for message queries (only for simple FAQ lookups)
+    if (message && !userId) {
+      const normalizedMessage = normalizeText(message)
+      const cached = getCachedResponse(lang, normalizedMessage)
+      if (cached && !cached.requiresFreshData) {
+        return res.json(cached)
+      }
+    }
+
+    // Load FAQs from cache or database
+    let faqs = getFromCache(lang)?.faqs
+    
+    if (!faqs) {
+      faqs = await SupportFaq.find({ language: lang, isActive: true })
+        .select('_id question answer category quickReplies tags')
+        .lean()
+      
+      if (!faqs.length && lang !== 'en') {
+        faqs = await SupportFaq.find({ language: 'en', isActive: true })
+          .select('_id question answer category quickReplies tags')
+          .lean()
+      }
     }
 
     if (!faqs.length) {
@@ -103,43 +146,55 @@ router.post('/chat', async (req, res, next) => {
       })
     }
 
-    let matched = null
-    let bestScore = 0
+    let response
 
+    // Handle direct FAQ question ID lookup
     if (questionId) {
-      matched = faqs.find(faq => String(faq._id) === String(questionId)) || null
-      bestScore = matched ? 100 : 0
-    }
-
-    if (!matched && message) {
-      const normalizedMessage = normalizeText(message)
-      const messageTokens = tokenize(message)
-
-      faqs.forEach(faq => {
-        const score = scoreFaq(faq, messageTokens, normalizedMessage)
-        if (score > bestScore) {
-          matched = faq
-          bestScore = score
+      const matched = faqs.find(faq => String(faq._id) === String(questionId)) || null
+      
+      if (matched) {
+        response = {
+          reply: matched.answer,
+          matchedFaq: { id: matched._id, question: matched.question },
+          quickReplies: matched.quickReplies && matched.quickReplies.length 
+            ? matched.quickReplies 
+            : faqs.slice(0, 4).map(faq => faq.question),
+          shouldEscalate: false
         }
-      })
+      } else {
+        response = {
+          reply: 'I could not find that question. Please select from the available options below.',
+          shouldEscalate: true,
+          quickReplies: faqs.slice(0, 5).map(faq => faq.question)
+        }
+      }
+    } else if (message) {
+      // Use intelligent response system for natural language queries
+      response = await getIntelligentResponse(message, faqs, userId)
+      
+      // Mark if response contains dynamic data (shouldn't be cached long-term)
+      if (response.orderData || response.productData || response.deliveryData) {
+        response.requiresFreshData = true
+      }
+      
+      // Add suggested questions if not enough quick replies
+      if (!response.quickReplies || response.quickReplies.length < 3) {
+        response.suggestedQuestions = faqs.slice(0, 5).map(faq => ({ 
+          id: faq._id, 
+          question: faq.question 
+        }))
+      }
     }
 
-    if (!matched || bestScore < 4) {
-      return res.json({
-        reply: 'I could not find a perfect match. You can pick a question below or reach out to our support team.',
-        shouldEscalate: true,
-        quickReplies: faqs.slice(0, 5).map(faq => faq.question),
-        suggestedQuestions: faqs.slice(0, 5).map(faq => ({ id: faq._id, question: faq.question }))
-      })
+    // Cache response (with shorter TTL for dynamic data)
+    if (message && !response.requiresFreshData) {
+      const normalizedMessage = normalizeText(message)
+      setCachedResponse(lang, normalizedMessage, response)
     }
 
-    res.json({
-      reply: matched.answer,
-      matchedFaq: { id: matched._id, question: matched.question },
-      quickReplies: matched.quickReplies && matched.quickReplies.length ? matched.quickReplies : faqs.slice(0, 4).map(faq => faq.question),
-      shouldEscalate: false
-    })
+    res.json(response)
   } catch (err) {
+    console.error('Chat endpoint error:', err)
     next(err)
   }
 })

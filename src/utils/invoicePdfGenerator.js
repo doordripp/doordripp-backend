@@ -77,9 +77,7 @@ function addHeader(doc, data) {
     .font('Helvetica')
     .text(`GSTIN: ${data.sellerGSTIN}`, { align: 'center' });
   
-  if (data.sellerPAN) {
-    doc.text(`PAN: ${data.sellerPAN}`, { align: 'center' });
-  }
+  // PAN removed from invoice for privacy
   
   doc.moveDown(1);
   
