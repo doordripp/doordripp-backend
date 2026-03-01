@@ -22,6 +22,7 @@ const addressRoutes = require('./routes/address');
 const invoiceRoutes = require('./routes/invoice');
 const supportRoutes = require('./routes/support');
 const trialRoomRoutes = require('./routes/trialRoom');
+const contentRoutes = require('./routes/content');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -100,6 +101,7 @@ app.use('/api', imagekitRoutes);
 app.use('/api', addressRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/support', supportRoutes);
+app.use('/api/content', contentRoutes);
 app.use('/webhooks', webhookRoutes);
 
 // Health
