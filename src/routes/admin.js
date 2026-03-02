@@ -21,6 +21,7 @@ router.delete('/products/:id', requireAdmin, adminController.deleteProduct);
 router.get('/orders', requireAnyRole('admin', 'delivery_partner'), adminController.listOrders);
 router.get('/orders/:id', requireAnyRole('admin', 'delivery_partner'), adminController.getOrder);
 router.put('/orders/:id/status', requireAnyRole('admin', 'delivery_partner'), adminController.updateOrderStatus);
+router.post('/orders/:id/accept', requireAnyRole('delivery_partner'), adminController.acceptDelivery);
 
 // Users
 router.get('/users', requireAdmin, adminController.getAllUsers);

@@ -4,6 +4,11 @@ const Product = require('../models/Product')
 // Get user's wishlist
 exports.getWishlist = async (req, res, next) => {
   try {
+    // Return empty wishlist if user not authenticated
+    if (!req.user || !req.user.id) {
+      return res.json({ items: [] })
+    }
+
     const wishlist = await Wishlist.findOne({ user: req.user.id })
       .populate('items.product', 'name price originalPrice discount category stock images')
       .lean()
@@ -12,18 +17,20 @@ exports.getWishlist = async (req, res, next) => {
       return res.json({ items: [] })
     }
 
-    // Map items to include product details
-    const items = wishlist.items.map(item => ({
-      id: item.product._id,
-      name: item.product.name || item.name,
-      image: item.product.images?.[0] || item.image,
-      price: item.product.price || item.price,
-      originalPrice: item.product.originalPrice || item.originalPrice,
-      discount: item.product.discount || item.discount,
-      category: item.product.category || item.category,
-      stock: item.product.stock,
-      addedAt: item.addedAt
-    }))
+    // Filter out items where product no longer exists and map items to include product details
+    const items = wishlist.items
+      .filter(item => item.product) // Remove items with deleted products
+      .map(item => ({
+        id: item.product._id,
+        name: item.product.name || item.name,
+        image: item.product.images?.[0] || item.image,
+        price: item.product.price || item.price,
+        originalPrice: item.product.originalPrice || item.originalPrice,
+        discount: item.product.discount || item.discount,
+        category: item.product.category || item.category,
+        stock: item.product.stock,
+        addedAt: item.addedAt
+      }))
 
     res.json({ items })
   } catch (err) {
@@ -34,6 +41,11 @@ exports.getWishlist = async (req, res, next) => {
 // Add item to wishlist
 exports.addToWishlist = async (req, res, next) => {
   try {
+    // Return error if user not authenticated
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'Authentication required' })
+    }
+
     const { productId } = req.body
 
     if (!productId) {
@@ -90,6 +102,11 @@ exports.addToWishlist = async (req, res, next) => {
 // Remove item from wishlist
 exports.removeFromWishlist = async (req, res, next) => {
   try {
+    // Return error if user not authenticated
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'Authentication required' })
+    }
+
     const { productId } = req.body
 
     if (!productId) {
@@ -118,6 +135,11 @@ exports.removeFromWishlist = async (req, res, next) => {
 // Check if product is in wishlist
 exports.isInWishlist = async (req, res, next) => {
   try {
+    // Return false if user not authenticated
+    if (!req.user || !req.user.id) {
+      return res.json({ isInWishlist: false })
+    }
+
     const { productId } = req.params
 
     const wishlist = await Wishlist.findOne({ user: req.user.id })
@@ -139,6 +161,11 @@ exports.isInWishlist = async (req, res, next) => {
 // Clear wishlist
 exports.clearWishlist = async (req, res, next) => {
   try {
+    // Return error if user not authenticated
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ error: 'Authentication required' })
+    }
+
     await Wishlist.findOneAndUpdate(
       { user: req.user.id },
       { items: [] }

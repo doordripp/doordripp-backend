@@ -541,6 +541,111 @@ exports.updateOrderStatus = async (req, res, next) => {
   }
 };
 
+// ACCEPT DELIVERY - Assign delivery partner to order
+exports.acceptDelivery = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const isDeliveryPartner = hasAnyRole(req.user?.roles, ['delivery_partner']);
+    
+    if (!isDeliveryPartner) {
+      return res.status(403).json({ error: 'Only delivery partners can accept deliveries' });
+    }
+
+    const order = await Order.findById(id).populate('customer', 'name email phone');
+    if (!order) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Check if order is in accepted zone
+    const assignedZones = await getAssignedZonesForDeliveryUser(req.user.id);
+    const canAccessOrder = isOrderInAnyAssignedZone(order, assignedZones);
+    
+    if (!canAccessOrder) {
+      return res.status(403).json({ error: 'Order is outside your assigned area' });
+    }
+
+    // Check if order already has a delivery partner
+    if (order.deliveryPartner?.riderId) {
+      return res.status(400).json({ error: 'Order already assigned to a delivery partner' });
+    }
+
+    // Check if order is in acceptable status
+    if (!['pending', 'confirmed', 'packed'].includes(order.status)) {
+      return res.status(400).json({ error: `Cannot accept order with status: ${order.status}` });
+    }
+
+    // Get delivery partner details
+    const partner = await User.findById(req.user.id);
+    
+    // Assign delivery partner to order
+    order.deliveryPartner = {
+      riderId: partner._id,
+      name: partner.name,
+      phone: partner.phone || partner.phoneNumber,
+      photo: partner.profilePhoto || partner.photo,
+      rating: partner.rating || 4.8,
+      vehicleType: partner.vehicleType || 'bike'
+    };
+
+    // Update order status to processing
+    order.status = 'processing';
+    order.orderStatus = 'PREPARING';
+
+    // Set customer location from shipping address if available
+    if (order.shippingAddress?.latitude && order.shippingAddress?.longitude) {
+      order.customerLocation = {
+        lat: order.shippingAddress.latitude,
+        lng: order.shippingAddress.longitude
+      };
+    }
+
+    // Add to timeline
+    if (!order.timeline) order.timeline = [];
+    order.timeline.push({
+      status: 'PREPARING',
+      timestamp: new Date()
+    });
+
+    // Add to delivery updates
+    if (!order.deliveryUpdates) order.deliveryUpdates = [];
+    order.deliveryUpdates.push({
+      status: 'processing',
+      note: 'Delivery partner accepted the order',
+      updatedBy: req.user.id,
+      updatedByRole: 'delivery_partner',
+      updatedAt: new Date()
+    });
+
+    await order.save();
+
+    // Send notification to customer (if notification service exists)
+    try {
+      const mailService = require('../services/mail.service');
+      if (mailService && mailService.sendOrderUpdateEmail) {
+        mailService.sendOrderUpdateEmail({
+          customerName: order.customer?.name || 'Customer',
+          customerEmail: order.customer?.email,
+          orderId: order._id,
+          status: 'processing',
+          deliveryPartner: order.deliveryPartner,
+          trackingUrl: `${process.env.FRONTEND_URL}/order/${order._id}/track`
+        }).catch(err => console.error('Order update email failed:', err));
+      }
+    } catch (err) {
+      console.log('Mail service not available:', err.message);
+    }
+
+    res.json({ 
+      ok: true, 
+      order,
+      trackingUrl: `/order/${order._id}/track`
+    });
+  } catch (err) {
+    console.error('❌ Error accepting delivery:', err);
+    next(err);
+  }
+};
+
 // ==================== USERS ====================
 exports.listUsers = async (req, res, next) => {
   try {
