@@ -6,7 +6,8 @@ const BannerSchema = new mongoose.Schema({
   imageKitId: { type: String }, // To handle deletions later
   link: { type: String, default: '#' }, // URL redirection link
   isActive: { type: Boolean, default: true },
-  type: { type: String, default: 'promo' }, // 'hero', 'promo', etc.
+  type: { type: String, default: 'promo' }, // 'hero', 'promo', 'sale', etc.
+  platform: { type: String, enum: ['website', 'app', 'both'], default: 'app' }, // Where to display
   order: { type: Number, default: 0 } // For sorting banners
 }, { timestamps: true })
 

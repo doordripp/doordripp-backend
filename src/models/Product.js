@@ -24,6 +24,16 @@ const ProductSchema = new mongoose.Schema({
   isFeatured: { type: Boolean, default: false },
   status: { type: String, default: 'Active' },
   
+  // Key Features (bullet points)
+  keyFeatures: { type: [String], default: [] },
+
+  // Dynamic Specifications
+  details: {
+    type: Map,
+    of: mongoose.Schema.Types.Mixed,
+    default: {}
+  },
+  
   // GST-related fields for invoice generation
   hsnSac: { 
     type: String, 

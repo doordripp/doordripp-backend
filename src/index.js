@@ -73,6 +73,13 @@ app.options('*', cors(corsOptions));
 
 // Apply CORS to all routes
 app.use(cors(corsOptions));
+
+// Permissions-Policy header fix for Razorpay
+app.use((req, res, next) => {
+  res.setHeader('Permissions-Policy', 'otp-credentials=*, local-network-access=*');
+  next();
+});
+
 app.use(express.json());
 app.use(cookieParser());
 app.use(morgan('dev'));

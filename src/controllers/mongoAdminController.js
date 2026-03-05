@@ -183,7 +183,9 @@ exports.createProduct = async (req, res, next) => {
       rating,
       isNewArrival,
       isBestSeller,
-      isFeatured
+      isFeatured,
+      details,
+      keyFeatures
     } = req.body;
 
     // Generate slug
@@ -208,7 +210,9 @@ exports.createProduct = async (req, res, next) => {
       rating: rating || { rating: 4.5, reviews: 0 },
       isNewArrival: isNewArrival || false,
       isBestSeller: isBestSeller || false,
-      isFeatured: isFeatured || false
+      isFeatured: isFeatured || false,
+      details: details ? (typeof details === 'string' ? JSON.parse(details) : details) : {},
+      keyFeatures: keyFeatures ? (typeof keyFeatures === 'string' ? JSON.parse(keyFeatures) : keyFeatures) : []
     });
 
     await product.save();
@@ -232,6 +236,8 @@ exports.createProduct = async (req, res, next) => {
       isNewArrival: product.isNewArrival,
       isBestSeller: product.isBestSeller,
       isFeatured: product.isFeatured,
+      details: product.details,
+      keyFeatures: product.keyFeatures,
       status: product.stock > 0 ? 'Active' : 'Out of Stock'
     });
   } catch (err) {
@@ -257,7 +263,9 @@ exports.updateProduct = async (req, res, next) => {
       rating,
       isNewArrival,
       isBestSeller,
-      isFeatured
+      isFeatured,
+      details,
+      keyFeatures
     } = req.body;
 
     const updateData = {};
@@ -276,6 +284,8 @@ exports.updateProduct = async (req, res, next) => {
     if (isNewArrival !== undefined) updateData.isNewArrival = isNewArrival;
     if (isBestSeller !== undefined) updateData.isBestSeller = isBestSeller;
     if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
+    if (details !== undefined) updateData.details = typeof details === 'string' ? JSON.parse(details) : details;
+    if (keyFeatures !== undefined) updateData.keyFeatures = typeof keyFeatures === 'string' ? JSON.parse(keyFeatures) : keyFeatures;
 
     const product = await Product.findByIdAndUpdate(id, updateData, { new: true });
     if (!product) return res.status(404).json({ error: 'Product not found' });
@@ -299,6 +309,8 @@ exports.updateProduct = async (req, res, next) => {
       isNewArrival: product.isNewArrival,
       isBestSeller: product.isBestSeller,
       isFeatured: product.isFeatured,
+      details: product.details,
+      keyFeatures: product.keyFeatures,
       status: product.stock > 0 ? 'Active' : 'Out of Stock'
     });
   } catch (err) {

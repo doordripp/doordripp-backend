@@ -63,6 +63,16 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// Get smart recommendations (for cart, homepage, etc.) - Must be BEFORE /:id route
+router.get('/recommendations/smart', async (req, res, next) => {
+  try {
+    const productController = require('../controllers/productController');
+    await productController.getRecommendations(req, res, next);
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.get('/:id', async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id);
@@ -87,8 +97,20 @@ router.get('/:id', async (req, res, next) => {
       rating: product.rating || { rating: 4.5, reviews: 0 },
       isNewArrival: product.isNewArrival || false,
       isBestSeller: product.isBestSeller || false,
-      isFeatured: product.isFeatured || false
+      isFeatured: product.isFeatured || false,
+      details: product.details || {},
+      keyFeatures: product.keyFeatures || []
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get related products for a specific product
+router.get('/:id/related', async (req, res, next) => {
+  try {
+    const productController = require('../controllers/productController');
+    await productController.getRelatedProducts(req, res, next);
   } catch (err) {
     next(err);
   }

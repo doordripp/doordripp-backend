@@ -4,7 +4,7 @@ const Category = require('../models/Category')
 // Add a new banner
 exports.createBanner = async (req, res, next) => {
   try {
-    const { title, imageUrl, imageKitId, link, type, order } = req.body
+    const { title, imageUrl, imageKitId, link, type, platform, order } = req.body
     
     if (!imageUrl) {
       return res.status(400).json({ success: false, message: 'Image URL is required' })
@@ -16,6 +16,7 @@ exports.createBanner = async (req, res, next) => {
       imageKitId,
       link: link || '#',
       type: type || 'promo',
+      platform: platform || 'app',
       order: order || 0
     })
 
@@ -29,9 +30,10 @@ exports.createBanner = async (req, res, next) => {
 // Get all banners (optionally filtered by type)
 exports.getBanners = async (req, res, next) => {
   try {
-    const { type, activeOnly } = req.query
+    const { type, platform, activeOnly } = req.query
     const filter = {}
     if (type) filter.type = type
+    if (platform) filter.platform = platform
     if (activeOnly === 'true') filter.isActive = true
 
     const banners = await Banner.find(filter).sort({ order: 1, createdAt: -1 })
@@ -66,6 +68,37 @@ exports.updateStatus = async (req, res, next) => {
     if (!banner) {
       return res.status(404).json({ success: false, message: 'Banner not found' })
     }
+    res.json({ success: true, banner })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// Update banner - Full update
+exports.updateBanner = async (req, res, next) => {
+  try {
+    const { title, imageUrl, imageKitId, link, type, platform, order, isActive } = req.body
+    
+    const updateData = {}
+    if (title !== undefined) updateData.title = title
+    if (imageUrl !== undefined) updateData.imageUrl = imageUrl
+    if (imageKitId !== undefined) updateData.imageKitId = imageKitId
+    if (link !== undefined) updateData.link = link
+    if (type !== undefined) updateData.type = type
+    if (platform !== undefined) updateData.platform = platform
+    if (order !== undefined) updateData.order = order
+    if (isActive !== undefined) updateData.isActive = isActive
+
+    const banner = await Banner.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    )
+    
+    if (!banner) {
+      return res.status(404).json({ success: false, message: 'Banner not found' })
+    }
+    
     res.json({ success: true, banner })
   } catch (err) {
     next(err)
