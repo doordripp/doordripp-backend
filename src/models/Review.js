@@ -6,6 +6,16 @@ const ReviewSchema = new mongoose.Schema({
   rating: { type: Number, required: true, min: 1, max: 5 },
   title: { type: String, required: false },
   comment: { type: String, required: true },
+  images: {
+    type: [String],
+    default: [],
+    validate: {
+      validator: function (images) {
+        return Array.isArray(images) && images.length <= 5
+      },
+      message: 'A maximum of 5 review images is allowed'
+    }
+  },
   
   // Helpful votes system
   helpfulVotes: { type: Number, default: 0 },
