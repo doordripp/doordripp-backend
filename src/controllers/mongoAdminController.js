@@ -1145,3 +1145,142 @@ exports.getAreaManagerAssignments = async (req, res, next) => {
   }
 };
 
+// ==================== ORDER ASSIGNMENT (Feature 1) ====================
+/**
+ * Assign delivery partner to an order
+ * POST /api/admin/orders/:id/assign
+ */
+exports.assignDeliveryPartner = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { deliveryPartnerId } = req.body;
+
+    if (!deliveryPartnerId) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Delivery partner ID is required'
+      });
+    }
+
+    // Verify order exists
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ ok: false, error: 'Order not found' });
+    }
+
+    // Verify user exists and has delivery_partner role
+    const deliveryPartner = await User.findById(deliveryPartnerId);
+    if (!deliveryPartner) {
+      return res.status(404).json({ ok: false, error: 'Delivery partner not found' });
+    }
+
+    if (!deliveryPartner.roles || !deliveryPartner.roles.includes('delivery_partner')) {
+      return res.status(400).json({
+        ok: false,
+        error: 'User must have delivery_partner role'
+      });
+    }
+
+    // Assign the delivery partner
+    order.assignedDeliveryPartner = deliveryPartnerId;
+    order.assignedAt = new Date();
+    order.assignedBy = req.user.id;
+
+    // Update deliveryPartner info for tracking
+    order.deliveryPartner = {
+      riderId: deliveryPartner._id,
+      name: deliveryPartner.name || deliveryPartner.email,
+      phone: deliveryPartner.phone || deliveryPartner.phoneNumber || '',
+      photo: deliveryPartner.profileImage || deliveryPartner.profilePhoto || '',
+      rating: deliveryPartner.rating || 4.8,
+      vehicleType: deliveryPartner.vehicleType || 'bike'
+    };
+
+    // Add to delivery updates
+    order.deliveryUpdates.push({
+      status: order.status,
+      note: `Assigned to ${deliveryPartner.name || deliveryPartner.email}`,
+      updatedBy: req.user.id,
+      updatedByRole: 'admin',
+      updatedAt: new Date()
+    });
+
+    await order.save();
+
+    // Emit socket event for real-time updates
+    if (req.app.get('io')) {
+      req.app.get('io').emit('order-assigned', {
+        orderId: order._id,
+        deliveryPartner: order.deliveryPartner,
+        timestamp: new Date()
+      });
+    }
+
+    res.json({
+      ok: true,
+      message: 'Delivery partner assigned successfully',
+      order
+    });
+  } catch (error) {
+    console.error('Error assigning delivery partner:', error);
+    next(error);
+  }
+};
+
+/**
+ * Unassign delivery partner from an order
+ * POST /api/admin/orders/:id/unassign
+ */
+exports.unassignDeliveryPartner = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const order = await Order.findById(id);
+    if (!order) {
+      return res.status(404).json({ ok: false, error: 'Order not found' });
+    }
+
+    if (!order.assignedDeliveryPartner) {
+      return res.status(400).json({
+        ok: false,
+        error: 'Order has no assigned delivery partner'
+      });
+    }
+
+    // Remove assignment
+    const previousPartner = order.assignedDeliveryPartner;
+    order.assignedDeliveryPartner = undefined;
+    order.assignedAt = undefined;
+    order.assignedBy = undefined;
+
+    // Add to delivery updates
+    order.deliveryUpdates.push({
+      status: order.status,
+      note: 'Delivery partner assignment removed',
+      updatedBy: req.user.id,
+      updatedByRole: 'admin',
+      updatedAt: new Date()
+    });
+
+    await order.save();
+
+    // Emit socket event
+    if (req.app.get('io')) {
+      req.app.get('io').emit('order-unassigned', {
+        orderId: order._id,
+        previousPartner,
+        timestamp: new Date()
+      });
+    }
+
+    res.json({
+      ok: true,
+      message: 'Delivery partner unassigned successfully',
+      order
+    });
+  } catch (error) {
+    console.error('Error unassigning delivery partner:', error);
+    next(error);
+  }
+};
+

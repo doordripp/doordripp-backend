@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/mongoAdminController');
 const adminDeliveryController = require('../controllers/adminDeliveryController');
+const analyticsController = require('../controllers/analyticsController');
 const { verifyToken, requireAdmin, requireAnyRole } = require('../middleware/auth');
 
 // All admin routes require authentication
@@ -22,6 +23,14 @@ router.get('/orders', requireAnyRole('admin', 'delivery_partner'), adminControll
 router.get('/orders/:id', requireAnyRole('admin', 'delivery_partner'), adminController.getOrder);
 router.put('/orders/:id/status', requireAnyRole('admin', 'delivery_partner'), adminController.updateOrderStatus);
 router.post('/orders/:id/accept', requireAnyRole('delivery_partner'), adminController.acceptDelivery);
+
+// Order Assignment (Feature 1)
+router.post('/orders/:id/assign', requireAdmin, adminController.assignDeliveryPartner);
+router.post('/orders/:id/unassign', requireAdmin, adminController.unassignDeliveryPartner);
+
+// Delivery Analytics (Feature 5)
+router.get('/delivery-analytics', requireAdmin, analyticsController.getDeliveryAnalytics);
+router.get('/partner/:partnerId/stats', requireAdmin, analyticsController.getPartnerStats);
 
 // Users
 router.get('/users', requireAdmin, adminController.getAllUsers);
