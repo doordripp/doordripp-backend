@@ -3,6 +3,25 @@ const Product = require('../models/Product')
 const Order = require('../models/Order')
 const mongoose = require('mongoose')
 
+function sanitizeReviewImages(images) {
+  if (images === undefined) return undefined
+  if (!Array.isArray(images)) return null
+  if (images.length > 5) return null
+
+  const cleaned = images
+    .filter(image => typeof image === 'string')
+    .map(image => image.trim())
+    .filter(Boolean)
+
+  const hasInvalid = cleaned.some(
+    image => !/^https?:\/\//i.test(image) && !/^\/uploads\//i.test(image)
+  )
+
+  if (hasInvalid) return null
+
+  return cleaned
+}
+
 // Get reviews for a product with filtering and sorting
 exports.getProductReviews = async (req, res, next) => {
   try {
@@ -116,10 +135,10 @@ exports.getProductReviews = async (req, res, next) => {
 exports.createReview = async (req, res, next) => {
   try {
     const { productId } = req.params
-    const { rating, title, comment } = req.body
+    const { rating, title, comment, images } = req.body
     const userId = req.user.id
 
-    console.log('Review submission data:', { rating, title, comment, userId, productId })
+    console.log('Review submission data:', { rating, title, comment, imagesCount: Array.isArray(images) ? images.length : 0, userId, productId })
 
     // Validate required fields
     if (!rating) {
@@ -141,6 +160,13 @@ exports.createReview = async (req, res, next) => {
       })
     }
 
+    const sanitizedImages = sanitizeReviewImages(images)
+    if (sanitizedImages === null) {
+      return res.status(400).json({
+        error: 'Review images must be an array of up to 5 valid image URLs'
+      })
+    }
+
     // Check if user has purchased this product
     const userOrder = await Order.findOne({
       user: userId,
@@ -159,6 +185,7 @@ exports.createReview = async (req, res, next) => {
       user: userId,
       rating: parseInt(rating),
       comment: comment,
+      images: sanitizedImages || [],
       isVerifiedPurchase: !!userOrder,
       order: userOrder?._id,
       deviceInfo
@@ -193,7 +220,7 @@ exports.createReview = async (req, res, next) => {
 exports.updateReview = async (req, res, next) => {
   try {
     const { reviewId } = req.params
-    const { rating, title, comment } = req.body
+    const { rating, title, comment, images } = req.body
     const userId = req.user.id
 
     // Validate required fields
@@ -216,6 +243,13 @@ exports.updateReview = async (req, res, next) => {
       })
     }
 
+    const sanitizedImages = sanitizeReviewImages(images)
+    if (sanitizedImages === null) {
+      return res.status(400).json({
+        error: 'Review images must be an array of up to 5 valid image URLs'
+      })
+    }
+
     const review = await Review.findOne({
       _id: reviewId,
       user: userId,
@@ -231,6 +265,9 @@ exports.updateReview = async (req, res, next) => {
     // Update review
     review.rating = parseInt(rating)
     review.comment = comment
+    if (sanitizedImages !== undefined) {
+      review.images = sanitizedImages
+    }
     
     // Only update title if provided
     if (title !== undefined && typeof title === 'string') {
