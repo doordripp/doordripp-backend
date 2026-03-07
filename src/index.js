@@ -23,6 +23,7 @@ const invoiceRoutes = require('./routes/invoice');
 const supportRoutes = require('./routes/support');
 const trialRoomRoutes = require('./routes/trialRoom');
 const contentRoutes = require('./routes/content');
+const deliveryRoutes = require('./routes/delivery');
 // Socket.io setup
 const { setupSocketIO } = require('./sockets')
 const app = express();
@@ -110,6 +111,7 @@ app.use('/api', addressRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/content', contentRoutes);
+app.use('/api/delivery', deliveryRoutes);
 app.use('/webhooks', webhookRoutes);
 
 // Health
@@ -148,6 +150,9 @@ function startServer(port, attempts = 0) {
 
   // Initialize Socket.io with CORS options
   const io = setupSocketIO(server, corsOptions)
+  
+  // Attach io to app so controllers can emit events
+  app.set('io', io)
 
   server.on('listening', () => {
     console.log(`Doordripp Node backend listening on port ${port}`);

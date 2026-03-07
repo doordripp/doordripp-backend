@@ -113,6 +113,33 @@ const OrderSchema = new mongoose.Schema({
     updatedByRole: { type: String },
     updatedAt: { type: Date, default: Date.now }
   }],
+  
+  // Assigned delivery partner (Feature 1)
+  assignedDeliveryPartner: { 
+    type: mongoose.Schema.Types.ObjectId, 
+    ref: 'User',
+    index: true // Index for fast queries
+  },
+  assignedAt: { type: Date },
+  assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  // Proof of Delivery (Feature 4)
+  proofOfDelivery: {
+    photoUrl: { type: String },
+    deliveredAt: { type: Date },
+    deliveredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    signature: { type: String },
+    notes: { type: String }
+  },
+
+  // Delivery partner location history (Feature 3)
+  deliveryLocationHistory: [{
+    lat: { type: Number, required: true },
+    lng: { type: Number, required: true },
+    timestamp: { type: Date, default: Date.now },
+    speed: { type: Number }, // km/h
+    accuracy: { type: Number } // meters
+  }],
   // Store buyer state code for tax calculation
   buyerStateCode: { type: String, default: '27' }
 }, { timestamps: true })
