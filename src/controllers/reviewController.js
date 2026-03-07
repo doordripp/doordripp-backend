@@ -328,6 +328,7 @@ exports.voteOnReview = async (req, res, next) => {
     const { reviewId } = req.params
     const { vote } = req.body // 'helpful' or 'unhelpful'
     const userId = req.user.id
+    const userIdString = String(userId)
 
     if (!['helpful', 'unhelpful'].includes(vote)) {
       return res.status(400).json({ error: 'Invalid vote type' })
@@ -338,26 +339,24 @@ exports.voteOnReview = async (req, res, next) => {
       return res.status(404).json({ error: 'Review not found' })
     }
 
-    // Remove existing vote from this user
-    review.votedUsers = review.votedUsers.filter(
-      v => v.user.toString() !== userId
-    )
+    // Toggle behavior: clicking the same vote again removes it.
+    const existingVote = review.votedUsers.find(v => String(v.user) === userIdString)
 
-    // Recalculate votes
-    const helpfulVotes = review.votedUsers.filter(v => v.vote === 'helpful').length
-    const unhelpfulVotes = review.votedUsers.filter(v => v.vote === 'unhelpful').length
+    if (existingVote && existingVote.vote === vote) {
+      review.votedUsers = review.votedUsers.filter(v => String(v.user) !== userIdString)
+    } else {
+      review.votedUsers = review.votedUsers.filter(v => String(v.user) !== userIdString)
+      review.votedUsers.push({ user: userId, vote })
+    }
 
-    // Add new vote
-    review.votedUsers.push({ user: userId, vote })
-
-    // Update counters
-    review.helpfulVotes = vote === 'helpful' ? helpfulVotes + 1 : helpfulVotes
-    review.unhelpfulVotes = vote === 'unhelpful' ? unhelpfulVotes + 1 : unhelpfulVotes
+    // Recalculate counters from source of truth.
+    review.helpfulVotes = review.votedUsers.filter(v => v.vote === 'helpful').length
+    review.unhelpfulVotes = review.votedUsers.filter(v => v.vote === 'unhelpful').length
 
     await review.save()
 
     res.json({
-      message: 'Vote recorded successfully',
+      message: existingVote && existingVote.vote === vote ? 'Vote removed successfully' : 'Vote recorded successfully',
       helpfulVotes: review.helpfulVotes,
       unhelpfulVotes: review.unhelpfulVotes
     })
@@ -371,6 +370,7 @@ exports.removeVote = async (req, res, next) => {
   try {
     const { reviewId } = req.params
     const userId = req.user.id
+    const userIdString = String(userId)
 
     const review = await Review.findById(reviewId)
     if (!review || review.isDeleted) {
@@ -378,13 +378,13 @@ exports.removeVote = async (req, res, next) => {
     }
 
     // Remove user's vote
-    const userVote = review.votedUsers.find(v => v.user.toString() === userId)
+    const userVote = review.votedUsers.find(v => String(v.user) === userIdString)
     if (!userVote) {
       return res.status(400).json({ error: 'You have not voted on this review' })
     }
 
     review.votedUsers = review.votedUsers.filter(
-      v => v.user.toString() !== userId
+      v => String(v.user) !== userIdString
     )
 
     // Recalculate votes
