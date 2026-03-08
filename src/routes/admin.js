@@ -3,6 +3,7 @@ const router = express.Router();
 const adminController = require('../controllers/mongoAdminController');
 const adminDeliveryController = require('../controllers/adminDeliveryController');
 const analyticsController = require('../controllers/analyticsController');
+const adminVoucherController = require('../controllers/adminVoucherController');
 const { verifyToken, requireAdmin, requireAnyRole } = require('../middleware/auth');
 
 // All admin routes require authentication
@@ -46,6 +47,11 @@ router.get('/area-managers', requireAdmin, adminController.getAreaManagerAssignm
 
 // Reports
 router.get('/reports/best-sellers', requireAdmin, adminController.getBestSellers);
+
+// Vouchers / Coupons
+router.get('/vouchers', requireAdmin, adminVoucherController.listVouchers);
+router.post('/vouchers', requireAdmin, adminVoucherController.createVoucher);
+router.patch('/vouchers/:id/toggle', requireAdmin, adminVoucherController.toggleVoucherStatus);
 
 // Delivery Zones Management
 router.post('/delivery-zones', requireAdmin, adminDeliveryController.createDeliveryZone);
