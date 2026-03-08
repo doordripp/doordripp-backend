@@ -39,7 +39,17 @@ const OrderSchema = new mongoose.Schema({
     default: 'regular' 
   },
   deliveryETA: { type: String, default: '45 minutes' },
-  total: { type: Number, required: true }, // subtotal + GST + delivery
+  totalBeforeDiscount: { type: Number, default: 0 }, // subtotal + delivery + trialFee
+  voucherDiscount: { type: Number, default: 0 },
+  voucher: {
+    voucherId: { type: mongoose.Schema.Types.ObjectId, ref: 'Voucher' },
+    code: { type: String },
+    discountType: { type: String, enum: ['percentage', 'fixed'] },
+    discountValue: { type: Number },
+    discountAmount: { type: Number, default: 0 },
+    usageApplied: { type: Boolean, default: false }
+  },
+  total: { type: Number, required: true }, // final payable amount after discount
   
   status: { 
     type: String, 

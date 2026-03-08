@@ -4,7 +4,7 @@ const RazorpayUtil = require('../utils/razorpay');
 const mailService = require('../services/mail.service');
 const DeliveryZone = require('../models/DeliveryZone');
 const AreaManager = require('../models/AreaManager');
-const User = require('../models/User');
+const voucherService = require('../services/voucher.service');
 
 const DELIVERY_OPTIONS = {
   regular: { charge: 80, eta: '45 minutes', label: 'Regular Delivery' },
@@ -150,8 +150,19 @@ async function getDeliveryZoneAndManagers(address) {
 
 exports.create = async (req, res, next) => {
   try {
-    const { items, shippingAddress, deliveryType = 'regular', trialFee = 0, isTrial = false, trialItems = [] } = req.body;
+    const {
+      items,
+      shippingAddress,
+      deliveryType = 'regular',
+      trialFee = 0,
+      isTrial = false,
+      trialItems = [],
+      voucherCode
+    } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'No items' });
+
+    const parsedTrialFee = Number(trialFee);
+    const safeTrialFee = Number.isFinite(parsedTrialFee) && parsedTrialFee >= 0 ? parsedTrialFee : 0;
 
     // Validate and use delivery options constants
     const selectedDelivery = DELIVERY_OPTIONS[deliveryType] || DELIVERY_OPTIONS.regular;
@@ -163,20 +174,25 @@ exports.create = async (req, res, next) => {
     const orderItems = [];
     
     for (const it of items) {
+      const quantity = Number(it.quantity);
+      if (!Number.isInteger(quantity) || quantity <= 0) {
+        return res.status(400).json({ error: 'Invalid quantity for product ' + it.product });
+      }
+
       const product = await Product.findById(it.product);
       if (!product) return res.status(400).json({ error: 'Invalid product ' + it.product });
       // Check available stock (stock - reserved)
       const availableStock = product.stock - (product.reserved || 0);
-      if (availableStock < it.quantity) return res.status(400).json({ error: 'Out of stock for ' + product.name });
+      if (availableStock < quantity) return res.status(400).json({ error: 'Out of stock for ' + product.name });
       
       const price = product.price;
-      const itemTotal = price * it.quantity;
+      const itemTotal = price * quantity;
       subtotal += itemTotal;
       
       orderItems.push({
         product: product._id,
         name: product.name,
-        quantity: it.quantity,
+        quantity,
         price,
         itemTotal,
         gstRate: 0,
@@ -187,8 +203,35 @@ exports.create = async (req, res, next) => {
     }
 
     // Calculate final totals
-    const totalGST = 0;
-    const total = subtotal + deliveryFee + trialFee;
+    const discountBase = subtotal;
+    const totalBeforeDiscount = subtotal + deliveryFee + safeTrialFee;
+    let voucherDiscount = 0;
+    let total = totalBeforeDiscount;
+    let voucher = undefined;
+
+    const normalizedVoucherCode = voucherService.normalizeCode(voucherCode);
+    if (normalizedVoucherCode) {
+      const voucherResult = await voucherService.validateVoucherForUser({
+        code: normalizedVoucherCode,
+        cartTotal: discountBase,
+        userId: req.user.id
+      });
+
+      voucherDiscount = voucherResult.discount;
+      total = (discountBase - voucherDiscount) + deliveryFee + safeTrialFee;
+      voucher = {
+        voucherId: voucherResult.voucher._id,
+        code: voucherResult.voucher.code,
+        discountType: voucherResult.voucher.discountType,
+        discountValue: voucherResult.voucher.discountValue,
+        discountAmount: voucherResult.discount,
+        usageApplied: false
+      };
+    }
+
+    if (total <= 0) {
+      return res.status(400).json({ error: 'Payable amount must be greater than 0 after voucher discount' });
+    }
 
     // create a Razorpay order (amount in paise)
     const razorOrder = await RazorpayUtil.createOrder({ amount: Math.round(total * 100), currency: 'INR' });
@@ -202,11 +245,14 @@ exports.create = async (req, res, next) => {
       igstTotal: 0,
       totalGST: 0,
       deliveryFee,
-      trialFee,
+      trialFee: safeTrialFee,
       isTrial,
       trialItems,
       deliveryType,
       deliveryETA,
+      totalBeforeDiscount,
+      voucherDiscount,
+      voucher,
       total,
       status: 'pending',
       payment: { razorpayOrderId: razorOrder.id, status: 'pending' },
@@ -218,8 +264,20 @@ exports.create = async (req, res, next) => {
       await Product.findByIdAndUpdate(it.product, { $inc: { reserved: it.quantity } });
     }
 
-    res.status(201).json({ order, razorOrder });
+    res.status(201).json({
+      order,
+      razorOrder,
+      pricing: {
+        discountBase,
+        totalBeforeDiscount,
+        voucherDiscount,
+        payableTotal: total
+      }
+    });
   } catch (err) {
+    if (err?.name === 'VoucherError') {
+      return res.status(err.status || 400).json({ error: err.message });
+    }
     next(err);
   }
 };
@@ -247,6 +305,10 @@ exports.verifyPayment = async (req, res, next) => {
     if (String(order.customer._id) !== String(req.user.id)) {
       console.error('❌ Unauthorized access to order:', orderId);
       return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    if (order.payment?.status === 'success') {
+      return res.json({ message: 'Payment already verified', order });
     }
 
     // Verify Razorpay signature
@@ -281,6 +343,14 @@ exports.verifyPayment = async (req, res, next) => {
       console.log('✅ Payment verification SKIPPED (test mode)');
     } else {
       console.log('✅ Payment signature verified');
+    }
+
+    if (order.voucher?.voucherId && !order.voucher?.usageApplied) {
+      await voucherService.consumeVoucherUsage({
+        voucherId: order.voucher.voucherId,
+        userId: req.user.id
+      });
+      order.voucher.usageApplied = true;
     }
 
     // Update order payment status
@@ -367,6 +437,9 @@ exports.verifyPayment = async (req, res, next) => {
 
     res.json({ message: 'Payment verified successfully', order });
   } catch (err) {
+    if (err?.name === 'VoucherError') {
+      return res.status(err.status || 400).json({ error: err.message });
+    }
     next(err);
   }
 };
