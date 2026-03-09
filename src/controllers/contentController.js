@@ -5,7 +5,7 @@ const Category = require('../models/Category')
 exports.createBanner = async (req, res, next) => {
   try {
     const { title, imageUrl, imageKitId, link, type, platform, order } = req.body
-    
+
     if (!imageUrl) {
       return res.status(400).json({ success: false, message: 'Image URL is required' })
     }
@@ -33,7 +33,15 @@ exports.getBanners = async (req, res, next) => {
     const { type, platform, activeOnly } = req.query
     const filter = {}
     if (type) filter.type = type
-    if (platform) filter.platform = platform
+    if (platform) {
+      if (platform === 'website') {
+        filter.platform = { $in: ['website', 'both'] }
+      } else if (platform === 'app') {
+        filter.platform = { $in: ['app', 'both'] }
+      } else {
+        filter.platform = platform
+      }
+    }
     if (activeOnly === 'true') filter.isActive = true
 
     const banners = await Banner.find(filter).sort({ order: 1, createdAt: -1 })
@@ -78,7 +86,7 @@ exports.updateStatus = async (req, res, next) => {
 exports.updateBanner = async (req, res, next) => {
   try {
     const { title, imageUrl, imageKitId, link, type, platform, order, isActive } = req.body
-    
+
     const updateData = {}
     if (title !== undefined) updateData.title = title
     if (imageUrl !== undefined) updateData.imageUrl = imageUrl
@@ -94,11 +102,11 @@ exports.updateBanner = async (req, res, next) => {
       updateData,
       { new: true, runValidators: true }
     )
-    
+
     if (!banner) {
       return res.status(404).json({ success: false, message: 'Banner not found' })
     }
-    
+
     res.json({ success: true, banner })
   } catch (err) {
     next(err)
@@ -110,7 +118,7 @@ exports.updateBanner = async (req, res, next) => {
 exports.createCategory = async (req, res, next) => {
   try {
     const { name, slug, imageUrl, imageKitId, description, order } = req.body
-    
+
     if (!name || !imageUrl) {
       return res.status(400).json({ success: false, message: 'Name and Image URL are required' })
     }
