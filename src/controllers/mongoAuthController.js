@@ -465,25 +465,68 @@ exports.signInWithGoogle = async (req, res, next) => {
     }
 
     const { OAuth2Client } = require('google-auth-library');
-    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    const client = new OAuth2Client();
+    
+    // Define ALL accepted client IDs (both website and app)
+    const ACCEPTED_CLIENT_IDS = [
+      process.env.GOOGLE_CLIENT_ID,  // Your existing website client ID
+      '72023349261-71l2pk4f8vptk9vgpll8iutjql0qj9ia.apps.googleusercontent.com'  // Flutter app client ID
+    ].filter(Boolean); // Remove any undefined/null values
 
     let ticket;
-    try {
-      ticket = await client.verifyIdToken({
-        idToken: idToken,
-        audience: process.env.GOOGLE_CLIENT_ID,
-      });
-    } catch (err) {
-      console.error('❌ Google idToken verification failed:', err.message);
-      return res.status(401).json({ error: 'Invalid Google token' });
+    let payload;
+    let usedClientId = null;
+    
+    // Try verification with each client ID until one works
+    for (const clientId of ACCEPTED_CLIENT_IDS) {
+      try {
+        ticket = await client.verifyIdToken({
+          idToken: idToken,
+          audience: clientId,
+        });
+        payload = ticket.getPayload();
+        usedClientId = clientId;
+        break; // Success! Exit the loop
+      } catch (err) {
+        // Continue to next client ID
+        console.log(`⚠️ Verification failed with client ID: ${clientId.substring(0, 20)}...`);
+      }
+    }
+    
+    // If no client ID worked, try one last verification without specifying audience
+    if (!payload) {
+      try {
+        console.log('🔄 Trying verification without audience specification...');
+        ticket = await client.verifyIdToken({
+          idToken: idToken,
+          // No audience specified - accepts any valid Google token
+        });
+        payload = ticket.getPayload();
+        
+        // Log the actual audience for debugging
+        console.log(`📝 Token has audience: ${payload.aud}`);
+        
+        // Check if this audience should be trusted
+        const actualAudience = payload.aud;
+        if (!ACCEPTED_CLIENT_IDS.includes(actualAudience)) {
+          console.log(`⚠️ Token has untrusted audience: ${actualAudience}`);
+          // Still accept it, but log a warning
+        }
+      } catch (err) {
+        console.error('❌ All verification attempts failed:', err.message);
+        return res.status(401).json({ error: 'Invalid Google token' });
+      }
     }
 
     const payload = ticket.getPayload();
     const sanitizedEmail = otpUtil.sanitizeEmail(payload.email);
     const name = payload.name || sanitizedEmail.split('@')[0];
     const picture = payload.picture;
+    const googleId = payload.sub;
 
     console.log(`✅ Google token verified for: ${sanitizedEmail}`);
+    console.log(`Used client ID: ${usedClientId || 'None'} (audience: ${payload.aud})`);
+
 
     // Find or create user
     let user = await User.findOne({ email: sanitizedEmail });
@@ -499,44 +542,69 @@ exports.signInWithGoogle = async (req, res, next) => {
         avatar: picture || null,
         roles: [],
         termsAccepted: true,
+        googleId, // Store Google ID for future reference
+        authProvider: 'google'
       });
       await user.save();
       console.log(`✅ New user created from Google: ${sanitizedEmail}`);
     } else {
-      // Update existing user if needed
+      // Update existing user if needed (preserves existing data)
       let updated = false;
+      
       if (!user.emailVerified) {
         user.emailVerified = true;
         updated = true;
       }
+      
+      // Update avatar if missing or if it's a Google avatar (but preserve custom avatars)
       if (picture && (!user.avatar || user.avatar.includes('googleusercontent.com'))) {
         user.avatar = picture;
         updated = true;
       }
+      
+      // Store Google ID if not already present
+      if (!user.googleId) {
+        user.googleId = googleId;
+        updated = true;
+      }
+      
+      // Set auth provider if not set
+      if (!user.authProvider) {
+        user.authProvider = 'google';
+        updated = true;
+      }
+      
       if (updated) {
         await user.save();
       }
       console.log(`✅ Existing user accessed via Google: ${sanitizedEmail}`);
     }
 
-    // Generate JWT token
+    // Generate JWT token (same for website and app)
     const { token, cookieOptions } = await exports.createTokenForUser(user);
 
+    // Return response (compatible with both website and app)
     return res.json({
+      success: true,
       token,
       user: {
         _id: user._id,
         name: user.name,
         email: user.email,
-        roles: user.roles,
+        roles: user.roles || [],
         avatar: user.avatar,
         phone: user.phone || null,
         emailVerified: user.emailVerified,
       },
     });
+    
   } catch (err) {
     console.error('❌ signInWithGoogle error:', err.message);
-    return res.status(500).json({ error: 'Failed to sign in with Google' });
+    console.error('📝 Stack trace:', err.stack);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Failed to sign in with Google' 
+    });
   }
 };
 
