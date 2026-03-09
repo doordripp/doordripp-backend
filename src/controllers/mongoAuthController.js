@@ -263,13 +263,15 @@ exports.refresh = async (req, res) => {
 exports.register = async (req, res, next) => {
   try {
     const { name, email, password, termsAccepted } = req.body;
-    
+
     if (!termsAccepted) {
       return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
     }
 
+    const sanitizedEmail = otpUtil.sanitizeEmail(email);
+
     // Check if email exists
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: sanitizedEmail });
     if (existing) {
       return res.status(400).json({ error: 'Email already in use' });
     }
@@ -278,7 +280,7 @@ exports.register = async (req, res, next) => {
     // User is created but emailVerified remains false until OTP is verified
     const user = new User({
       name,
-      email,
+      email: sanitizedEmail,
       password,
       roles: [],
       termsAccepted: true,
@@ -292,15 +294,15 @@ exports.register = async (req, res, next) => {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Save OTP to database
-    await Otp.deleteMany({ identifier: email, type: 'email' });
-    await Otp.create({ identifier: email, type: 'email', codeHash, expiresAt });
+    await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
+    await Otp.create({ identifier: sanitizedEmail, type: 'email', codeHash, expiresAt });
 
     // Send OTP via email
-    const emailResult = await sendEmailOTP(email, code);
+    const emailResult = await sendEmailOTP(sanitizedEmail, code);
 
-    res.json({ 
+    res.json({
       message: 'Registration successful! Please check your email for verification code.',
-      email,
+      email: sanitizedEmail,
       userId: user._id,
       emailSent: emailResult.success,
       requiresVerification: true
@@ -317,9 +319,10 @@ exports.register = async (req, res, next) => {
 exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const sanitizedEmail = otpUtil.sanitizeEmail(email);
 
     // Find user by email
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: sanitizedEmail });
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -337,7 +340,7 @@ exports.login = async (req, res, next) => {
 
     // Check if email is verified
     if (!user.emailVerified) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'Email not verified',
         message: 'Please verify your email before logging in',
         email: user.email,
@@ -347,9 +350,9 @@ exports.login = async (req, res, next) => {
 
     const { token, cookieOptions } = await exports.createTokenForUser(user);
     res.cookie('token', token, cookieOptions);
-    res.json({ 
+    res.json({
       user: { id: user._id, email: user.email, name: user.name, roles: user.roles },
-      token 
+      token
     });
   } catch (err) {
     next(err);
@@ -364,8 +367,10 @@ exports.verifyEmailOTP = async (req, res, next) => {
       return res.status(400).json({ error: 'Email and OTP code are required' });
     }
 
+    const sanitizedEmail = otpUtil.sanitizeEmail(email);
+
     // Find the OTP record
-    const otp = await Otp.findOne({ identifier: email, type: 'email' }).sort({ createdAt: -1 });
+    const otp = await Otp.findOne({ identifier: sanitizedEmail, type: 'email' }).sort({ createdAt: -1 });
     if (!otp) {
       return res.status(400).json({ error: 'No OTP found for this email. Please request a new one.' });
     }
@@ -383,7 +388,7 @@ exports.verifyEmailOTP = async (req, res, next) => {
     }
 
     // OTP is valid - mark user as email verified
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: sanitizedEmail });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -392,7 +397,7 @@ exports.verifyEmailOTP = async (req, res, next) => {
     await user.save();
 
     // Delete used OTP
-    await Otp.deleteMany({ identifier: email, type: 'email' });
+    await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
 
     // Create token and log user in
     const { token, cookieOptions } = await exports.createTokenForUser(user);
@@ -416,8 +421,10 @@ exports.resendEmailOTP = async (req, res, next) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
+    const sanitizedEmail = otpUtil.sanitizeEmail(email);
+
     // Check if user exists
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: sanitizedEmail });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -433,11 +440,11 @@ exports.resendEmailOTP = async (req, res, next) => {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Save OTP to database
-    await Otp.deleteMany({ identifier: email, type: 'email' });
-    await Otp.create({ identifier: email, type: 'email', codeHash, expiresAt });
+    await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
+    await Otp.create({ identifier: sanitizedEmail, type: 'email', codeHash, expiresAt });
 
     // Send OTP via email
-    const emailResult = await sendEmailOTP(email, code);
+    const emailResult = await sendEmailOTP(sanitizedEmail, code);
 
     res.json({
       message: 'OTP sent successfully! Please check your email.',
@@ -472,21 +479,21 @@ exports.signInWithGoogle = async (req, res, next) => {
     }
 
     const payload = ticket.getPayload();
-    const email = payload.email;
-    const name = payload.name || payload.email.split('@')[0];
+    const sanitizedEmail = otpUtil.sanitizeEmail(payload.email);
+    const name = payload.name || sanitizedEmail.split('@')[0];
     const picture = payload.picture;
 
-    console.log(`✅ Google token verified for: ${email}`);
+    console.log(`✅ Google token verified for: ${sanitizedEmail}`);
 
     // Find or create user
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ email: sanitizedEmail });
 
     if (!user) {
       // Create new user
       const pwd = Math.random().toString(36).slice(-12);
       user = new User({
         name,
-        email,
+        email: sanitizedEmail,
         password: pwd,
         emailVerified: true,
         avatar: picture || null,
@@ -494,7 +501,7 @@ exports.signInWithGoogle = async (req, res, next) => {
         termsAccepted: true,
       });
       await user.save();
-      console.log(`✅ New user created from Google: ${email}`);
+      console.log(`✅ New user created from Google: ${sanitizedEmail}`);
     } else {
       // Update existing user if needed
       let updated = false;
@@ -509,7 +516,7 @@ exports.signInWithGoogle = async (req, res, next) => {
       if (updated) {
         await user.save();
       }
-      console.log(`✅ Existing user accessed via Google: ${email}`);
+      console.log(`✅ Existing user accessed via Google: ${sanitizedEmail}`);
     }
 
     // Generate JWT token
@@ -559,10 +566,10 @@ exports.me = async (req, res, next) => {
     const user = await User.findById(payload.id, '-password -refreshToken');
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
 
-    return res.json({ 
-      _id: user._id, 
-      name: user.name, 
-      email: user.email, 
+    return res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
       roles: user.roles,
       avatar: user.avatar,
       phone: user.phone || null,
