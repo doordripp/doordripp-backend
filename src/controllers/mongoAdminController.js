@@ -373,6 +373,8 @@ exports.listOrders = async (req, res, next) => {
         voucherDiscount: order.voucherDiscount || 0,
         voucher: order.voucher || null,
         status: order.status,
+        deliveryStatus: order.deliveryStatus,
+        statusHistory: order.statusHistory || [],
         isTrial: order.isTrial || false,
         trialItems: order.trialItems || [],
         trialFee: order.trialFee || 0,
@@ -417,6 +419,8 @@ exports.listOrders = async (req, res, next) => {
       voucherDiscount: order.voucherDiscount || 0,
       voucher: order.voucher || null,
       status: order.status,
+      deliveryStatus: order.deliveryStatus,
+      statusHistory: order.statusHistory || [],
       isTrial: order.isTrial || false,
       trialItems: order.trialItems || [],
       trialFee: order.trialFee || 0,
@@ -470,6 +474,8 @@ exports.getOrder = async (req, res, next) => {
       voucherDiscount: order.voucherDiscount || 0,
       voucher: order.voucher || null,
       status: order.status,
+      deliveryStatus: order.deliveryStatus,
+      statusHistory: order.statusHistory || [],
       isTrial: order.isTrial || false,
       trialItems: order.trialItems || [],
       trialFee: order.trialFee || 0,
@@ -608,9 +614,18 @@ exports.acceptDelivery = async (req, res, next) => {
       vehicleType: partner.vehicleType || 'bike'
     };
 
-    // Update order status to processing
+    // Update order status to processing and initialize delivery timeline status
     order.status = 'processing';
+    order.deliveryStatus = 'Accepted';
     order.orderStatus = 'PREPARING';
+
+    if (!order.statusHistory) order.statusHistory = [];
+    order.statusHistory.push({
+      status: 'Accepted',
+      timestamp: new Date(),
+      updatedBy: req.user.id,
+      updatedByRole: 'delivery_partner'
+    });
 
     // Set customer location from shipping address if available
     if (order.shippingAddress?.latitude && order.shippingAddress?.longitude) {

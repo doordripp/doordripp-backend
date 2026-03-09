@@ -56,46 +56,29 @@ const OrderSchema = new mongoose.Schema({
     default: 'pending', 
     enum: ['pending', 'confirmed', 'packed', 'processing', 'shipped', 'delivered', 'cancelled'] 
   },
-  // Live Tracking Status (for deliveries)
-  orderStatus: {
+  
+  // Delivery Status (controlled by delivery partner)
+  deliveryStatus: {
     type: String,
-    enum: ['PLACED', 'CONFIRMED', 'PREPARING', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'],
-    default: 'PLACED'
+    enum: ['Order Placed', 'Accepted', 'Picked Up', 'Out For Delivery', 'Delivered', 'Cancelled'],
+    default: 'Order Placed'
   },
   
-  // Customer location for tracking
-  customerLocation: {
-    lat: { type: Number },
-    lng: { type: Number }
-  },
-  
-  // Delivery partner tracking
-  deliveryPartner: {
-    riderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    name: { type: String },
-    phone: { type: String },
-    photo: { type: String }, // Rider profile photo
-    location: {
-      lat: { type: Number },
-      lng: { type: Number }
-    },
-    rating: { type: Number, default: 4.8 },
-    vehicleType: { type: String, default: 'bike' } // bike, scooter, car
-  },
-  
-  // Timeline of status changes
-  timeline: [{
-    status: { type: String },
+  // Status History (timeline of all status changes)
+  statusHistory: [{
+    status: { type: String, required: true },
     timestamp: { type: Date, default: Date.now },
-    lat: { type: Number },
-    lng: { type: Number }
+    updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    updatedByRole: { type: String }
   }],
   
-  // Estimated arrival time
-  estimatedArrivalTime: { type: Date },
-  
-  // Last location update timestamp
-  lastLocationUpdate: { type: Date },
+  // Delivery partner info (no live location)
+  deliveryPartner: {
+    id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    name: { type: String },
+    phone: { type: String },
+    photo: { type: String }
+  },
   
   payment: {
     method: { type: String },
@@ -142,14 +125,6 @@ const OrderSchema = new mongoose.Schema({
     notes: { type: String }
   },
 
-  // Delivery partner location history (Feature 3)
-  deliveryLocationHistory: [{
-    lat: { type: Number, required: true },
-    lng: { type: Number, required: true },
-    timestamp: { type: Date, default: Date.now },
-    speed: { type: Number }, // km/h
-    accuracy: { type: Number } // meters
-  }],
   // Store buyer state code for tax calculation
   buyerStateCode: { type: String, default: '27' }
 }, { timestamps: true })

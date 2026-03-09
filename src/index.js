@@ -30,6 +30,7 @@ const supportRoutes = require('./routes/support');
 const trialRoomRoutes = require('./routes/trialRoom');
 const contentRoutes = require('./routes/content');
 const deliveryRoutes = require('./routes/delivery');
+const deliveryPartnerRoutes = require('./routes/deliveryPartner');
 const voucherRoutes = require('./routes/voucher.routes');
 // Socket.io setup
 const { setupSocketIO } = require('./sockets')
@@ -119,6 +120,7 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/content', contentRoutes);
 app.use('/api/delivery', deliveryRoutes);
+app.use('/api/delivery-partner', deliveryPartnerRoutes);
 app.use('/api/voucher', voucherRoutes);
 app.use('/webhooks', webhookRoutes);
 

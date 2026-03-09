@@ -1,10 +1,10 @@
 /**
  * Socket.io Server Setup
  * Initialize Socket.io with CORS and authentication
+ * Handles real-time order status updates
  */
 
 const socketIO = require('socket.io')
-const { initializeTracking } = require('./tracking')
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
 
@@ -43,7 +43,7 @@ function setupSocketIO(httpServer, corsOptions) {
       const decoded = jwt.verify(token, JWT_SECRET)
       socket.data.authenticated = true
       socket.data.userId = decoded.id || decoded.userId
-      socket.data.userRole = decoded.role || 'customer'
+      socket.data.roles = decoded.roles || ['customer']
       next()
     } catch (error) {
       console.error('[Socket] Authentication failed:', error.message)
@@ -52,16 +52,34 @@ function setupSocketIO(httpServer, corsOptions) {
     }
   })
 
-  // Initialize tracking handlers
-  initializeTracking(io)
-
   // Global connection handler
   io.on('connection', (socket) => {
     console.log(`[Socket.io] New connection: ${socket.id}`)
 
+    // Join order room for real-time updates
+    socket.on('joinOrderRoom', (orderId) => {
+      if (orderId) {
+        socket.join(`order_${orderId}`)
+        console.log(`[Socket.io] Client ${socket.id} joined order room: order_${orderId}`)
+      }
+    })
+
+    // Leave order room
+    socket.on('leaveOrderRoom', (orderId) => {
+      if (orderId) {
+        socket.leave(`order_${orderId}`)
+        console.log(`[Socket.io] Client ${socket.id} left order room: order_${orderId}`)
+      }
+    })
+
     // Ping/Pong for keep-alive
     socket.on('ping', () => {
       socket.emit('pong')
+    })
+
+    // Handle disconnect
+    socket.on('disconnect', () => {
+      console.log(`[Socket.io] Client disconnected: ${socket.id}`)
     })
 
     // Generic error handler

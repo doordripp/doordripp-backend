@@ -27,10 +27,13 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
           }
           console.log('✅ Email extracted:', email);
 
+          // Normalize email to lowercase for case-insensitive matching
+          const emailLower = email.toLowerCase().trim();
+
           // Extract all available profile data from Google
           const googleData = {
             name: profile.displayName || email.split('@')[0],
-            email: email,
+            email: emailLower,
             emailVerified: true, // Google has already verified the email
             googleId: profile.id
           }
@@ -61,8 +64,8 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
             googleData.avatar = avatarUrl
           }
 
-          // Find existing user by email
-          let user = await User.findOne({ email })
+          // Find existing user by email (case-insensitive)
+          let user = await User.findOne({ email: emailLower })
           
           if (!user) {
             // Create a new user with all available Google data

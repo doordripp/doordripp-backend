@@ -75,5 +75,19 @@ exports.requireAnyRole = (...allowedRoles) => {
   };
 };
 
+exports.requireRole = (role) => {
+  return (req, res, next) => {
+    if (!req.user || !req.user.roles) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    if (!hasAnyRole(req.user.roles, [role])) {
+      return res.status(403).json({ error: `${role} role required` });
+    }
+
+    next();
+  };
+};
+
 exports.hasAnyRole = hasAnyRole;
 

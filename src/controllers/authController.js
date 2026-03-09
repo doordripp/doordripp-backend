@@ -28,9 +28,10 @@ exports.register = async (req, res, next) => {
     const { name, email, password, phone, gender, dob, address, termsAccepted } = req.body;
     if (!termsAccepted) return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
 
-    // Basic uniqueness checks
+    // Basic uniqueness checks (email is case-insensitive)
     if (email) {
-      const existing = await User.findOne({ email });
+      const emailLower = email.toLowerCase().trim();
+      const existing = await User.findOne({ email: emailLower });
       if (existing) return res.status(400).json({ error: 'Email already in use' });
     }
     if (phone) {
@@ -50,7 +51,7 @@ exports.register = async (req, res, next) => {
       }
     }
 
-    const user = new User({ name, email, password, phone, gender, dob: dob ? new Date(dob) : null, address, termsAccepted, roles: [] });
+    const user = new User({ name, email: email ? email.toLowerCase().trim() : email, password, phone, gender, dob: dob ? new Date(dob) : null, address, termsAccepted, roles: [] });
     await user.save();
     const { token, cookieOptions } = await exports.createTokenForUser(user);
     // set httpOnly cookie for session
@@ -69,8 +70,9 @@ exports.register = async (req, res, next) => {
 exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    // Allow login by email or phone
-    const user = await User.findOne({ $or: [{ email }, { phone: email }] });
+    // Allow login by email or phone (case-insensitive for email)
+    const emailLower = email ? email.toLowerCase().trim() : email;
+    const user = await User.findOne({ $or: [{ email: emailLower }, { phone: email }] });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
     const match = await user.matchPassword(password);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
