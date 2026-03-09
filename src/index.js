@@ -1,4 +1,10 @@
-require('dotenv').config();
+const path = require('path');
+const dotenv = require('dotenv');
+
+// Load environment variables based on NODE_ENV
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+dotenv.config({ path: path.join(__dirname, '..', envFile) });
+
 const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');
@@ -54,12 +60,12 @@ const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like curl, mobile apps)
     if (!origin) return callback(null, true);
-    
+
     // Allow all localhost origins in development
     if (origin && origin.startsWith('http://localhost:')) {
       return callback(null, true);
     }
-    
+
     if (allowedOrigins.includes(origin)) return callback(null, true);
     if (process.env.CORS_ALLOW_ALL === 'true') return callback(null, true);
     return callback(new Error('CORS not allowed for origin: ' + origin), false);
@@ -120,7 +126,6 @@ app.use('/webhooks', webhookRoutes);
 app.get('/', (req, res) => res.json({ ok: true, version: '0.1.0' }));
 
 // Serve React build if present
-const path = require('path');
 const fs = require('fs');
 const clientBuildPath = path.join(__dirname, '../client-build');
 const frontendBuildPath = path.join(__dirname, '../frontend/build');
@@ -152,7 +157,7 @@ function startServer(port, attempts = 0) {
 
   // Initialize Socket.io with CORS options
   const io = setupSocketIO(server, corsOptions)
-  
+
   // Attach io to app so controllers can emit events
   app.set('io', io)
 

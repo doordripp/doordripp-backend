@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 
 const PendingUserSchema = new mongoose.Schema({
-  email: { type: String, required: true, unique: true, index: true },
+  email: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
   name: { type: String, required: true },
   passwordHash: { type: String, required: true },
   otpHash: { type: String, required: true },
