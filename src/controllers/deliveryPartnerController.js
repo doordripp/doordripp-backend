@@ -41,7 +41,9 @@ exports.getMyOrders = async (req, res, next) => {
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
       deliveryType: order.deliveryType,
-      deliveryETA: order.deliveryETA
+      deliveryETA: order.deliveryETA,
+      isTrial: order.isTrial,
+      trialItems: order.trialItems
     }));
 
     res.json({
@@ -99,6 +101,8 @@ exports.getOrderDetails = async (req, res, next) => {
         updatedAt: order.updatedAt,
         deliveryType: order.deliveryType,
         deliveryETA: order.deliveryETA,
+        isTrial: order.isTrial,
+        trialItems: order.trialItems,
         payment: {
           method: order.payment?.method,
           status: order.payment?.status
@@ -175,7 +179,7 @@ exports.updateOrderStatus = async (req, res, next) => {
       }
       order.proofOfDelivery.deliveredAt = new Date();
       order.proofOfDelivery.deliveredBy = deliveryPartnerId;
-      
+
       // Also update main status to delivered
       order.status = 'delivered';
     }

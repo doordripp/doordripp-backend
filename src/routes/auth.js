@@ -278,12 +278,19 @@ router.put('/change-password', async (req, res) => {
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
 
     const { currentPassword, newPassword } = req.body || {};
-    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Current and new password are required' });
-    const match = await user.matchPassword(currentPassword);
-    if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
+    if (!newPassword) return res.status(400).json({ error: 'New password is required' });
+
+    // Only check current password if a password was previously set
+    if (user.isPasswordSet) {
+      if (!currentPassword) return res.status(400).json({ error: 'Current password is required' });
+      const match = await user.matchPassword(currentPassword);
+      if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
     if (typeof newPassword !== 'string' || newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
 
     user.password = newPassword;
+    user.isPasswordSet = true;
     await user.save();
     return res.json({ ok: true, message: 'Password updated' });
   } catch (e) {

@@ -7,6 +7,7 @@ const { verifyToken } = require('../middleware/auth');
 router.post('/', verifyToken, orderController.create);
 router.get('/:id', verifyToken, orderController.get);
 router.post('/:id/verify-payment', verifyToken, orderController.verifyPayment);
+router.post('/:id/payment-failed', verifyToken, orderController.markPaymentFailed);
 router.post('/:id/cancel', verifyToken, orderController.cancel);
 
 // Admin endpoints

@@ -180,6 +180,7 @@ exports.verifyEmailRegistration = async (req, res, next) => {
         termsAccepted: true,
         phone: pending.phone || undefined,
         phoneVerified: false,
+        isPasswordSet: true,
       });
       user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
       await user.save();
@@ -263,7 +264,7 @@ exports.refresh = async (req, res) => {
 exports.register = async (req, res, next) => {
   try {
     const { name, email, password, termsAccepted } = req.body;
-    
+
     if (!termsAccepted) {
       return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
     }
@@ -298,7 +299,7 @@ exports.register = async (req, res, next) => {
     // Send OTP via email
     const emailResult = await sendEmailOTP(email, code);
 
-    res.json({ 
+    res.json({
       message: 'Registration successful! Please check your email for verification code.',
       email,
       userId: user._id,
@@ -338,7 +339,7 @@ exports.login = async (req, res, next) => {
 
     // Check if email is verified
     if (!user.emailVerified) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'Email not verified',
         message: 'Please verify your email before logging in',
         email: user.email,
@@ -348,9 +349,9 @@ exports.login = async (req, res, next) => {
 
     const { token, cookieOptions } = await exports.createTokenForUser(user);
     res.cookie('token', token, cookieOptions);
-    res.json({ 
+    res.json({
       user: { id: user._id, email: user.email, name: user.name, roles: user.roles },
-      token 
+      token
     });
   } catch (err) {
     next(err);
@@ -460,7 +461,7 @@ exports.signInWithGoogle = async (req, res, next) => {
 
     const { OAuth2Client } = require('google-auth-library');
     const client = new OAuth2Client();
-    
+
     // Define ALL accepted client IDs (both website and app)
     const ACCEPTED_CLIENT_IDS = [
       process.env.GOOGLE_CLIENT_ID,  // Your existing website client ID
@@ -470,7 +471,7 @@ exports.signInWithGoogle = async (req, res, next) => {
     let ticket;
     let payload;
     let usedClientId = null;
-    
+
     // Try verification with each client ID until one works
     for (const clientId of ACCEPTED_CLIENT_IDS) {
       try {
@@ -486,7 +487,7 @@ exports.signInWithGoogle = async (req, res, next) => {
         console.log(`⚠️ Verification failed with client ID: ${clientId.substring(0, 20)}...`);
       }
     }
-    
+
     // If no client ID worked, try one last verification without specifying audience
     if (!payload) {
       try {
@@ -496,10 +497,10 @@ exports.signInWithGoogle = async (req, res, next) => {
           // No audience specified - accepts any valid Google token
         });
         payload = ticket.getPayload();
-        
+
         // Log the actual audience for debugging
         console.log(`📝 Token has audience: ${payload.aud}`);
-        
+
         // Check if this audience should be trusted
         const actualAudience = payload.aud;
         if (!ACCEPTED_CLIENT_IDS.includes(actualAudience)) {
@@ -536,37 +537,38 @@ exports.signInWithGoogle = async (req, res, next) => {
         roles: [],
         termsAccepted: true,
         googleId, // Store Google ID for future reference
-        authProvider: 'google'
+        authProvider: 'google',
+        isPasswordSet: false
       });
       await user.save();
       console.log(`✅ New user created from Google: ${email}`);
     } else {
       // Update existing user if needed (preserves existing data)
       let updated = false;
-      
+
       if (!user.emailVerified) {
         user.emailVerified = true;
         updated = true;
       }
-      
+
       // Update avatar if missing or if it's a Google avatar (but preserve custom avatars)
       if (picture && (!user.avatar || user.avatar.includes('googleusercontent.com'))) {
         user.avatar = picture;
         updated = true;
       }
-      
+
       // Store Google ID if not already present
       if (!user.googleId) {
         user.googleId = googleId;
         updated = true;
       }
-      
+
       // Set auth provider if not set
       if (!user.authProvider) {
         user.authProvider = 'google';
         updated = true;
       }
-      
+
       if (updated) {
         await user.save();
       }
@@ -588,15 +590,16 @@ exports.signInWithGoogle = async (req, res, next) => {
         avatar: user.avatar,
         phone: user.phone || null,
         emailVerified: user.emailVerified,
+        isPasswordSet: user.isPasswordSet || false,
       },
     });
-    
+
   } catch (err) {
     console.error('❌ signInWithGoogle error:', err.message);
     console.error('📝 Stack trace:', err.stack);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      error: 'Failed to sign in with Google' 
+      error: 'Failed to sign in with Google'
     });
   }
 };
@@ -627,14 +630,16 @@ exports.me = async (req, res, next) => {
     const user = await User.findById(payload.id, '-password -refreshToken');
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
 
-    return res.json({ 
-      _id: user._id, 
-      name: user.name, 
-      email: user.email, 
+    return res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
       roles: user.roles,
       avatar: user.avatar,
       phone: user.phone || null,
-      address: user.address || null
+      address: user.address || null,
+      googleId: user.googleId || null,
+      isPasswordSet: user.isPasswordSet || false
     });
   } catch (e) {
     return res.status(401).json({ error: 'Invalid token' });
