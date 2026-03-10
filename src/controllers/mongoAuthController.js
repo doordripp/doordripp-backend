@@ -1,5 +1,4 @@
-﻿const jwt = require('jsonwebtoken');
-const logger = require('../utils/logger');
+const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Otp = require('../models/Otp');
@@ -9,10 +8,8 @@ const otpUtil = require('../utils/otp.util');
 const mailService = require('../services/mail.service');
 
 const generateToken = (user) => {
-  const jwtSecret = process.env.JWT_SECRET;
-  if (!jwtSecret) throw new Error('JWT_SECRET environment variable is not set');
   const payload = { id: user._id, roles: user.roles || [] };
-  return jwt.sign(payload, jwtSecret, { expiresIn: '7d' });
+  return jwt.sign(payload, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
 };
 
 exports.createTokenForUser = async (user) => {
@@ -183,6 +180,7 @@ exports.verifyEmailRegistration = async (req, res, next) => {
         termsAccepted: true,
         phone: pending.phone || undefined,
         phoneVerified: false,
+        isPasswordSet: true,
       });
       user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
       await user.save();
@@ -251,9 +249,7 @@ exports.refresh = async (req, res) => {
     }
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
 
-    const jwtSecretRefresh = process.env.JWT_SECRET;
-    if (!jwtSecretRefresh) return res.status(500).json({ error: 'Server configuration error' });
-    const payload = jwt.verify(token, jwtSecretRefresh);
+    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
     const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
 
@@ -268,7 +264,7 @@ exports.refresh = async (req, res) => {
 exports.register = async (req, res, next) => {
   try {
     const { name, email, password, termsAccepted } = req.body;
-    
+
     if (!termsAccepted) {
       return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
     }
@@ -303,7 +299,7 @@ exports.register = async (req, res, next) => {
     // Send OTP via email
     const emailResult = await sendEmailOTP(email, code);
 
-    res.json({ 
+    res.json({
       message: 'Registration successful! Please check your email for verification code.',
       email,
       userId: user._id,
@@ -343,7 +339,7 @@ exports.login = async (req, res, next) => {
 
     // Check if email is verified
     if (!user.emailVerified) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'Email not verified',
         message: 'Please verify your email before logging in',
         email: user.email,
@@ -353,9 +349,9 @@ exports.login = async (req, res, next) => {
 
     const { token, cookieOptions } = await exports.createTokenForUser(user);
     res.cookie('token', token, cookieOptions);
-    res.json({ 
+    res.json({
       user: { id: user._id, email: user.email, name: user.name, roles: user.roles },
-      token 
+      token
     });
   } catch (err) {
     next(err);
@@ -465,7 +461,7 @@ exports.signInWithGoogle = async (req, res, next) => {
 
     const { OAuth2Client } = require('google-auth-library');
     const client = new OAuth2Client();
-    
+
     // Define ALL accepted client IDs (both website and app)
     const ACCEPTED_CLIENT_IDS = [
       process.env.GOOGLE_CLIENT_ID,  // Your existing website client ID
@@ -475,7 +471,7 @@ exports.signInWithGoogle = async (req, res, next) => {
     let ticket;
     let payload;
     let usedClientId = null;
-    
+
     // Try verification with each client ID until one works
     for (const clientId of ACCEPTED_CLIENT_IDS) {
       try {
@@ -488,31 +484,31 @@ exports.signInWithGoogle = async (req, res, next) => {
         break; // Success! Exit the loop
       } catch (err) {
         // Continue to next client ID
-        logger.info(`⚠️ Verification failed with client ID: ${clientId.substring(0, 20)}...`);
+        console.log(`⚠️ Verification failed with client ID: ${clientId.substring(0, 20)}...`);
       }
     }
-    
+
     // If no client ID worked, try one last verification without specifying audience
     if (!payload) {
       try {
-        logger.info('🔄 Trying verification without audience specification...');
+        console.log('🔄 Trying verification without audience specification...');
         ticket = await client.verifyIdToken({
           idToken: idToken,
           // No audience specified - accepts any valid Google token
         });
         payload = ticket.getPayload();
-        
+
         // Log the actual audience for debugging
-        logger.info(`📝 Token has audience: ${payload.aud}`);
-        
+        console.log(`📝 Token has audience: ${payload.aud}`);
+
         // Check if this audience should be trusted
         const actualAudience = payload.aud;
         if (!ACCEPTED_CLIENT_IDS.includes(actualAudience)) {
-          logger.info(`⚠️ Token has untrusted audience: ${actualAudience}`);
+          console.log(`⚠️ Token has untrusted audience: ${actualAudience}`);
           // Still accept it, but log a warning
         }
       } catch (err) {
-        logger.error('❌ All verification attempts failed:', err.message);
+        console.error('❌ All verification attempts failed:', err.message);
         return res.status(401).json({ error: 'Invalid Google token' });
       }
     }
@@ -523,8 +519,8 @@ exports.signInWithGoogle = async (req, res, next) => {
     const picture = payload.picture;
     const googleId = payload.sub;
 
-    logger.info(`✅ Google token verified for: ${email}`);
-    logger.info(`🔑 Used client ID: ${usedClientId || 'None (audience: ' + payload.aud + ')'}`);
+    console.log(`✅ Google token verified for: ${email}`);
+    console.log(`🔑 Used client ID: ${usedClientId || 'None (audience: ' + payload.aud + ')'}`);
 
     // Find or create user (maintains backward compatibility)
     let user = await User.findOne({ email });
@@ -541,41 +537,42 @@ exports.signInWithGoogle = async (req, res, next) => {
         roles: [],
         termsAccepted: true,
         googleId, // Store Google ID for future reference
-        authProvider: 'google'
+        authProvider: 'google',
+        isPasswordSet: false
       });
       await user.save();
-      logger.info(`✅ New user created from Google: ${email}`);
+      console.log(`✅ New user created from Google: ${email}`);
     } else {
       // Update existing user if needed (preserves existing data)
       let updated = false;
-      
+
       if (!user.emailVerified) {
         user.emailVerified = true;
         updated = true;
       }
-      
+
       // Update avatar if missing or if it's a Google avatar (but preserve custom avatars)
       if (picture && (!user.avatar || user.avatar.includes('googleusercontent.com'))) {
         user.avatar = picture;
         updated = true;
       }
-      
+
       // Store Google ID if not already present
       if (!user.googleId) {
         user.googleId = googleId;
         updated = true;
       }
-      
+
       // Set auth provider if not set
       if (!user.authProvider) {
         user.authProvider = 'google';
         updated = true;
       }
-      
+
       if (updated) {
         await user.save();
       }
-      logger.info(`✅ Existing user accessed via Google: ${email}`);
+      console.log(`✅ Existing user accessed via Google: ${email}`);
     }
 
     // Generate JWT token (same for website and app)
@@ -593,55 +590,56 @@ exports.signInWithGoogle = async (req, res, next) => {
         avatar: user.avatar,
         phone: user.phone || null,
         emailVerified: user.emailVerified,
+        isPasswordSet: user.isPasswordSet || false,
       },
     });
-    
+
   } catch (err) {
-    logger.error('❌ signInWithGoogle error:', err.message);
-    logger.error('📝 Stack trace:', err.stack);
-    return res.status(500).json({ 
+    console.error('❌ signInWithGoogle error:', err.message);
+    console.error('📝 Stack trace:', err.stack);
+    return res.status(500).json({
       success: false,
-      error: 'Failed to sign in with Google' 
+      error: 'Failed to sign in with Google'
     });
   }
 };
 
 exports.me = async (req, res, next) => {
   try {
-    logger.info('🔍 /me called - checking auth...');
-    logger.info('🍪 Cookies received:', Object.keys(req.cookies || {}).length ? Object.keys(req.cookies) : 'none');
-    logger.info('📋 Headers auth:', req.headers.authorization ? 'present' : 'none');
+    console.log('🔍 /me called - checking auth...');
+    console.log('🍪 Cookies received:', Object.keys(req.cookies || {}).length ? Object.keys(req.cookies) : 'none');
+    console.log('📋 Headers auth:', req.headers.authorization ? 'present' : 'none');
     let token = null;
     if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
-      logger.info('✅ Token found in cookies');
+      console.log('✅ Token found in cookies');
     }
     if (!token && req.headers.authorization) {
       const parts = req.headers.authorization.split(' ');
       if (parts.length === 2 && parts[0] === 'Bearer') {
         token = parts[1];
-        logger.info('✅ Token found in Authorization header');
+        console.log('✅ Token found in Authorization header');
       }
     }
     if (!token) {
-      logger.info('No token found - returning 401');
+      console.log('❌ No token found - returning 401');
       return res.status(401).json({ error: 'Not authenticated' });
     }
 
-    const jwtSecretMe = process.env.JWT_SECRET;
-    if (!jwtSecretMe) return res.status(500).json({ error: 'Server configuration error' });
-    const payload = jwt.verify(token, jwtSecretMe);
+    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
     const user = await User.findById(payload.id, '-password -refreshToken');
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
 
-    return res.json({ 
-      _id: user._id, 
-      name: user.name, 
-      email: user.email, 
+    return res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
       roles: user.roles,
       avatar: user.avatar,
       phone: user.phone || null,
-      address: user.address || null
+      address: user.address || null,
+      googleId: user.googleId || null,
+      isPasswordSet: user.isPasswordSet || false
     });
   } catch (e) {
     return res.status(401).json({ error: 'Invalid token' });

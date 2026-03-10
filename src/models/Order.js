@@ -17,7 +17,7 @@ const OrderItemSchema = new mongoose.Schema({
 const OrderSchema = new mongoose.Schema({
   customer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   items: [OrderItemSchema],
-  
+
   // Financial Breakdown
   subtotal: { type: Number, required: true }, // Sum of (price * quantity) before GST
   cgstTotal: { type: Number, default: 0 }, // Total CGST for all items
@@ -33,10 +33,10 @@ const OrderSchema = new mongoose.Schema({
     image: { type: String },
     price: { type: Number }
   }],
-  deliveryType: { 
-    type: String, 
+  deliveryType: {
+    type: String,
     enum: ['regular', 'standard', 'priority'],
-    default: 'regular' 
+    default: 'regular'
   },
   deliveryETA: { type: String, default: '45 minutes' },
   totalBeforeDiscount: { type: Number, default: 0 }, // subtotal + delivery + trialFee
@@ -50,20 +50,20 @@ const OrderSchema = new mongoose.Schema({
     usageApplied: { type: Boolean, default: false }
   },
   total: { type: Number, required: true }, // final payable amount after discount
-  
-  status: { 
-    type: String, 
-    default: 'pending', 
-    enum: ['pending', 'confirmed', 'packed', 'processing', 'shipped', 'delivered', 'cancelled'] 
+
+  status: {
+    type: String,
+    default: 'pending',
+    enum: ['pending', 'confirmed', 'packed', 'processing', 'shipped', 'delivered', 'cancelled', 'failed']
   },
-  
+
   // Delivery Status (controlled by delivery partner)
   deliveryStatus: {
     type: String,
     enum: ['Order Placed', 'Accepted', 'Picked Up', 'Out For Delivery', 'Delivered', 'Cancelled'],
     default: 'Order Placed'
   },
-  
+
   // Status History (timeline of all status changes)
   statusHistory: [{
     status: { type: String, required: true },
@@ -71,7 +71,7 @@ const OrderSchema = new mongoose.Schema({
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     updatedByRole: { type: String }
   }],
-  
+
   // Delivery partner info (no live location)
   deliveryPartner: {
     id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
@@ -79,7 +79,7 @@ const OrderSchema = new mongoose.Schema({
     phone: { type: String },
     photo: { type: String }
   },
-  
+
   payment: {
     method: { type: String },
     transactionId: { type: String },
@@ -106,10 +106,10 @@ const OrderSchema = new mongoose.Schema({
     updatedByRole: { type: String },
     updatedAt: { type: Date, default: Date.now }
   }],
-  
+
   // Assigned delivery partner (Feature 1)
-  assignedDeliveryPartner: { 
-    type: mongoose.Schema.Types.ObjectId, 
+  assignedDeliveryPartner: {
+    type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     index: true // Index for fast queries
   },

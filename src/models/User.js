@@ -25,6 +25,7 @@ const UserSchema = new mongoose.Schema({
   termsAccepted: { type: Boolean, default: false },
   blocked: { type: Boolean, default: false }, // Legacy field, use isBanned
   refreshToken: { type: String, default: null },
+  isPasswordSet: { type: Boolean, default: false },
   // OAuth fields
   googleId: { type: String, unique: true, sparse: true },
   // Password reset fields

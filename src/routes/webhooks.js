@@ -12,7 +12,7 @@ const crypto = require('crypto');
 router.post('/razorpay', async (req, res) => {
   try {
     const razorpaySignature = req.headers['x-razorpay-signature'];
-    
+
     if (!razorpaySignature) {
       return res.status(400).json({ error: 'Missing signature' });
     }
@@ -68,8 +68,8 @@ router.post('/razorpay', async (req, res) => {
             $inc: { reserved: -item.quantity }
           });
         }
-        
-        order.status = 'cancelled';
+
+        order.status = 'failed';
         order.payment.status = 'failed';
         await order.save();
 
