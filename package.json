@@ -9,7 +9,12 @@
     "seed": "node scripts/seed-mongo.js",
     "create-admin": "node scripts/create-admin.js",
     "lint": "eslint . --ext .js",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "test:user": "node scripts/check-anu-user.js",
+    "test:email": "node scripts/test-email.js",
+    "test:brevo": "node scripts/test-brevo.js",
+    "test:login": "node scripts/test-login.js",
+    "diagnose:brevo": "node scripts/diagnose-brevo.js"
   },
   "keywords": [],
   "author": "doordripp",

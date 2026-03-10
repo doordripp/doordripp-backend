@@ -1,4 +1,5 @@
-const express = require('express');
+﻿const express = require('express');
+const logger = require('../utils/logger');
 const ImageKit = require('imagekit');
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.get('/imagekit-auth', (req, res) => {
     const authenticationParameters = imagekit.getAuthenticationParameters();
     res.send(authenticationParameters);
   } catch (error) {
-    console.error('ImageKit auth error:', error);
+    logger.error('ImageKit auth error:', error);
     res.status(500).json({ 
       error: 'Failed to generate auth parameters',
       message: error.message 

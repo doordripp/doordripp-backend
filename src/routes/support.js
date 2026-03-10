@@ -1,4 +1,4 @@
-const express = require('express')
+﻿const express = require('express')
 const router = express.Router()
 const SupportFaq = require('../models/SupportFaq')
 const SupportTicket = require('../models/SupportTicket')
@@ -221,7 +221,7 @@ router.post('/chat', async (req, res, next) => {
 
     res.json(response)
   } catch (err) {
-    console.error('Chat endpoint error:', err)
+    logger.error('Chat endpoint error:', err)
     next(err)
   }
 })

@@ -1,9 +1,10 @@
-/**
+﻿/**
  * Delivery Analytics Controller
  * Provides comprehensive analytics for delivery operations
  */
 
 const mongoose = require('mongoose');
+const logger = require('../utils/logger');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const DeliveryZone = require('../models/DeliveryZone');
@@ -340,7 +341,7 @@ exports.getDeliveryAnalytics = async (req, res, next) => {
       dailyTrends
     });
   } catch (error) {
-    console.error('Error fetching delivery analytics:', error);
+    logger.error('Error fetching delivery analytics:', error);
     next(error);
   }
 };
@@ -453,7 +454,7 @@ exports.getPartnerStats = async (req, res, next) => {
       recentOrders
     });
   } catch (error) {
-    console.error('Error fetching partner stats:', error);
+    logger.error('Error fetching partner stats:', error);
     next(error);
   }
 };

@@ -1,4 +1,5 @@
-const express = require('express');
+﻿const express = require('express');
+const logger = require('../utils/logger');
 const router = express.Router();
 const Order = require('../models/Order');
 const Product = require('../models/Product');
@@ -52,7 +53,7 @@ router.post('/razorpay', async (req, res) => {
           });
         }
 
-        console.log(`✅ Webhook: Payment captured for order ${order._id}`);
+        logger.info(`✅ Webhook: Payment captured for order ${order._id}`);
       }
     } else if (event === 'payment.failed') {
       // Payment failed - release reserved stock
@@ -72,13 +73,13 @@ router.post('/razorpay', async (req, res) => {
         order.payment.status = 'failed';
         await order.save();
 
-        console.log(`❌ Webhook: Payment failed for order ${order._id}`);
+        logger.info(`❌ Webhook: Payment failed for order ${order._id}`);
       }
     }
 
     res.json({ status: 'ok' });
   } catch (err) {
-    console.error('Webhook error:', err);
+    logger.error('Webhook error:', err);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 });

@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const logger = require('../utils/logger');
 
 const normalizeRoles = (roles = []) => {
   const roleArray = Array.isArray(roles) ? roles : [roles];
@@ -32,7 +33,13 @@ exports.verifyToken = async (req, res, next) => {
   if (!token) return res.status(401).json({ error: 'No token provided' });
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      logger.error('JWT_SECRET environment variable is not set');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+    
+    const payload = jwt.verify(token, jwtSecret);
     const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
     // Normalize user shape for downstream handlers

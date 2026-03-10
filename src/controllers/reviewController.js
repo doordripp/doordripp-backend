@@ -1,4 +1,4 @@
-const Review = require('../models/Review')
+﻿const Review = require('../models/Review')
 const Product = require('../models/Product')
 const Order = require('../models/Order')
 const mongoose = require('mongoose')
@@ -138,7 +138,7 @@ exports.createReview = async (req, res, next) => {
     const { rating, title, comment, images } = req.body
     const userId = req.user.id
 
-    console.log('Review submission data:', { rating, title, comment, imagesCount: Array.isArray(images) ? images.length : 0, userId, productId })
+    logger.info('Review submission data:', { rating, title, comment, imagesCount: Array.isArray(images) ? images.length : 0, userId, productId })
 
     // Validate required fields
     if (!rating) {
@@ -211,7 +211,7 @@ exports.createReview = async (req, res, next) => {
       review
     })
   } catch (err) {
-    console.error('Review creation error:', err)
+    logger.error('Review creation error:', err)
     next(err)
   }
 }
@@ -451,6 +451,6 @@ async function updateProductRating(productId) {
 
     await Product.findByIdAndUpdate(productId, { rating })
   } catch (err) {
-    console.error('Error updating product rating:', err)
+    logger.error('Error updating product rating:', err)
   }
 }

@@ -3,6 +3,7 @@
  * Used by legacy controllers for backward compatibility
  */
 const mailService = require('../services/mail.service');
+const logger = require('./logger');
 
 /**
  * Send OTP email for verification
@@ -17,9 +18,9 @@ const sendEmailOTP = async (email, code, purpose = 'signup') => {
     await mailService.sendOtpEmail(email, code, purpose);
     return { success: true, via: 'email' };
   } catch (error) {
-    console.error('Email send failed:', error.message);
-    // Log OTP to console as fallback (useful in development)
-    console.log(`📧 OTP for ${email}: ${code}`);
+    logger.error('Email send failed:', error);
+    // Log OTP only in development as fallback
+    logger.debug(`OTP for ${email}: ${code}`);
     return { success: false, error: error.message };
   }
 };

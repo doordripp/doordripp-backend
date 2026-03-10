@@ -1,4 +1,5 @@
-const DeliveryZone = require('../models/DeliveryZone');
+﻿const DeliveryZone = require('../models/DeliveryZone');
+const logger = require('../utils/logger');
 
 /**
  * Admin Delivery Zone Controller
@@ -12,9 +13,9 @@ const DeliveryZone = require('../models/DeliveryZone');
  */
 exports.createDeliveryZone = async (req, res) => {
   try {
-    console.log('=== Creating Delivery Zone ===');
-    console.log('Request body:', JSON.stringify(req.body, null, 2));
-    console.log('Request user:', req.user);
+    logger.info('=== Creating Delivery Zone ===');
+    logger.info('Request body:', JSON.stringify(req.body, null, 2));
+    logger.info('Request user:', req.user);
     
     const {
       name,
@@ -31,7 +32,7 @@ exports.createDeliveryZone = async (req, res) => {
 
     // Validate required fields
     if (!name || !type) {
-      console.log('Validation failed: name or type missing');
+      logger.info('Validation failed: name or type missing');
       return res.status(400).json({
         success: false,
         message: 'Name and type are required'
@@ -81,7 +82,7 @@ exports.createDeliveryZone = async (req, res) => {
       zone
     });
   } catch (error) {
-    console.error('Error creating delivery zone:', error);
+    logger.error('Error creating delivery zone:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to create delivery zone',
@@ -112,7 +113,7 @@ exports.getAllDeliveryZones = async (req, res) => {
       zones
     });
   } catch (error) {
-    console.error('Error fetching delivery zones:', error);
+    logger.error('Error fetching delivery zones:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch delivery zones',
@@ -142,7 +143,7 @@ exports.getDeliveryZoneById = async (req, res) => {
       zone
     });
   } catch (error) {
-    console.error('Error fetching delivery zone:', error);
+    logger.error('Error fetching delivery zone:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch delivery zone',
@@ -205,7 +206,7 @@ exports.updateDeliveryZone = async (req, res) => {
       zone
     });
   } catch (error) {
-    console.error('Error updating delivery zone:', error);
+    logger.error('Error updating delivery zone:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to update delivery zone',
@@ -235,7 +236,7 @@ exports.deleteDeliveryZone = async (req, res) => {
       message: 'Delivery zone deleted successfully'
     });
   } catch (error) {
-    console.error('Error deleting delivery zone:', error);
+    logger.error('Error deleting delivery zone:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to delete delivery zone',
@@ -269,7 +270,7 @@ exports.toggleZoneStatus = async (req, res) => {
       zone
     });
   } catch (error) {
-    console.error('Error toggling zone status:', error);
+    logger.error('Error toggling zone status:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to toggle zone status',
@@ -345,7 +346,7 @@ exports.getDeliveryZoneStats = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error fetching delivery zone stats:', error);
+    logger.error('Error fetching delivery zone stats:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch delivery zone statistics',

@@ -1,4 +1,5 @@
-const Order = require('../models/Order');
+﻿const Order = require('../models/Order');
+const logger = require('../utils/logger');
 const User = require('../models/User');
 const mailService = require('../services/mail.service');
 
@@ -110,11 +111,11 @@ exports.createOrder = async (req, res, next) => {
         day: 'numeric'
       })
     }).catch(err => {
-      console.error('Failed to send order confirmation email:', err);
+      logger.error('Failed to send order confirmation email:', err);
       // Log to error tracking service (Sentry, etc.)
     });
 
-    console.log(`✅ Order created: ${order._id} for user: ${user.email}`);
+    logger.info(`✅ Order created: ${order._id} for user: ${user.email}`);
 
     res.status(201).json({
       message: 'Order created successfully',
@@ -128,7 +129,7 @@ exports.createOrder = async (req, res, next) => {
     });
 
   } catch (error) {
-    console.error('Create order error:', error);
+    logger.error('Create order error:', error);
     res.status(500).json({ error: 'Failed to create order' });
   }
 };
@@ -197,11 +198,11 @@ exports.updateOrderStatus = async (req, res, next) => {
         estimatedDelivery,
         trackingUrl: `${process.env.CLIENT_URL}/orders/${order._id}`
       }).catch(err => {
-        console.error('Failed to send shipping update email:', err);
+        logger.error('Failed to send shipping update email:', err);
       });
     }
 
-    console.log(`✅ Order ${orderId} status updated to: ${status}`);
+    logger.info(`✅ Order ${orderId} status updated to: ${status}`);
 
     res.json({
       message: 'Order status updated successfully',
@@ -215,7 +216,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     });
 
   } catch (error) {
-    console.error('Update order status error:', error);
+    logger.error('Update order status error:', error);
     res.status(500).json({ error: 'Failed to update order status' });
   }
 };
@@ -248,7 +249,7 @@ exports.getOrder = async (req, res, next) => {
     res.json({ order });
 
   } catch (error) {
-    console.error('Get order error:', error);
+    logger.error('Get order error:', error);
     res.status(500).json({ error: 'Failed to fetch order' });
   }
 };
@@ -283,7 +284,7 @@ exports.getUserOrders = async (req, res, next) => {
     });
 
   } catch (error) {
-    console.error('Get user orders error:', error);
+    logger.error('Get user orders error:', error);
     res.status(500).json({ error: 'Failed to fetch orders' });
   }
 };

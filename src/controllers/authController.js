@@ -1,10 +1,15 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
+const logger = require('../utils/logger');
 
 const generateToken = (user) => {
+  const jwtSecret = process.env.JWT_SECRET;
+  if (!jwtSecret) {
+    throw new Error('JWT_SECRET environment variable is not set');
+  }
   const payload = { id: user.id, roles: user.roles || [] };
-  return jwt.sign(payload, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+  return jwt.sign(payload, jwtSecret, { expiresIn: '7d' });
 };
 
 // Create token and return cookie options (used by OAuth callback)
@@ -28,6 +33,20 @@ exports.register = async (req, res, next) => {
     const { name, email, password, phone, gender, dob, address, termsAccepted } = req.body;
     if (!termsAccepted) return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
 
+    // Input validation
+    if (!name || name.length < 2 || name.length > 100) {
+      return res.status(400).json({ error: 'Name must be between 2 and 100 characters' });
+    }
+    if (phone && !/^\d{10}$/.test(String(phone).replace(/\D/g, ''))) {
+      return res.status(400).json({ error: 'Invalid phone number. Must be 10 digits.' });
+    }
+    if (dob && new Date(dob) > new Date()) {
+      return res.status(400).json({ error: 'Date of birth cannot be in the future' });
+    }
+    if (address && String(address).length > 300) {
+      return res.status(400).json({ error: 'Address must not exceed 300 characters' });
+    }
+
     // Basic uniqueness checks (email is case-insensitive)
     if (email) {
       const emailLower = email.toLowerCase().trim();
@@ -43,8 +62,12 @@ exports.register = async (req, res, next) => {
     if (phone) {
       const verificationToken = req.body.verificationToken || req.headers['x-phone-verification-token']
       if (!verificationToken) return res.status(400).json({ error: 'Phone verification required' })
+      const jwtSecret = process.env.JWT_SECRET
+      if (!jwtSecret) {
+        return res.status(500).json({ error: 'Server configuration error' })
+      }
       try {
-        const payload = jwt.verify(verificationToken, process.env.JWT_SECRET || 'secret')
+        const payload = jwt.verify(verificationToken, jwtSecret)
         if (payload.phone !== phone) return res.status(400).json({ error: 'Verification token does not match phone' })
       } catch (e) {
         return res.status(400).json({ error: 'Invalid or expired phone verification token' })

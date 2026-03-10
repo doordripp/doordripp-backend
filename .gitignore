@@ -15,6 +15,16 @@ node_modules/
 # Testing
 coverage/
 
+# Diagnostic and debug scripts (development only, do not deploy to production)
+scripts/check-anu-user.js
+scripts/diagnose-brevo.js
+scripts/test-brevo.js
+scripts/test-email.js
+scripts/test-forgot-password.js
+scripts/test-login.js
+scripts/test-delivery-zone.js
+scripts/test-related-products.js
+
 # Logs
 logs/
 *.log

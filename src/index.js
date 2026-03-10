@@ -5,6 +5,10 @@ const dotenv = require('dotenv');
 const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
 dotenv.config({ path: path.join(__dirname, '..', envFile) });
 
+// Validate required environment variables before anything else
+const validateEnv = require('./config/validateEnv');
+validateEnv();
+
 const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');
@@ -34,6 +38,7 @@ const deliveryPartnerRoutes = require('./routes/deliveryPartner');
 const voucherRoutes = require('./routes/voucher.routes');
 // Socket.io setup
 const { setupSocketIO } = require('./sockets')
+const logger = require('./utils/logger')
 const app = express();
 const PORT = process.env.PORT || 4000;
 
@@ -59,16 +64,22 @@ const allowedOrigins = Array.from(new Set([...defaultOrigins, FRONTEND_URL, ...F
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (like curl, mobile apps)
-    if (!origin) return callback(null, true);
+    // Block requests with no origin in production (prevents server-side request forgery)
+    if (!origin) {
+      if (process.env.NODE_ENV === 'production') {
+        return callback(new Error('CORS not allowed: missing origin'), false);
+      }
+      // Allow no-origin requests only in development (e.g., curl, Postman)
+      return callback(null, true);
+    }
 
-    // Allow all localhost origins in development
-    if (origin && origin.startsWith('http://localhost:')) {
+    // Allow all localhost origins in development only
+    if (origin.startsWith('http://localhost:') && process.env.NODE_ENV !== 'production') {
       return callback(null, true);
     }
 
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    if (process.env.CORS_ALLOW_ALL === 'true') return callback(null, true);
+
     return callback(new Error('CORS not allowed for origin: ' + origin), false);
   },
   credentials: true,
@@ -98,9 +109,9 @@ app.use(passport.initialize());
 // Connect to MongoDB (if configured)
 try {
   const connectDB = require('./config/db');
-  connectDB().catch(err => console.error('DB connect error', err));
+  connectDB().catch(err => logger.error('DB connect error', err));
 } catch (e) {
-  console.warn('No DB connector found:', e.message || e);
+  logger.warn('No DB connector found:', e.message || e);
 }
 
 // Routes
@@ -149,7 +160,7 @@ if (fs.existsSync(uploadsPath)) {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error(err);
+  logger.error(err.message || 'Server error', err);
   res.status(err.status || 500).json({ error: err.message || 'Server error' });
 });
 
@@ -164,24 +175,24 @@ function startServer(port, attempts = 0) {
   app.set('io', io)
 
   server.on('listening', () => {
-    console.log(`Doordripp Node backend listening on port ${port}`);
-    console.log(`Socket.io tracking enabled`)
+    logger.info(`Doordripp Node backend listening on port ${port}`);
+    logger.info('Socket.io tracking enabled');
   });
 
   server.on('error', err => {
     if (err && err.code === 'EADDRINUSE') {
-      console.error(`Port ${port} is already in use.`);
+      logger.error(`Port ${port} is already in use.`);
       if (attempts < maxAttempts) {
         const nextPort = Number(port) + 1;
-        console.warn(`Trying next port ${nextPort} (attempt ${attempts + 1}/${maxAttempts})`);
+        logger.warn(`Trying next port ${nextPort} (attempt ${attempts + 1}/${maxAttempts})`);
         // Give the OS a short moment before retrying
         setTimeout(() => startServer(nextPort, attempts + 1), 200);
         return;
       }
-      console.error(`Failed to bind after ${maxAttempts} attempts. Exiting.`);
+      logger.error(`Failed to bind after ${maxAttempts} attempts. Exiting.`);
       process.exit(1);
     }
-    console.error('Server error:', err);
+    logger.error('Server error:', err);
     process.exit(1);
   });
 }

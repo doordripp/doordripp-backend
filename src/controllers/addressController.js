@@ -1,6 +1,7 @@
 const Address = require('../models/Address');
 const DeliveryZone = require('../models/DeliveryZone');
 const axios = require('axios');
+const logger = require('../utils/logger');
 
 /**
  * Address Controller
@@ -50,7 +51,7 @@ exports.getDeliverySettings = async (req, res) => {
         : 'No active delivery zones configured'
     });
   } catch (error) {
-    console.error('Error fetching delivery settings:', error);
+    logger.error('Error fetching delivery settings:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch delivery settings',
@@ -85,6 +86,14 @@ exports.validateLocation = async (req, res) => {
       });
     }
 
+    // Validate coordinate ranges
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({
+        success: false,
+        message: 'Coordinates out of valid range (lat: -90 to 90, lng: -180 to 180)'
+      });
+    }
+
     // Check all active delivery zones
     const zones = await DeliveryZone.find({ isActive: true });
     
@@ -114,11 +123,10 @@ exports.validateLocation = async (req, res) => {
         : 'Location is outside delivery area'
     });
   } catch (error) {
-    console.error('Error validating location:', error);
+    logger.error('Error validating location:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to validate location',
-      error: error.message
+      message: 'Failed to validate location'
     });
   }
 };
@@ -216,11 +224,9 @@ exports.saveAddress = async (req, res) => {
         addressToSave = geocodeResult.formattedAddress;
         addressComponents = { ...addressComponents, ...geocodeResult.components };
       } catch (geocodeError) {
-        console.error('Geocoding error:', geocodeError);
         return res.status(400).json({
           success: false,
-          message: 'Unable to geocode the provided coordinates',
-          error: geocodeError.message
+          message: 'Unable to geocode the provided coordinates'
         });
       }
     }
@@ -274,11 +280,10 @@ exports.saveAddress = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error saving address:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to save address',
-      error: error.message
+      message: 'Failed to save address'
     });
   }
 };
@@ -301,11 +306,10 @@ exports.getUserAddresses = async (req, res) => {
       addresses
     });
   } catch (error) {
-    console.error('Error fetching addresses:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch addresses',
-      error: error.message
+      message: 'Failed to fetch addresses'
     });
   }
 };
@@ -334,11 +338,10 @@ exports.getAddressById = async (req, res) => {
       address
     });
   } catch (error) {
-    console.error('Error fetching address:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch address',
-      error: error.message
+      message: 'Failed to fetch address'
     });
   }
 };
@@ -412,11 +415,10 @@ exports.updateAddress = async (req, res) => {
       address
     });
   } catch (error) {
-    console.error('Error updating address:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to update address',
-      error: error.message
+      message: 'Failed to update address'
     });
   }
 };
@@ -428,32 +430,27 @@ exports.updateAddress = async (req, res) => {
  */
 exports.deleteAddress = async (req, res) => {
   try {
-    console.log(`[DELETE ADDRESS] User ${req.user._id} deleting address ${req.params.id}`);
-    
     const address = await Address.findOneAndDelete({
       _id: req.params.id,
       userId: req.user._id
     });
 
     if (!address) {
-      console.log(`[DELETE ADDRESS] Address ${req.params.id} not found for user ${req.user._id}`);
       return res.status(404).json({
         success: false,
         message: 'Address not found'
       });
     }
 
-    console.log(`[DELETE ADDRESS] Successfully deleted address ${req.params.id}`);
     res.json({
       success: true,
       message: 'Address deleted successfully'
     });
   } catch (error) {
-    console.error('Error deleting address:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to delete address',
-      error: error.message
+      message: 'Failed to delete address'
     });
   }
 };
@@ -492,11 +489,10 @@ exports.setDefaultAddress = async (req, res) => {
       address
     });
   } catch (error) {
-    console.error('Error setting default address:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to set default address',
-      error: error.message
+      message: 'Failed to set default address'
     });
   }
 };
@@ -534,11 +530,10 @@ exports.geocodeLocation = async (req, res) => {
       ...result
     });
   } catch (error) {
-    console.error('Error geocoding location:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to geocode location',
-      error: error.message
+      message: 'Failed to geocode location'
     });
   }
 };
@@ -566,11 +561,10 @@ exports.reverseGeocode = async (req, res) => {
       ...result
     });
   } catch (error) {
-    console.error('Error reverse geocoding:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to reverse geocode address',
-      error: error.message
+      message: 'Failed to reverse geocode address'
     });
   }
 };

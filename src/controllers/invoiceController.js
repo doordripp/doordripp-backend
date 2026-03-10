@@ -1,4 +1,5 @@
-const InvoiceService = require('../services/invoiceService');
+﻿const InvoiceService = require('../services/invoiceService');
+const logger = require('../utils/logger');
 const Invoice = require('../models/Invoice');
 
 /**
@@ -38,7 +39,7 @@ class InvoiceController {
         invoice: result.invoice
       });
     } catch (error) {
-      console.error('Error in generateInvoice:', error);
+      logger.error('Error in generateInvoice:', error);
       next(error);
     }
   }

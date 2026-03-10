@@ -1,5 +1,6 @@
 const ImageKit = require('imagekit');
 const axios = require('axios');
+const logger = require('./logger');
 
 // Initialize ImageKit instance only if credentials are available
 let imagekit = null;
@@ -11,7 +12,7 @@ if (process.env.IMAGEKIT_PUBLIC_KEY && process.env.IMAGEKIT_PRIVATE_KEY && proce
     urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT
   });
 } else {
-  console.warn('⚠️  ImageKit credentials not configured - photo uploads will use fallback URLs');
+  logger.warn('ImageKit credentials not configured - photo uploads will use fallback URLs');
 }
 
 /**
@@ -24,7 +25,7 @@ if (process.env.IMAGEKIT_PUBLIC_KEY && process.env.IMAGEKIT_PRIVATE_KEY && proce
 async function uploadFromUrl(imageUrl, fileName, folder = 'avatars') {
   try {
     if (!imagekit) {
-      console.warn('ImageKit not initialized; using original image URL');
+      logger.warn('ImageKit not initialized; using original image URL');
       return { url: imageUrl, source: 'external' }; // Return original URL as fallback
     }
 
@@ -53,7 +54,7 @@ async function uploadFromUrl(imageUrl, fileName, folder = 'avatars') {
       source: 'imagekit'
     };
   } catch (error) {
-    console.error('ImageKit upload error:', error.message);
+    logger.error('ImageKit upload error:', error);
     // Return original URL as fallback if upload fails
     return { url: imageUrl, source: 'external', error: error.message };
   }
@@ -86,7 +87,7 @@ async function uploadFromBase64(base64Data, fileName, folder = 'avatars') {
       source: 'imagekit'
     };
   } catch (error) {
-    console.error('ImageKit upload from base64 error:', error.message);
+    logger.error('ImageKit upload from base64 error:', error);
     throw error;
   }
 }
@@ -99,9 +100,9 @@ async function deleteFile(fileId) {
   try {
     if (!fileId || !imagekit) return;
     await imagekit.deleteFile(fileId);
-    console.log(`Deleted ImageKit file: ${fileId}`);
+    logger.info(`Deleted ImageKit file: ${fileId}`);
   } catch (error) {
-    console.error('ImageKit delete error:', error.message);
+    logger.error('ImageKit delete error:', error);
   }
 }
 

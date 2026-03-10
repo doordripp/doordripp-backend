@@ -1,4 +1,5 @@
-const Order = require('../models/Order');
+﻿const Order = require('../models/Order');
+const logger = require('../utils/logger');
 const Product = require('../models/Product');
 const RazorpayUtil = require('../utils/razorpay');
 const mailService = require('../services/mail.service');
@@ -52,7 +53,7 @@ function isPointInPolygon(point, polygon) {
 function isAddressInZone(address, zone) {
   // If address doesn't have coordinates, we can't determine location
   if (!address?.latitude || !address?.longitude) {
-    console.log(`⚠️ Address missing coordinates: lat=${address?.latitude}, lng=${address?.longitude}`);
+    logger.info(`⚠️ Address missing coordinates: lat=${address?.latitude}, lng=${address?.longitude}`);
     return false;
   }
 
@@ -60,7 +61,7 @@ function isAddressInZone(address, zone) {
   const addressLng = parseFloat(address.longitude);
 
   if (isNaN(addressLat) || isNaN(addressLng)) {
-    console.log(`⚠️ Invalid address coordinates`);
+    logger.info(`⚠️ Invalid address coordinates`);
     return false;
   }
 
@@ -73,7 +74,7 @@ function isAddressInZone(address, zone) {
       addressLng
     );
     const withinRadius = distance <= zone.radiusKm;
-    console.log(`  📍 Radius zone "${zone.name}": distance=${distance.toFixed(2)}km, radius=${zone.radiusKm}km -> ${withinRadius ? '✅' : '❌'}`);
+    logger.info(`  📍 Radius zone "${zone.name}": distance=${distance.toFixed(2)}km, radius=${zone.radiusKm}km -> ${withinRadius ? '✅' : '❌'}`);
     return withinRadius;
   } else if (zone.type === 'polygon' && zone.polygon && zone.polygon.length > 0) {
     // For polygon zones, check if point is inside polygon
@@ -81,7 +82,7 @@ function isAddressInZone(address, zone) {
       { lat: addressLat, lng: addressLng },
       zone.polygon
     );
-    console.log(`  🔷 Polygon zone "${zone.name}": point inside polygon -> ${isInside ? '✅' : '❌'}`);
+    logger.info(`  🔷 Polygon zone "${zone.name}": point inside polygon -> ${isInside ? '✅' : '❌'}`);
     return isInside;
   }
 
@@ -94,11 +95,11 @@ function isAddressInZone(address, zone) {
 async function getDeliveryZoneAndManagers(address) {
   try {
     if (!address) {
-      console.log('⚠️ No address provided');
+      logger.info('⚠️ No address provided');
       return null;
     }
 
-    console.log(`🔍 Looking for zone matching address:`, {
+    logger.info(`🔍 Looking for zone matching address:`, {
       city: address.city,
       latitude: address.latitude,
       longitude: address.longitude
@@ -106,15 +107,15 @@ async function getDeliveryZoneAndManagers(address) {
 
     // Find delivery zones that cover this address
     const zones = await DeliveryZone.find({ isActive: true });
-    console.log(`📍 Found ${zones.length} active delivery zones`);
+    logger.info(`📍 Found ${zones.length} active delivery zones`);
     
     for (const zone of zones) {
-      console.log(`  Checking zone: "${zone.name}" (type: ${zone.type})`);
+      logger.info(`  Checking zone: "${zone.name}" (type: ${zone.type})`);
       
       // Try GPS-based matching first (most accurate)
       if (address.latitude && address.longitude) {
         if (isAddressInZone(address, zone)) {
-          console.log(`✅ Address matched to zone via GPS: "${zone.name}"`);
+          logger.info(`✅ Address matched to zone via GPS: "${zone.name}"`);
           
           // Get assigned managers for this zone
           const assignments = await AreaManager.find({
@@ -122,10 +123,10 @@ async function getDeliveryZoneAndManagers(address) {
             status: 'active'
           }).populate('manager', 'name email phone');
 
-          console.log(`👥 Found ${assignments.length} active manager(s) for zone: ${zone.name}`);
+          logger.info(`👥 Found ${assignments.length} active manager(s) for zone: ${zone.name}`);
           
           if (assignments.length === 0) {
-            console.warn(`⚠️ Zone "${zone.name}" has no active assigned managers`);
+            logger.warn(`⚠️ Zone "${zone.name}" has no active assigned managers`);
           }
 
           return {
@@ -140,10 +141,10 @@ async function getDeliveryZoneAndManagers(address) {
       }
     }
 
-    console.log(`❌ No matching zone found for address`);
+    logger.info(`❌ No matching zone found for address`);
     return null;
   } catch (err) {
-    console.error('Error finding delivery zone:', err);
+    logger.error('Error finding delivery zone:', err);
     return null;
   }
 }
@@ -291,19 +292,19 @@ exports.verifyPayment = async (req, res, next) => {
     const { orderId, razorpayPaymentId, razorpaySignature } = req.body;
     
     if (!orderId || !razorpayPaymentId || !razorpaySignature) {
-      console.error('❌ Missing payment details:', { orderId, razorpayPaymentId, razorpaySignature });
+      logger.error('❌ Missing payment details:', { orderId, razorpayPaymentId, razorpaySignature });
       return res.status(400).json({ error: 'Missing payment details' });
     }
 
     const order = await Order.findById(orderId).populate('customer');
     if (!order) {
-      console.error('❌ Order not found:', orderId);
+      logger.error('❌ Order not found:', orderId);
       return res.status(404).json({ error: 'Order not found' });
     }
 
     // Verify user owns this order
     if (String(order.customer._id) !== String(req.user.id)) {
-      console.error('❌ Unauthorized access to order:', orderId);
+      logger.error('❌ Unauthorized access to order:', orderId);
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
@@ -312,7 +313,7 @@ exports.verifyPayment = async (req, res, next) => {
     }
 
     // Verify Razorpay signature
-    console.log('🔍 Verifying payment signature...');
+    logger.info('🔍 Verifying payment signature...');
     
     // In test mode, allow bypass if RAZORPAY_TEST_MODE_SKIP_VERIFICATION is set
     const isTestMode = process.env.RAZORPAY_KEY_ID?.includes('rzp_test');
@@ -320,7 +321,7 @@ exports.verifyPayment = async (req, res, next) => {
     
     let isValid = false;
     if (skipVerification) {
-      console.warn('⚠️ SKIPPING signature verification (test mode enabled)');
+      logger.warn('⚠️ SKIPPING signature verification (test mode enabled)');
       isValid = true;
     } else {
       isValid = RazorpayUtil.verifyPaymentSignature(
@@ -331,7 +332,7 @@ exports.verifyPayment = async (req, res, next) => {
     }
 
     if (!isValid) {
-      console.error('❌ Invalid payment signature for order:', orderId);
+      logger.error('❌ Invalid payment signature for order:', orderId);
       // Release reserved stock on failed verification
       for (const it of order.items) {
         await Product.findByIdAndUpdate(it.product, { $inc: { reserved: -it.quantity } });
@@ -340,9 +341,9 @@ exports.verifyPayment = async (req, res, next) => {
     }
     
     if (skipVerification) {
-      console.log('✅ Payment verification SKIPPED (test mode)');
+      logger.info('✅ Payment verification SKIPPED (test mode)');
     } else {
-      console.log('✅ Payment signature verified');
+      logger.info('✅ Payment signature verified');
     }
 
     if (order.voucher?.voucherId && !order.voucher?.usageApplied) {
@@ -358,7 +359,7 @@ exports.verifyPayment = async (req, res, next) => {
     order.payment.status = 'success';
     order.status = 'confirmed';
     await order.save();
-    console.log('✅ Payment verified successfully for order:', orderId);
+    logger.info('✅ Payment verified successfully for order:', orderId);
 
     // DECREMENT actual stock (payment successful)
     for (const it of order.items) {
@@ -366,13 +367,13 @@ exports.verifyPayment = async (req, res, next) => {
         $inc: { stock: -it.quantity, reserved: -it.quantity } 
       });
     }
-    console.log('✅ Stock updated for order:', orderId);
+    logger.info('✅ Stock updated for order:', orderId);
 
     // Generate invoice for paid order (non-blocking)
     const InvoiceService = require('../services/invoiceService');
     InvoiceService.generateInvoice(order._id.toString())
       .then(invoiceResult => {
-        console.log(`✅ Invoice generated: ${invoiceResult.invoice.invoiceNumber}`);
+        logger.info(`✅ Invoice generated: ${invoiceResult.invoice.invoiceNumber}`);
         // Send invoice email if mail service available
         if (mailService && mailService.sendInvoiceEmail) {
           mailService.sendInvoiceEmail({
@@ -380,10 +381,10 @@ exports.verifyPayment = async (req, res, next) => {
             customerEmail: order.customer.email,
             invoiceNumber: invoiceResult.invoice.invoiceNumber,
             pdfPath: invoiceResult.pdfPath
-          }).catch(err => console.error('Invoice email send failed:', err));
+          }).catch(err => logger.error('Invoice email send failed:', err));
         }
       })
-      .catch(err => console.error('Invoice generation failed:', err));
+      .catch(err => logger.error('Invoice generation failed:', err));
 
     // Send confirmation email to customer (non-blocking)
     if (mailService && mailService.sendOrderConfirmation) {
@@ -399,14 +400,14 @@ exports.verifyPayment = async (req, res, next) => {
         })),
         totalAmount: order.total,
         shippingAddress: order.shippingAddress
-      }).catch(err => console.error('Customer email send failed:', err));
+      }).catch(err => logger.error('Customer email send failed:', err));
     }
 
     // Find assigned managers for this delivery area and send them notifications (non-blocking)
     const deliveryInfo = await getDeliveryZoneAndManagers(order.shippingAddress);
     if (deliveryInfo?.managers?.length > 0) {
       const managerEmails = deliveryInfo.managers.map(m => m.email);
-      console.log(`📧 Sending order notification to ${managerEmails.length} manager(s): ${managerEmails.join(', ')}`);
+      logger.info(`📧 Sending order notification to ${managerEmails.length} manager(s): ${managerEmails.join(', ')}`);
       
       // Send manager notification email with customer details
       for (const manager of deliveryInfo.managers) {
@@ -426,13 +427,13 @@ exports.verifyPayment = async (req, res, next) => {
             totalAmount: order.total,
             shippingAddress: order.shippingAddress,
             zoneName: deliveryInfo.zone?.name
-          }).catch(err => console.error('Manager email send failed:', err));
+          }).catch(err => logger.error('Manager email send failed:', err));
         }
       }
       
-      console.log(`✅ Order notification sent to ${managerEmails.length} manager(s) for zone: ${deliveryInfo.zone.name}`);
+      logger.info(`✅ Order notification sent to ${managerEmails.length} manager(s) for zone: ${deliveryInfo.zone.name}`);
     } else {
-      console.warn('⚠️ No managers found for this delivery area');
+      logger.warn('⚠️ No managers found for this delivery area');
     }
 
     res.json({ message: 'Payment verified successfully', order });

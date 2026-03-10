@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Trial Room Controller
  * 
  * Handles all trial room operations:
@@ -13,6 +13,7 @@
  */
 
 const TrialOrder = require('../models/TrialOrder');
+const logger = require('../utils/logger');
 const User = require('../models/User');
 const Product = require('../models/Product');
 
@@ -131,7 +132,7 @@ exports.createTrialOrder = async (req, res) => {
     const userId = req.user._id;
     const { trialItems, purchasedItemId } = req.body;
 
-    console.log('Creating trial order:', {
+    logger.info('Creating trial order:', {
       userId,
       trialItemsCount: trialItems?.length,
       purchasedItemId,
@@ -232,8 +233,8 @@ exports.createTrialOrder = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Trial Room Creation Error:', error);
-    console.error('Error details:', {
+    logger.error('Trial Room Creation Error:', error);
+    logger.error('Error details:', {
       name: error.name,
       message: error.message,
       stack: error.stack
@@ -281,7 +282,7 @@ exports.checkDailyUsage = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Check Daily Usage Error:', error);
+    logger.error('Check Daily Usage Error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to check trial status',
@@ -344,7 +345,7 @@ exports.getTrialHistory = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get Trial History Error:', error);
+    logger.error('Get Trial History Error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch trial history',
@@ -392,7 +393,7 @@ exports.getTrialOrder = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Get Trial Order Error:', error);
+    logger.error('Get Trial Order Error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch trial order',
@@ -449,7 +450,7 @@ exports.convertTrialToOrder = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Convert Trial Error:', error);
+    logger.error('Convert Trial Error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to convert trial',
@@ -490,7 +491,7 @@ exports.cancelTrialOrder = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Cancel Trial Error:', error);
+    logger.error('Cancel Trial Error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to cancel trial',
@@ -543,7 +544,7 @@ exports.adminListTrials = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Admin List Trials Error:', error);
+    logger.error('Admin List Trials Error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch trials',
@@ -629,7 +630,7 @@ exports.adminGetAnalytics = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Admin Analytics Error:', error);
+    logger.error('Admin Analytics Error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch analytics',

@@ -1,4 +1,5 @@
-const mongoose = require('mongoose');
+﻿const mongoose = require('mongoose');
+const logger = require('../utils/logger');
 const User = require('../models/User');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
@@ -424,7 +425,7 @@ exports.listOrders = async (req, res, next) => {
       Order.countDocuments(filter)
     ]);
 
-    console.log(`📦 Admin fetching orders: ${orders.length} found, ${total} total in DB`);
+    logger.info(`📦 Admin fetching orders: ${orders.length} found, ${total} total in DB`);
 
     const formattedOrders = orders.map(order => ({
       id: order._id,
@@ -455,7 +456,7 @@ exports.listOrders = async (req, res, next) => {
       totalPages: Math.ceil(total / parseInt(limit))
     });
   } catch (err) {
-    console.error('❌ Error fetching orders:', err);
+    logger.error('❌ Error fetching orders:', err);
     next(err);
   }
 };
@@ -566,7 +567,7 @@ exports.updateOrderStatus = async (req, res, next) => {
       const InvoiceService = require('../services/invoiceService');
       InvoiceService.generateInvoice(order._id.toString())
         .then(invoiceResult => {
-          console.log(`✅ Invoice generated for delivered COD order: ${invoiceResult.invoice.invoiceNumber}`);
+          logger.info(`✅ Invoice generated for delivered COD order: ${invoiceResult.invoice.invoiceNumber}`);
           // Send invoice email if mail service available
           const mailService = require('../services/mail.service');
           if (mailService && mailService.sendInvoiceEmail) {
@@ -575,13 +576,13 @@ exports.updateOrderStatus = async (req, res, next) => {
               customerEmail: order.customer?.email,
               invoiceNumber: invoiceResult.invoice.invoiceNumber,
               pdfPath: invoiceResult.pdfPath
-            }).catch(err => console.error('Invoice email send failed:', err));
+            }).catch(err => logger.error('Invoice email send failed:', err));
           }
         })
         .catch(err => {
           // Don't fail the status update if invoice generation fails
           if (!err.message.includes('already exists')) {
-            console.error('Invoice generation failed:', err);
+            logger.error('Invoice generation failed:', err);
           }
         });
     }
@@ -693,10 +694,10 @@ exports.acceptDelivery = async (req, res, next) => {
           status: 'processing',
           deliveryPartner: order.deliveryPartner,
           trackingUrl: `${process.env.FRONTEND_URL}/order/${order._id}/track`
-        }).catch(err => console.error('Order update email failed:', err));
+        }).catch(err => logger.error('Order update email failed:', err));
       }
     } catch (err) {
-      console.log('Mail service not available:', err.message);
+      logger.info('Mail service not available:', err.message);
     }
 
     res.json({ 
@@ -705,7 +706,7 @@ exports.acceptDelivery = async (req, res, next) => {
       trackingUrl: `/order/${order._id}/track`
     });
   } catch (err) {
-    console.error('❌ Error accepting delivery:', err);
+    logger.error('❌ Error accepting delivery:', err);
     next(err);
   }
 };
@@ -1274,7 +1275,7 @@ exports.assignDeliveryPartner = async (req, res, next) => {
       order
     });
   } catch (error) {
-    console.error('Error assigning delivery partner:', error);
+    logger.error('Error assigning delivery partner:', error);
     next(error);
   }
 };
@@ -1331,7 +1332,7 @@ exports.unassignDeliveryPartner = async (req, res, next) => {
       order
     });
   } catch (error) {
-    console.error('Error unassigning delivery partner:', error);
+    logger.error('Error unassigning delivery partner:', error);
     next(error);
   }
 };

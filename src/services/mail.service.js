@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const fs = require('fs').promises;
 const path = require('path');
+const logger = require('../utils/logger');
 let SibApiV3Sdk = null; // Lazy-load Brevo SDK
 
 /**
@@ -50,8 +51,8 @@ class MailService {
     const missing = requiredVars.filter(v => !process.env[v]);
     
     if (missing.length > 0) {
-      console.warn(`⚠️  Email service not configured. Missing: ${missing.join(', ')}`);
-      console.warn('📧 Emails will be logged to console instead.');
+      logger.warn(`Email service not configured. Missing: ${missing.join(', ')}`);
+      logger.warn('Emails will be logged to console instead.');
       this.initialized = true; // Mark as initialized to prevent repeated warnings
       return;
     }
@@ -78,10 +79,10 @@ class MailService {
 
       // Verify SMTP connection
       await this.transporter.verify();
-      console.log('✅ Email service initialized successfully (Brevo SMTP)');
+      logger.info('Email service initialized successfully (Brevo SMTP)');
       this.initialized = true;
     } catch (error) {
-      console.error('❌ Failed to initialize email service:', error.message);
+      logger.error('Failed to initialize email service:', error);
       // Try initializing Brevo API as fallback if API key is provided
       if (process.env.BREVO_API_KEY) {
         try {
@@ -90,14 +91,14 @@ class MailService {
           }
           SibApiV3Sdk.ApiClient.instance.authentications['api-key'].apiKey = process.env.BREVO_API_KEY;
           this.brevoApi = new SibApiV3Sdk.TransactionalEmailsApi();
-          console.log('✅ Brevo API initialized (fallback mode)');
+          logger.info('Brevo API initialized (fallback mode)');
         } catch (apiErr) {
-          console.error('❌ Failed to initialize Brevo API fallback:', apiErr.message);
-          console.warn('📧 Emails will be logged to console instead.');
+          logger.error('Failed to initialize Brevo API fallback:', apiErr);
+          logger.warn('Emails will be logged to console instead.');
           this.brevoApi = null;
         }
       } else {
-        console.warn('📧 Emails will be logged to console instead.');
+        logger.warn('Emails will be logged to console instead.');
       }
       this.transporter = null;
       this.initialized = true; // Still mark as initialized to prevent retry loops
@@ -127,7 +128,7 @@ class MailService {
       
       return template;
     } catch (error) {
-      console.error(`Failed to load email template: ${templateName}`, error);
+      logger.error(`Failed to load email template: ${templateName}`, error);
       // Return fallback template instead of throwing
       return this.getFallbackTemplate(templateName);
     }
@@ -215,10 +216,10 @@ class MailService {
             htmlContent: html,
             textContent: text || this.stripHtml(html)
           });
-          console.log(`✅ Email sent via Brevo API to ${to}`);
+          logger.info(`Email sent via Brevo API to ${to}`);
           return { success: true, messageId: sendResult?.messageId || 'brevo-api', mode: 'brevo-api' };
         } catch (apiErr) {
-          console.error(`❌ Brevo API send failed for ${to}:`, apiErr.message);
+          logger.error(`Brevo API send failed for ${to}:`, apiErr);
           // Fallthrough to console logging
         }
       }
@@ -233,10 +234,10 @@ class MailService {
 
     try {
       const info = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Email sent to ${to}: ${info.messageId}`);
+      logger.info(`Email sent to ${to}: ${info.messageId}`);
       return { success: true, messageId: info.messageId, mode: 'smtp' };
     } catch (error) {
-      console.error(`❌ SMTP send failed for ${to}:`, error.message);
+      logger.error(`SMTP send failed for ${to}:`, error);
       
       // If SMTP fails, try Brevo API fallback
       if (this.brevoApi) {
@@ -250,10 +251,10 @@ class MailService {
             htmlContent: mailOptions.html,
             textContent: mailOptions.text
           });
-          console.log(`✅ Email sent via Brevo API fallback to ${to}`);
+          logger.info(`Email sent via Brevo API fallback to ${to}`);
           return { success: true, messageId: sendResult?.messageId || 'brevo-api', mode: 'brevo-api-fallback' };
         } catch (apiErr) {
-          console.error(`❌ Brevo API fallback also failed for ${to}:`, apiErr.message);
+          logger.error(`Brevo API fallback also failed for ${to}:`, apiErr);
         }
       }
       
@@ -593,10 +594,10 @@ class MailService {
             contentType: 'application/pdf'
           }];
         } else {
-          console.warn(`Invoice PDF not found: ${pdfPath}`);
+          logger.warn(`Invoice PDF not found: ${pdfPath}`);
         }
       } catch (err) {
-        console.error('Error attaching invoice PDF:', err);
+        logger.error('Error attaching invoice PDF:', err);
       }
     }
 
@@ -612,10 +613,10 @@ class MailService {
 
     try {
       const info = await this.transporter.sendMail(mailOptions);
-      console.log(`✅ Invoice email sent to ${customerEmail}: ${info.messageId}`);
+      logger.info(`Invoice email sent to ${customerEmail}: ${info.messageId}`);
       return { success: true, messageId: info.messageId, mode: 'smtp' };
     } catch (error) {
-      console.error(`❌ Failed to send invoice email to ${customerEmail}:`, error.message);
+      logger.error(`Failed to send invoice email to ${customerEmail}:`, error);
       // Fallback to console
       console.log('\n📧 ===== INVOICE EMAIL (Console Fallback) =====');
       console.log(`To: ${customerEmail}`);

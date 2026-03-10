@@ -159,7 +159,8 @@ class InvoiceService {
       };
 
     } catch (error) {
-      console.error('Error generating invoice:', error);
+      const logger = require('../utils/logger');
+      logger.error('Error generating invoice:', error);
       throw error;
     }
   }
@@ -282,7 +283,8 @@ class InvoiceService {
 
       return outputPath;
     } catch (error) {
-      console.error('Error generating PDF:', error);
+      const logger = require('../utils/logger');
+      logger.error('Error generating PDF:', error);
       throw new Error(`Failed to generate PDF: ${error.message}`);
     }
   }

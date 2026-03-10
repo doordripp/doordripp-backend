@@ -7,6 +7,7 @@ const Order = require('../models/Order')
 const Product = require('../models/Product')
 const DeliveryZone = require('../models/DeliveryZone')
 const SupportTicket = require('../models/SupportTicket')
+const logger = require('./logger')
 
 // Intent categories with associated keywords and synonyms
 const INTENTS = {
@@ -212,7 +213,7 @@ async function queryOrderInfo(entities, userId = null) {
       address: order.shippingAddress
     }))
   } catch (error) {
-    console.error('Error querying order info:', error)
+    logger.error('Error querying order info:', error)
     return null
   }
 }
@@ -250,7 +251,7 @@ async function queryProductInfo(message, entities) {
       image: product.images?.[0]
     }))
   } catch (error) {
-    console.error('Error querying product info:', error)
+    logger.error('Error querying product info:', error)
     return null
   }
 }
@@ -287,7 +288,7 @@ async function queryDeliveryZone(entities, message) {
       zoneNames: zones.map(z => z.name)
     }
   } catch (error) {
-    console.error('Error querying delivery zones:', error)
+    logger.error('Error querying delivery zones:', error)
     return null
   }
 }
@@ -500,7 +501,7 @@ async function getIntelligentResponse(message, faqs, userId = null) {
     
     return response
   } catch (error) {
-    console.error('Error in intelligent response:', error)
+    logger.error('Error in intelligent response:', error)
     throw error
   }
 }

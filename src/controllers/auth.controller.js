@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Otp = require('../models/Otp');
 const mailService = require('../services/mail.service');
 const otpUtil = require('../utils/otp.util');
+const logger = require('../utils/logger');
 
 /**
  * Enhanced Authentication Controller
@@ -112,7 +113,7 @@ exports.sendOTP = async (req, res, next) => {
     try {
       await mailService.sendOtpEmail(sanitizedEmail, otp, purpose);
       
-      console.log(`✅ OTP sent to ${otpUtil.maskEmail(sanitizedEmail)} for ${purpose}`);
+      logger.info(`OTP sent to ${otpUtil.maskEmail(sanitizedEmail)} for ${purpose}`);
       
       res.json({
         message: 'OTP sent successfully. Please check your email.',
@@ -127,7 +128,7 @@ exports.sendOTP = async (req, res, next) => {
     }
 
   } catch (error) {
-    console.error('Send OTP error:', error);
+    logger.error('Send OTP error:', error);
     res.status(500).json({ 
       error: error.message || 'Failed to send OTP' 
     });
@@ -229,9 +230,14 @@ exports.verifyOTP = async (req, res, next) => {
     await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
 
     // Generate JWT token
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) {
+      logger.error('JWT_SECRET environment variable is not set');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
     const token = jwt.sign(
       { id: user._id, roles: user.roles || [] },
-      process.env.JWT_SECRET || 'secret',
+      jwtSecret,
       { expiresIn: '7d' }
     );
 
@@ -246,7 +252,7 @@ exports.verifyOTP = async (req, res, next) => {
 
     res.cookie('token', token, cookieOptions);
 
-    console.log(`✅ Email verified for ${otpUtil.maskEmail(sanitizedEmail)}`);
+    logger.info(`Email verified for ${otpUtil.maskEmail(sanitizedEmail)}`);
 
     res.json({
       message: 'Email verified successfully!',
@@ -261,7 +267,7 @@ exports.verifyOTP = async (req, res, next) => {
     });
 
   } catch (error) {
-    console.error('Verify OTP error:', error);
+    logger.error('Verify OTP error:', error);
     res.status(500).json({ 
       error: 'Failed to verify OTP' 
     });
@@ -301,14 +307,14 @@ exports.forgotPassword = async (req, res, next) => {
 
     if (!user) {
       // Log for security monitoring
-      console.log(`⚠️  Password reset requested for non-existent email: ${otpUtil.maskEmail(sanitizedEmail)}`);
+      logger.warn(`Password reset requested for non-existent email: ${otpUtil.maskEmail(sanitizedEmail)}`);
       return res.json({ message: successMessage });
     }
 
     // Require JWT secret for secure token issuance
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
-      console.error('JWT_SECRET is not set; cannot issue reset token');
+      logger.error('JWT_SECRET is not set; cannot issue reset token');
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
@@ -338,7 +344,7 @@ exports.forgotPassword = async (req, res, next) => {
     try {
       await user.save();
     } catch (saveError) {
-      console.error('Failed to save password reset token to user:', saveError);
+      logger.error('Failed to save password reset token to user:', saveError);
       return res.status(500).json({ 
         error: 'Failed to process password reset request' 
       });
@@ -352,20 +358,18 @@ exports.forgotPassword = async (req, res, next) => {
         user.name
       );
       
-      console.log(`✅ Password reset email sent to ${otpUtil.maskEmail(sanitizedEmail)}`);
+      logger.info(`Password reset email sent to ${otpUtil.maskEmail(sanitizedEmail)}`);
     } catch (emailError) {
-      console.error('Failed to send reset email:', emailError);
+      logger.error('Failed to send reset email:', emailError);
       // Don't reveal email sending failure to user - they should still see success
     }
 
     res.json({ message: successMessage });
 
   } catch (error) {
-    console.error('Forgot password error:', error);
-    console.error('Error stack:', error.stack);
+    logger.error('Forgot password error:', error);
     res.status(500).json({ 
-      error: 'Failed to process password reset request',
-      message: error.message
+      error: 'Failed to process password reset request'
     });
   }
 };
@@ -402,7 +406,7 @@ exports.resetPassword = async (req, res, next) => {
 
     const jwtSecret = process.env.JWT_SECRET;
     if (!jwtSecret) {
-      console.error('JWT_SECRET is not set; cannot validate reset token');
+      logger.error('JWT_SECRET is not set; cannot validate reset token');
       return res.status(500).json({ error: 'Server configuration error' });
     }
 
@@ -466,13 +470,13 @@ exports.resetPassword = async (req, res, next) => {
     user.resetPasswordExpires = undefined;
     await user.save();
 
-    console.log(`✅ Password reset successful for user: ${user._id}`);
+    logger.info(`Password reset successful for user: ${user._id}`);
 
     // Notify user of successful password reset (best-effort)
     try {
       await mailService.sendPasswordResetSuccessEmail(user.email, user.name || 'User');
     } catch (notifyErr) {
-      console.error('Failed to send password reset success email:', notifyErr);
+      logger.error('Failed to send password reset success email:', notifyErr);
     }
 
     res.json({ 
@@ -480,7 +484,7 @@ exports.resetPassword = async (req, res, next) => {
     });
 
   } catch (error) {
-    console.error('Reset password error:', error);
+    logger.error('Reset password error:', error);
     res.status(500).json({ 
       error: 'Failed to reset password' 
     });

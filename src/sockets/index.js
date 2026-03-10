@@ -5,8 +5,9 @@
  */
 
 const socketIO = require('socket.io')
+const logger = require('../utils/logger')
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key'
+const JWT_SECRET = process.env.JWT_SECRET
 
 /**
  * Setup Socket.io server
@@ -40,13 +41,17 @@ function setupSocketIO(httpServer, corsOptions) {
 
     try {
       const jwt = require('jsonwebtoken')
+      if (!JWT_SECRET) {
+        socket.data.authenticated = false
+        return next()
+      }
       const decoded = jwt.verify(token, JWT_SECRET)
       socket.data.authenticated = true
       socket.data.userId = decoded.id || decoded.userId
       socket.data.roles = decoded.roles || ['customer']
       next()
     } catch (error) {
-      console.error('[Socket] Authentication failed:', error.message)
+      logger.security('[Socket] Authentication failed', { message: error.message })
       socket.data.authenticated = false
       next() // Allow connection but mark as unauthenticated
     }
@@ -54,13 +59,13 @@ function setupSocketIO(httpServer, corsOptions) {
 
   // Global connection handler
   io.on('connection', (socket) => {
-    console.log(`[Socket.io] New connection: ${socket.id}`)
+    logger.socket(`New connection: ${socket.id}`)
 
     // Join order room for real-time updates
     socket.on('joinOrderRoom', (orderId) => {
       if (orderId) {
         socket.join(`order_${orderId}`)
-        console.log(`[Socket.io] Client ${socket.id} joined order room: order_${orderId}`)
+        logger.socket(`Client ${socket.id} joined order room: order_${orderId}`)
       }
     })
 
@@ -68,7 +73,7 @@ function setupSocketIO(httpServer, corsOptions) {
     socket.on('leaveOrderRoom', (orderId) => {
       if (orderId) {
         socket.leave(`order_${orderId}`)
-        console.log(`[Socket.io] Client ${socket.id} left order room: order_${orderId}`)
+        logger.socket(`Client ${socket.id} left order room: order_${orderId}`)
       }
     })
 
@@ -79,12 +84,12 @@ function setupSocketIO(httpServer, corsOptions) {
 
     // Handle disconnect
     socket.on('disconnect', () => {
-      console.log(`[Socket.io] Client disconnected: ${socket.id}`)
+      logger.socket(`Client disconnected: ${socket.id}`)
     })
 
     // Generic error handler
     socket.on('error', (error) => {
-      console.error(`[Socket.io] Socket error: ${socket.id} -`, error)
+      logger.error(`[Socket.io] Socket error: ${socket.id}`, error)
     })
   })
 

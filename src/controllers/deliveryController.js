@@ -1,9 +1,10 @@
-/**
+﻿/**
  * Delivery Partner Controller
  * Handles delivery partner specific operations
  */
 
 const mongoose = require('mongoose');
+const logger = require('../utils/logger');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const AreaManager = require('../models/AreaManager');
@@ -67,7 +68,7 @@ exports.getMyOrders = async (req, res, next) => {
       totalPages: Math.ceil(total / parseInt(limit))
     });
   } catch (error) {
-    console.error('Error fetching my orders:', error);
+    logger.error('Error fetching my orders:', error);
     next(error);
   }
 };
@@ -155,7 +156,7 @@ exports.updateOrderStatus = async (req, res, next) => {
 
     res.json({ ok: true, order });
   } catch (error) {
-    console.error('Error updating order status:', error);
+    logger.error('Error updating order status:', error);
     next(error);
   }
 };
@@ -242,7 +243,7 @@ exports.updateLocation = async (req, res, next) => {
       location: { lat, lng, timestamp: new Date() }
     });
   } catch (error) {
-    console.error('Error updating location:', error);
+    logger.error('Error updating location:', error);
     next(error);
   }
 };
@@ -320,7 +321,7 @@ exports.uploadProofOfDelivery = async (req, res, next) => {
       order 
     });
   } catch (error) {
-    console.error('Error uploading proof of delivery:', error);
+    logger.error('Error uploading proof of delivery:', error);
     next(error);
   }
 };
@@ -357,7 +358,7 @@ exports.getLocationHistory = async (req, res, next) => {
       history: order.deliveryLocationHistory || []
     });
   } catch (error) {
-    console.error('Error fetching location history:', error);
+    logger.error('Error fetching location history:', error);
     next(error);
   }
 };
@@ -430,7 +431,7 @@ exports.acceptDelivery = async (req, res, next) => {
 
     res.json({ ok: true, order });
   } catch (error) {
-    console.error('Error accepting delivery:', error);
+    logger.error('Error accepting delivery:', error);
     next(error);
   }
 };

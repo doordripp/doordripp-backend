@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const router = express.Router();
+const logger = require('../utils/logger');
 // Primary auth controller (MongoDB-backed)
 const authController = require('../controllers/mongoAuthController');
 // Password reset and legacy handlers
@@ -100,7 +101,7 @@ router.post('/forgot-password', async (req, res, next) => {
   try {
     return passwordController.forgotPassword(req, res, next);
   } catch (e) {
-    console.error('forgot-password error', e);
+    logger.error('forgot-password error', e);
     return res.status(500).json({ error: 'Failed to process password reset request' });
   }
 });
@@ -110,7 +111,7 @@ router.post('/reset-password', async (req, res, next) => {
   try {
     return passwordController.resetPassword(req, res, next);
   } catch (e) {
-    console.error('reset-password error', e);
+    logger.error('reset-password error', e);
     return res.status(500).json({ error: 'Failed to reset password' });
   }
 });
@@ -172,7 +173,9 @@ router.post('/avatar', async (req, res) => {
       if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
     }
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) return res.status(500).json({ error: 'Server configuration error' });
+    const payload = jwt.verify(token, jwtSecret);
     const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
 
@@ -208,7 +211,7 @@ router.post('/avatar', async (req, res) => {
         .toFormat('jpeg', { quality: 80 })
         .toBuffer();
     } catch (err) {
-      console.error('Sharp processing failed; ensure `sharp` is installed', err.message || err);
+      logger.error('Sharp processing failed; ensure `sharp` is installed', err);
       return res.status(500).json({ error: 'Image processing failed (sharp missing or failed). Please install sharp.' });
     }
 
@@ -222,7 +225,7 @@ router.post('/avatar', async (req, res) => {
 
     return res.json({ avatar: user.avatar });
   } catch (e) {
-    console.error('Avatar upload error', e);
+    logger.error('Avatar upload error', e);
     return res.status(500).json({ error: 'Failed to upload avatar' });
   }
 });
@@ -239,7 +242,9 @@ router.put('/profile', async (req, res) => {
       if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
     }
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const jwtSecretProfile = process.env.JWT_SECRET;
+    if (!jwtSecretProfile) return res.status(500).json({ error: 'Server configuration error' });
+    const payload = jwt.verify(token, jwtSecretProfile);
     const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
 
@@ -256,7 +261,7 @@ router.put('/profile', async (req, res) => {
     await user.save();
     return res.json({ ok: true, user: { id: user._id, name: user.name, email: user.email, phone: user.phone, address: user.address } });
   } catch (e) {
-    console.error('profile update error', e);
+    logger.error('profile update error', e);
     return res.status(500).json({ error: 'Failed to update profile' });
   }
 });
@@ -273,7 +278,9 @@ router.put('/change-password', async (req, res) => {
       if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
     }
     if (!token) return res.status(401).json({ error: 'Not authenticated' });
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    const jwtSecretPwd = process.env.JWT_SECRET;
+    if (!jwtSecretPwd) return res.status(500).json({ error: 'Server configuration error' });
+    const payload = jwt.verify(token, jwtSecretPwd);
     const user = await User.findById(payload.id);
     if (!user) return res.status(401).json({ error: 'Invalid token user' });
 
@@ -287,7 +294,7 @@ router.put('/change-password', async (req, res) => {
     await user.save();
     return res.json({ ok: true, message: 'Password updated' });
   } catch (e) {
-    console.error('change-password error', e);
+    logger.error('change-password error', e);
     return res.status(500).json({ error: 'Failed to change password' });
   }
 });
@@ -319,11 +326,11 @@ router.post('/send-otp', async (req, res) => {
           await client.messages.create({ body: `Your OTP code is ${code}`, from: TWILIO_FROM, to: `+91${phone}` })
           responses.push({ to: phone, via: 'sms' })
         } catch (e) {
-          console.error('Twilio send failed', e)
+          logger.error('Twilio send failed', e);
           responses.push({ to: phone, via: 'sms', error: 'Twilio send failed' })
         }
       } else {
-        console.log(`OTP for ${phone}: ${code}`)
+        logger.debug(`OTP for ${phone}: ${code}`);
         responses.push({ to: phone, via: 'log' })
       }
     }
@@ -346,18 +353,18 @@ router.post('/send-otp', async (req, res) => {
           await transporter.sendMail({ from: mailFrom, to: email, subject: 'Your OTP code', text: `Your OTP code is ${code}` })
           responses.push({ to: email, via: 'email' })
         } catch (e) {
-          console.error('Email send failed', e)
+          logger.error('Email send failed', e);
           responses.push({ to: email, via: 'email', error: 'Email send failed' })
         }
       } else {
-        console.log(`OTP for ${email}: ${code}`)
+        logger.debug(`OTP for ${email}: ${code}`);
         responses.push({ to: email, via: 'log' })
       }
     }
 
     return res.json({ ok: true, message: 'OTP sent', results: responses })
   } catch (e) {
-    console.error('send-otp error', e)
+    logger.error('send-otp error', e);
     return res.status(500).json({ error: 'Failed to send OTP' })
   }
 })
@@ -395,11 +402,13 @@ router.post('/verify-otp', async (req, res) => {
 
     // Issue a short-lived verification token that proves the phone was verified
     const jwt = require('jsonwebtoken')
-    const verificationToken = jwt.sign({ phone }, process.env.JWT_SECRET || 'secret', { expiresIn: '10m' })
+    const jwtSecretOtp = process.env.JWT_SECRET;
+    if (!jwtSecretOtp) return res.status(500).json({ error: 'Server configuration error' });
+    const verificationToken = jwt.sign({ phone }, jwtSecretOtp, { expiresIn: '10m' })
 
     return res.json({ ok: true, message: 'OTP verified', verificationToken })
   } catch (e) {
-    console.error('verify-otp error', e)
+    logger.error('verify-otp error', e);
     return res.status(500).json({ error: 'Failed to verify OTP' })
   }
 })
@@ -411,7 +420,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     try {
       return authController.signInWithGoogle(req, res, next);
     } catch (e) {
-      console.error('google idToken sign-in error', e);
+      logger.error('google idToken sign-in error', e);
       return res.status(500).json({ error: 'Failed to sign in with Google' });
     }
   });
@@ -427,10 +436,10 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   router.get('/google/callback', (req, res, next) => {
     passport.authenticate('google', { session: false }, async (err, user) => {
       if (err) {
-        console.error('Google OAuth error:', err?.message || err)
+        logger.error('Google OAuth error:', err);
       }
       if (!user) {
-        console.error('Google OAuth: no user returned from strategy')
+        logger.warn('Google OAuth: no user returned from strategy');
       }
       if (err || !user) {
         const redirect = `${FRONTEND_URL}/login?error=oauth_failed`;
@@ -439,12 +448,9 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       try {
         // create token + set cookie or redirect with token
         const { token, cookieOptions } = await authController.createTokenForUser(user);
-        console.log('✅ Google OAuth success for:', user.email);
-        console.log('🍪 Setting cookie with options:', JSON.stringify(cookieOptions, null, 2));
-        console.log('🎫 Token length:', token.length);
+        logger.info(`Google OAuth success for: ${user.email}`);
         // Set httpOnly cookie for token (frontend will rely on cookies)
         res.cookie('token', token, cookieOptions);
-        console.log('🔀 Redirecting to:', FRONTEND_URL);
         // Redirect back to the frontend (SPA) home page
         return res.redirect(FRONTEND_URL);
       } catch (e) {

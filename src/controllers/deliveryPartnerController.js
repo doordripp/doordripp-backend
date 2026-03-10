@@ -8,6 +8,7 @@
 
 const Order = require('../models/Order');
 const User = require('../models/User');
+const logger = require('../utils/logger');
 
 /**
  * Get all orders assigned to the logged-in delivery partner
@@ -26,7 +27,8 @@ exports.getMyOrders = async (req, res, next) => {
     })
       .populate('customer', 'name email phone')
       .sort({ createdAt: -1 })
-      .select('-deliveryUpdates -proofOfDelivery'); // Hide sensitive admin fields
+      .select('-deliveryUpdates -proofOfDelivery') // Hide sensitive admin fields
+      .lean();
 
     // Transform orders for delivery partner view
     const transformedOrders = orders.map(order => ({
@@ -53,7 +55,7 @@ exports.getMyOrders = async (req, res, next) => {
       count: transformedOrders.length
     });
   } catch (error) {
-    console.error('[DeliveryPartner] Get orders error:', error);
+    logger.error('[DeliveryPartner] Get orders error:', error);
     next(error);
   }
 };
@@ -112,7 +114,7 @@ exports.getOrderDetails = async (req, res, next) => {
       }
     });
   } catch (error) {
-    console.error('[DeliveryPartner] Get order details error:', error);
+    logger.error('[DeliveryPartner] Get order details error:', error);
     next(error);
   }
 };
@@ -201,7 +203,7 @@ exports.updateOrderStatus = async (req, res, next) => {
         updatedAt: new Date(),
         statusHistory: order.statusHistory
       });
-      console.log(`[Socket.io] Emitted orderStatusUpdated for order ${orderId}: ${status}`);
+      logger.socket(`Emitted orderStatusUpdated for order ${orderId}: ${status}`);
     }
 
     res.json({
@@ -216,7 +218,7 @@ exports.updateOrderStatus = async (req, res, next) => {
       }
     });
   } catch (error) {
-    console.error('[DeliveryPartner] Update status error:', error);
+    logger.error('[DeliveryPartner] Update status error:', error);
     next(error);
   }
 };
@@ -269,7 +271,7 @@ exports.getStats = async (req, res, next) => {
       }
     });
   } catch (error) {
-    console.error('[DeliveryPartner] Get stats error:', error);
+    logger.error('[DeliveryPartner] Get stats error:', error);
     next(error);
   }
 };

@@ -1,4 +1,4 @@
-const express = require('express')
+﻿const express = require('express')
 const router = express.Router()
 const { NEW_ARRIVALS, TOP_SELLING, ALL_PRODUCTS, CATEGORIES } = require('../data/frontendProducts')
 const Product = require('../models/Product')
@@ -14,7 +14,7 @@ router.get('/categories', async (req, res) => {
     const sortedCategories = categories.filter(Boolean).sort()
     res.json(sortedCategories)
   } catch (error) {
-    console.error('Error fetching categories:', error)
+    logger.error('Error fetching categories:', error)
     res.json(CATEGORIES)
   }
 })

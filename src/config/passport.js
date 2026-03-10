@@ -2,6 +2,8 @@ const passport = require('passport')
 const GoogleStrategy = require('passport-google-oauth20').Strategy
 const User = require('../models/User')
 const { uploadFromUrl } = require('../utils/imagekit-upload')
+const logger = require('../utils/logger')
+const crypto = require('crypto')
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET
@@ -18,14 +20,12 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
       },
       async (accessToken, refreshToken, profile, done) => {
         try {
-          console.log('🔐 Google OAuth callback triggered');
-          console.log('📧 Profile emails:', profile.emails);
+          logger.info('Google OAuth callback triggered');
           const email = profile.emails && profile.emails[0] && profile.emails[0].value
           if (!email) {
-            console.error('❌ No email found on Google profile');
+            logger.error('No email found on Google profile');
             return done(new Error('No email found on Google profile'));
           }
-          console.log('✅ Email extracted:', email);
 
           // Normalize email to lowercase for case-insensitive matching
           const emailLower = email.toLowerCase().trim();
@@ -42,7 +42,7 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
           let avatarUrl = null
           if (profile.photos && profile.photos.length > 0) {
             const photoUrl = profile.photos[0].value
-            console.log(`📸 Uploading Google profile photo to ImageKit for ${email}...`)
+            logger.info(`Uploading Google profile photo to ImageKit...`)
             
             try {
               // Upload to ImageKit
@@ -52,9 +52,9 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
                 'avatars/google'
               )
               avatarUrl = uploadResult.url
-              console.log(`✅ Profile photo uploaded: ${avatarUrl}`)
+              logger.info('Profile photo uploaded successfully.')
             } catch (err) {
-              console.error('Failed to upload profile photo:', err.message)
+              logger.error('Failed to upload profile photo:', err)
               // Fallback to original Google URL
               avatarUrl = photoUrl
             }
@@ -69,7 +69,7 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
           
           if (!user) {
             // Create a new user with all available Google data
-            const pwd = Math.random().toString(36).slice(-12) // Random password (unused for OAuth users)
+            const pwd = crypto.randomBytes(16).toString('hex') // Cryptographically secure random password
             
             user = new User({ 
               ...googleData,
@@ -79,7 +79,7 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
             })
             
             await user.save()
-            console.log(`✅ New user created from Google OAuth: ${email}`)
+            logger.info('New user created from Google OAuth.')
           } else {
             // Update existing user with Google data if not already set
             let updated = false
@@ -103,13 +103,13 @@ if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
             
             if (updated) {
               await user.save()
-              console.log(`✅ User updated from Google OAuth: ${email}`)
+              logger.info('User updated from Google OAuth.')
             }
           }
           
           return done(null, user)
         } catch (err) {
-          console.error('Google OAuth error:', err)
+          logger.error('Google OAuth error:', err)
           return done(err)
         }
       }

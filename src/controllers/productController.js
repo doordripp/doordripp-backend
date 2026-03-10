@@ -1,4 +1,4 @@
-const Product = require('../models/Product')
+﻿const Product = require('../models/Product')
 
 exports.list = async (req, res, next) => {
   try {
@@ -153,7 +153,7 @@ exports.getRelatedProducts = async (req, res, next) => {
     })
     
   } catch (err) {
-    console.error('Related products error:', err)
+    logger.error('Related products error:', err)
     next(err)
   }
 }
@@ -206,7 +206,7 @@ exports.getRecommendations = async (req, res, next) => {
     })
     
   } catch (err) {
-    console.error('Recommendations error:', err)
+    logger.error('Recommendations error:', err)
     next(err)
   }
 }

@@ -41,9 +41,8 @@ const verifyPaymentSignature = (razorpayOrderId, razorpayPaymentId, razorpaySign
   
   // In test mode, log for debugging
   if (!isValid && process.env.RAZORPAY_KEY_ID?.includes('rzp_test')) {
-    console.warn('⚠️ Signature mismatch (test mode):');
-    console.warn('  Expected:', expectedSignature);
-    console.warn('  Received:', razorpaySignature);
+    const logger = require('./logger');
+    logger.warn('Signature mismatch (test mode). Expected vs received hashes differ.');
   }
   
   return isValid;
