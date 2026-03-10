@@ -19,7 +19,10 @@ exports.getMyOrders = async (req, res, next) => {
 
     // Find all orders assigned to this delivery partner
     const orders = await Order.find({
-      assignedDeliveryPartner: deliveryPartnerId
+      $or: [
+        { assignedDeliveryPartner: deliveryPartnerId },
+        { 'deliveryPartner.id': deliveryPartnerId }
+      ]
     })
       .populate('customer', 'name email phone')
       .sort({ createdAt: -1 })
@@ -68,7 +71,10 @@ exports.getOrderDetails = async (req, res, next) => {
 
     const order = await Order.findOne({
       _id: orderId,
-      assignedDeliveryPartner: deliveryPartnerId
+      $or: [
+        { assignedDeliveryPartner: deliveryPartnerId },
+        { 'deliveryPartner.id': deliveryPartnerId }
+      ]
     })
       .populate('customer', 'name email phone')
       .populate('items.product', 'name image');
@@ -138,7 +144,10 @@ exports.updateOrderStatus = async (req, res, next) => {
     // Find order and verify it's assigned to this delivery partner
     const order = await Order.findOne({
       _id: orderId,
-      assignedDeliveryPartner: deliveryPartnerId
+      $or: [
+        { assignedDeliveryPartner: deliveryPartnerId },
+        { 'deliveryPartner.id': deliveryPartnerId }
+      ]
     });
 
     if (!order) {
@@ -225,17 +234,31 @@ exports.getStats = async (req, res, next) => {
     const deliveryPartnerId = req.user.id;
 
     const [totalOrders, activeOrders, completedOrders, todayOrders] = await Promise.all([
-      Order.countDocuments({ assignedDeliveryPartner: deliveryPartnerId }),
       Order.countDocuments({
-        assignedDeliveryPartner: deliveryPartnerId,
+        $or: [
+          { assignedDeliveryPartner: deliveryPartnerId },
+          { 'deliveryPartner.id': deliveryPartnerId }
+        ]
+      }),
+      Order.countDocuments({
+        $or: [
+          { assignedDeliveryPartner: deliveryPartnerId },
+          { 'deliveryPartner.id': deliveryPartnerId }
+        ],
         deliveryStatus: { $nin: ['Delivered', 'Cancelled'] }
       }),
       Order.countDocuments({
-        assignedDeliveryPartner: deliveryPartnerId,
+        $or: [
+          { assignedDeliveryPartner: deliveryPartnerId },
+          { 'deliveryPartner.id': deliveryPartnerId }
+        ],
         deliveryStatus: 'Delivered'
       }),
       Order.countDocuments({
-        assignedDeliveryPartner: deliveryPartnerId,
+        $or: [
+          { assignedDeliveryPartner: deliveryPartnerId },
+          { 'deliveryPartner.id': deliveryPartnerId }
+        ],
         createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
       })
     ]);

@@ -39,6 +39,18 @@ const getAssignedZonesForDeliveryUser = async (userId) => {
     .filter(zone => zone.isActive);
 };
 
+const isAssignedToPartner = (order, userId) => {
+  const me = String(userId);
+  const assigned = order?.assignedDeliveryPartner ? String(order.assignedDeliveryPartner) : null;
+  const dpId = order?.deliveryPartner?.id ? String(order.deliveryPartner.id) : null;
+  const legacyDpId = order?.deliveryPartner?.riderId ? String(order.deliveryPartner.riderId) : null;
+  return assigned === me || dpId === me || legacyDpId === me;
+};
+
+const hasAnyAssignedPartner = (order) => {
+  return Boolean(order?.assignedDeliveryPartner || order?.deliveryPartner?.id || order?.deliveryPartner?.riderId);
+};
+
 // ==================== DASHBOARD STATS ====================
 exports.getDashboardStats = async (req, res, next) => {
   try {
@@ -359,7 +371,12 @@ exports.listOrders = async (req, res, next) => {
         .populate('customer', 'name email')
         .sort({ createdAt: -1 });
 
-      const zoneFilteredOrders = candidateOrders.filter(order => isOrderInAnyAssignedZone(order, assignedZones));
+      const zoneFilteredOrders = candidateOrders.filter(order => {
+        if (!isOrderInAnyAssignedZone(order, assignedZones)) return false;
+        // Delivery partners can work on unassigned orders in their zone,
+        // or orders already assigned to themselves.
+        return !hasAnyAssignedPartner(order) || isAssignedToPartner(order, req.user.id);
+      });
       const paginatedOrders = zoneFilteredOrders.slice(skip, skip + parseInt(limit));
 
       const formattedOrders = paginatedOrders.map(order => ({
@@ -373,6 +390,7 @@ exports.listOrders = async (req, res, next) => {
         voucherDiscount: order.voucherDiscount || 0,
         voucher: order.voucher || null,
         status: order.status,
+        assignedDeliveryPartner: order.assignedDeliveryPartner,
         deliveryStatus: order.deliveryStatus,
         statusHistory: order.statusHistory || [],
         isTrial: order.isTrial || false,
@@ -461,6 +479,11 @@ exports.getOrder = async (req, res, next) => {
       if (!canAccessOrder) {
         return res.status(403).json({ error: 'Order is outside your assigned area' });
       }
+
+      // If already assigned, only the assigned partner may manage/view it.
+      if (hasAnyAssignedPartner(order) && !isAssignedToPartner(order, req.user.id)) {
+        return res.status(403).json({ error: 'Order is assigned to another delivery partner' });
+      }
     }
 
     res.json({
@@ -474,6 +497,7 @@ exports.getOrder = async (req, res, next) => {
       voucherDiscount: order.voucherDiscount || 0,
       voucher: order.voucher || null,
       status: order.status,
+      assignedDeliveryPartner: order.assignedDeliveryPartner,
       deliveryStatus: order.deliveryStatus,
       statusHistory: order.statusHistory || [],
       isTrial: order.isTrial || false,
@@ -592,7 +616,7 @@ exports.acceptDelivery = async (req, res, next) => {
     }
 
     // Check if order already has a delivery partner
-    if (order.deliveryPartner?.riderId) {
+    if (hasAnyAssignedPartner(order)) {
       return res.status(400).json({ error: 'Order already assigned to a delivery partner' });
     }
 
@@ -605,8 +629,12 @@ exports.acceptDelivery = async (req, res, next) => {
     const partner = await User.findById(req.user.id);
     
     // Assign delivery partner to order
+    order.assignedDeliveryPartner = partner._id;
+    order.assignedAt = new Date();
+    order.assignedBy = req.user.id;
+
     order.deliveryPartner = {
-      riderId: partner._id,
+      id: partner._id,
       name: partner.name,
       phone: partner.phone || partner.phoneNumber,
       photo: partner.profilePhoto || partner.photo,
