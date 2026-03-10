@@ -10,7 +10,7 @@ const authController = require('../controllers/mongoAuthController');
 const passwordController = require('../controllers/auth.controller');
 const passport = require('../config/passport');
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://:5173'
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
 
 const bcrypt = require('bcryptjs')
 const Otp = require('../models/Otp')
@@ -40,6 +40,16 @@ const registerOtpLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => (req.body?.email ? req.body.email.toLowerCase() : ipKeyGenerator(req)),
   handler: (req, res) => res.status(429).json({ error: 'Too many OTP requests. Please try again in an hour.' }),
+});
+
+// OAuth limiter: protect callback and initiation endpoints from abuse
+const googleOAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req),
+  handler: (req, res) => res.status(429).json({ error: 'Too many Google auth attempts. Please try again later.' }),
 });
 
 // NOTE: Alias the legacy /register endpoint to the new initiate flow
@@ -423,7 +433,7 @@ router.post('/verify-otp', async (req, res) => {
 // Google Sign-In with idToken (POST - for Flutter/mobile apps)
 // Receives idToken from client, verifies it, and signs in or creates user
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  router.post('/google', async (req, res, next) => {
+  router.post('/google', skipIfDisabled(googleOAuthLimiter), async (req, res, next) => {
     try {
       return authController.signInWithGoogle(req, res, next);
     } catch (e) {
@@ -435,12 +445,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
 // Google OAuth routes - only enable if Google creds are configured
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-  router.get('/google', (req, res, next) => {
+  router.get('/google', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
     // Initiates OAuth flow
     passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
   });
 
-  router.get('/google/callback', (req, res, next) => {
+  router.get('/google/callback', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
     passport.authenticate('google', { session: false }, async (err, user) => {
       if (err) {
         logger.error('Google OAuth error:', err);

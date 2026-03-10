@@ -199,13 +199,18 @@ exports.verifyOTP = async (req, res, next) => {
     const isValid = await otpUtil.verifyOTP(otp, otpRecord.codeHash);
 
     if (!isValid) {
+      logger.security('Invalid OTP attempt', {
+        email: otpUtil.maskEmail(sanitizedEmail),
+        attemptsAfter: otpRecord.attempts + 1,
+        purpose: otpRecord.purpose || 'unknown'
+      });
       // Increment failed attempts
       await otpRecord.incrementAttempts();
       
-      const remainingAttempts = 3 - otpRecord.attempts;
+      const remainingAttempts = Math.max(0, 3 - (otpRecord.attempts + 1));
       return res.status(400).json({ 
         error: 'Invalid OTP',
-        remainingAttempts: remainingAttempts > 0 ? remainingAttempts : 0
+        remainingAttempts
       });
     }
 

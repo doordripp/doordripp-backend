@@ -31,6 +31,18 @@ const calculateDistance = (lat1, lng1, lat2, lng2) => {
   return R * c; // Distance in meters
 };
 
+const isValidCoordinatePair = (lat, lng) => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+};
+
+const sanitizeText = (value, maxLen) => {
+  if (value === undefined || value === null) return value;
+  const normalized = String(value).trim();
+  const cleaned = normalized.replace(/[<>]/g, '');
+  return cleaned.slice(0, maxLen);
+};
+
 /**
  * Get delivery settings
  * Returns all active delivery zones for frontend validation
@@ -87,7 +99,7 @@ exports.validateLocation = async (req, res) => {
     }
 
     // Validate coordinate ranges
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    if (!isValidCoordinatePair(lat, lng)) {
       return res.status(400).json({
         success: false,
         message: 'Coordinates out of valid range (lat: -90 to 90, lng: -180 to 180)'
@@ -182,6 +194,25 @@ exports.saveAddress = async (req, res) => {
       });
     }
 
+    if (!isValidCoordinatePair(lat, lng)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Coordinates out of valid range (lat: -90 to 90, lng: -180 to 180)'
+      });
+    }
+
+    const safeFormattedAddress = sanitizeText(formattedAddress, 240);
+    const safeAddressLine1 = sanitizeText(addressLine1, 120);
+    const safeAddressLine2 = sanitizeText(addressLine2, 120);
+    const safeCity = sanitizeText(city, 80);
+    const safeState = sanitizeText(state, 80);
+    const safePostalCode = sanitizeText(postalCode, 20);
+    const safeCountry = sanitizeText(country, 80);
+    const safeLabel = sanitizeText(label, 30);
+    const safeDeliveryInstructions = sanitizeText(deliveryInstructions, 250);
+    const safeContactName = sanitizeText(contactName, 100);
+    const safeContactPhone = sanitizeText(contactPhone, 20);
+
     // CHECK FOR DUPLICATE ADDRESSES
     // Check if user already has an address at the same or very close location (within 20 meters)
     const userAddresses = await Address.find({ userId: req.user._id });
@@ -209,13 +240,13 @@ exports.saveAddress = async (req, res) => {
     }
 
     // If no formatted address provided, use Google Geocoding API
-    let addressToSave = formattedAddress;
+    let addressToSave = safeFormattedAddress;
     let addressComponents = {
-      addressLine1,
-      city,
-      state,
-      postalCode,
-      country
+      addressLine1: safeAddressLine1,
+      city: safeCity,
+      state: safeState,
+      postalCode: safePostalCode,
+      country: safeCountry
     };
 
     if (!formattedAddress) {
@@ -247,18 +278,18 @@ exports.saveAddress = async (req, res) => {
       userId: req.user._id,
       formattedAddress: addressToSave,
       ...addressComponents,
-      addressLine2,
+      addressLine2: safeAddressLine2,
       location: {
         type: 'Point',
         coordinates: [lng, lat] // GeoJSON format: [longitude, latitude]
       },
       latitude: lat,
       longitude: lng,
-      label: label || 'Home',
+      label: safeLabel || 'Home',
       isDefault: isDefault || false,
-      deliveryInstructions,
-      contactName: contactName || req.user.name,
-      contactPhone: contactPhone || req.user.phone,
+      deliveryInstructions: safeDeliveryInstructions,
+      contactName: safeContactName || req.user.name,
+      contactPhone: safeContactPhone || req.user.phone,
       deliveryZoneId,
       isVerified: !!deliveryZoneId // Mark as verified if in delivery zone
     });
@@ -282,7 +313,6 @@ exports.saveAddress = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to save address',
       message: 'Failed to save address'
     });
   }
@@ -308,7 +338,6 @@ exports.getUserAddresses = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch addresses',
       message: 'Failed to fetch addresses'
     });
   }
@@ -340,7 +369,6 @@ exports.getAddressById = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch address',
       message: 'Failed to fetch address'
     });
   }
@@ -384,6 +412,12 @@ exports.updateAddress = async (req, res) => {
       const lng = parseFloat(req.body.longitude);
 
       if (!isNaN(lat) && !isNaN(lng)) {
+        if (!isValidCoordinatePair(lat, lng)) {
+          return res.status(400).json({
+            success: false,
+            message: 'Coordinates out of valid range (lat: -90 to 90, lng: -180 to 180)'
+          });
+        }
         address.latitude = lat;
         address.longitude = lng;
         address.location = {
@@ -417,7 +451,6 @@ exports.updateAddress = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to update address',
       message: 'Failed to update address'
     });
   }
@@ -449,7 +482,6 @@ exports.deleteAddress = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to delete address',
       message: 'Failed to delete address'
     });
   }
@@ -491,7 +523,6 @@ exports.setDefaultAddress = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to set default address',
       message: 'Failed to set default address'
     });
   }
@@ -532,7 +563,6 @@ exports.geocodeLocation = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to geocode location',
       message: 'Failed to geocode location'
     });
   }
@@ -563,7 +593,6 @@ exports.reverseGeocode = async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Failed to reverse geocode address',
       message: 'Failed to reverse geocode address'
     });
   }
