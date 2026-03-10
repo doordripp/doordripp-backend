@@ -2,6 +2,7 @@
 const Product = require('../models/Product')
 const Order = require('../models/Order')
 const mongoose = require('mongoose')
+const logger = require('../utils/logger')
 
 function sanitizeReviewImages(images) {
   if (images === undefined) return undefined
