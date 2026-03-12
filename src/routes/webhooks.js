@@ -1,9 +1,10 @@
-﻿const express = require('express');
+const express = require('express');
 const logger = require('../utils/logger');
 const router = express.Router();
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const crypto = require('crypto');
+const orderController = require('../controllers/orderController');
 
 /**
  * Razorpay Webhook Handler
@@ -51,6 +52,15 @@ router.post('/razorpay', async (req, res) => {
           await Product.findByIdAndUpdate(item.product, {
             $inc: { stock: -item.quantity, reserved: -item.quantity }
           });
+        }
+
+        // Auto-assign delivery partner (non-blocking, best-effort)
+        try {
+          // Reload order with any required fields (like shippingAddress)
+          const freshOrder = await Order.findById(order._id);
+          await orderController.autoAssignDeliveryPartner(freshOrder);
+        } catch (assignErr) {
+          logger.error('Webhook: Failed to auto-assign delivery partner:', assignErr);
         }
 
         logger.info(`✅ Webhook: Payment captured for order ${order._id}`);

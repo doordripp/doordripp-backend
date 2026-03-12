@@ -10,6 +10,17 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 
+const adjustDeliveryPartnerLoad = async (partnerId, delta) => {
+  if (!partnerId || !delta) return;
+
+  const partner = await User.findById(partnerId);
+  if (!partner?.deliveryPartner) return;
+
+  const currentLoad = Number(partner.deliveryPartner.currentLoad || 0);
+  partner.deliveryPartner.currentLoad = Math.max(0, currentLoad + delta);
+  await partner.save();
+};
+
 /**
  * Get all orders assigned to the logged-in delivery partner
  * GET /api/delivery-partner/orders
@@ -22,7 +33,8 @@ exports.getMyOrders = async (req, res, next) => {
     const orders = await Order.find({
       $or: [
         { assignedDeliveryPartner: deliveryPartnerId },
-        { 'deliveryPartner.id': deliveryPartnerId }
+        { 'deliveryPartner.id': deliveryPartnerId },
+        { 'deliveryPartner.riderId': deliveryPartnerId }
       ]
     })
       .populate('customer', 'name email phone')
@@ -75,7 +87,8 @@ exports.getOrderDetails = async (req, res, next) => {
       _id: orderId,
       $or: [
         { assignedDeliveryPartner: deliveryPartnerId },
-        { 'deliveryPartner.id': deliveryPartnerId }
+        { 'deliveryPartner.id': deliveryPartnerId },
+        { 'deliveryPartner.riderId': deliveryPartnerId }
       ]
     })
       .populate('customer', 'name email phone')
@@ -148,7 +161,8 @@ exports.updateOrderStatus = async (req, res, next) => {
       _id: orderId,
       $or: [
         { assignedDeliveryPartner: deliveryPartnerId },
-        { 'deliveryPartner.id': deliveryPartnerId }
+        { 'deliveryPartner.id': deliveryPartnerId },
+        { 'deliveryPartner.riderId': deliveryPartnerId }
       ]
     });
 
@@ -184,7 +198,9 @@ exports.updateOrderStatus = async (req, res, next) => {
     });
 
     // If delivered, update proof of delivery timestamp
-    if (status === 'Delivered') {
+    const shouldReleaseLoad = status === 'Delivered';
+
+    if (shouldReleaseLoad) {
       if (!order.proofOfDelivery) {
         order.proofOfDelivery = {};
       }
@@ -196,6 +212,10 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     await order.save();
+
+    if (shouldReleaseLoad) {
+      await adjustDeliveryPartnerLoad(deliveryPartnerId, -1);
+    }
 
     // Emit socket event for real-time update
     const io = req.app.get('io');
@@ -239,27 +259,31 @@ exports.getStats = async (req, res, next) => {
       Order.countDocuments({
         $or: [
           { assignedDeliveryPartner: deliveryPartnerId },
-          { 'deliveryPartner.id': deliveryPartnerId }
+          { 'deliveryPartner.id': deliveryPartnerId },
+          { 'deliveryPartner.riderId': deliveryPartnerId }
         ]
       }),
       Order.countDocuments({
         $or: [
           { assignedDeliveryPartner: deliveryPartnerId },
-          { 'deliveryPartner.id': deliveryPartnerId }
+          { 'deliveryPartner.id': deliveryPartnerId },
+          { 'deliveryPartner.riderId': deliveryPartnerId }
         ],
         deliveryStatus: { $nin: ['Delivered', 'Cancelled'] }
       }),
       Order.countDocuments({
         $or: [
           { assignedDeliveryPartner: deliveryPartnerId },
-          { 'deliveryPartner.id': deliveryPartnerId }
+          { 'deliveryPartner.id': deliveryPartnerId },
+          { 'deliveryPartner.riderId': deliveryPartnerId }
         ],
         deliveryStatus: 'Delivered'
       }),
       Order.countDocuments({
         $or: [
           { assignedDeliveryPartner: deliveryPartnerId },
-          { 'deliveryPartner.id': deliveryPartnerId }
+          { 'deliveryPartner.id': deliveryPartnerId },
+          { 'deliveryPartner.riderId': deliveryPartnerId }
         ],
         createdAt: { $gte: new Date(new Date().setHours(0, 0, 0, 0)) }
       })

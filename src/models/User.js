@@ -9,7 +9,7 @@ const UserSchema = new mongoose.Schema({
   emailVerified: { type: Boolean, default: false },
   password: { type: String, required: true },
   avatar: { type: String, default: null },
-  roles: { type: [String], default: ['customer'] }, // Array of roles: admin, manager, customer
+  roles: { type: [String], default: [] }, // Elevated roles; all users have implicit customer access
   isBanned: { type: Boolean, default: false },
   banReason: { type: String, default: null },
   bannedAt: { type: Date, default: null },
@@ -22,6 +22,21 @@ const UserSchema = new mongoose.Schema({
   },
   // Manager-specific fields
   managerFor: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryZone', default: null },
+  // Delivery Partner specific fields
+  deliveryPartner: {
+    assignedArea: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryZone', default: null },
+    workingHours: { type: String, default: '9 AM - 5 PM' },
+    maxOrdersPerSlot: { type: Number, default: 10 },
+    currentLoad: { type: Number, default: 0 },
+    availabilitySlots: {
+      type: [String],
+      enum: ['Morning 9-12', 'Afternoon 12-4', 'Evening 4-8'],
+      default: ['Morning 9-12', 'Afternoon 12-4', 'Evening 4-8']
+    },
+    vehicleType: { type: String, default: 'Bike' }, // Bike, Scooter, Car, Van
+    licenseNumber: { type: String, default: '' },
+    accountNumber: { type: String, default: '' }
+  },
   termsAccepted: { type: Boolean, default: false },
   blocked: { type: Boolean, default: false }, // Legacy field, use isBanned
   refreshToken: { type: String, default: null },
@@ -45,6 +60,35 @@ UserSchema.pre('save', async function () {
   if (this.skipPasswordHash) return
   const salt = await bcrypt.genSalt(10)
   this.password = await bcrypt.hash(this.password, salt)
+})
+
+// Ensure delivery partner metadata is always initialized for delivery_partner users
+UserSchema.pre('save', function (next) {
+  try {
+    const hasDeliveryRole = Array.isArray(this.roles) && this.roles.includes('delivery_partner')
+    if (hasDeliveryRole) {
+      if (!this.deliveryPartner) {
+        this.deliveryPartner = {}
+      }
+
+      // Initialize critical fields if missing
+      if (typeof this.deliveryPartner.currentLoad !== 'number') {
+        this.deliveryPartner.currentLoad = 0
+      }
+      if (typeof this.deliveryPartner.maxOrdersPerSlot !== 'number' || this.deliveryPartner.maxOrdersPerSlot <= 0) {
+        this.deliveryPartner.maxOrdersPerSlot = 10
+      }
+      if (!this.deliveryPartner.workingHours) {
+        this.deliveryPartner.workingHours = '9 AM - 5 PM'
+      }
+      if (!Array.isArray(this.deliveryPartner.availabilitySlots) || this.deliveryPartner.availabilitySlots.length === 0) {
+        this.deliveryPartner.availabilitySlots = ['Morning 9-12', 'Afternoon 12-4', 'Evening 4-8']
+      }
+    }
+    next()
+  } catch (err) {
+    next(err)
+  }
 })
 
 module.exports = mongoose.models.User || mongoose.model('User', UserSchema)

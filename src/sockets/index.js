@@ -48,7 +48,7 @@ function setupSocketIO(httpServer, corsOptions) {
       const decoded = jwt.verify(token, JWT_SECRET)
       socket.data.authenticated = true
       socket.data.userId = decoded.id || decoded.userId
-      socket.data.roles = decoded.roles || ['customer']
+      socket.data.roles = Array.from(new Set(['customer', ...((decoded.roles || []).filter(Boolean))]))
       next()
     } catch (error) {
       logger.security('[Socket] Authentication failed', { message: error.message })

@@ -1,4 +1,4 @@
-﻿const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const User = require('../models/User');
 const Product = require('../models/Product');
@@ -7,6 +7,15 @@ const AreaManager = require('../models/AreaManager');
 const { hasAnyRole } = require('../middleware/auth');
 
 const CURRENT_DELIVERY_ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'processing', 'shipped'];
+const STATUS_TO_DELIVERY_STATUS = {
+  pending: 'Order Placed',
+  confirmed: 'Order Placed',
+  packed: 'Accepted',
+  processing: 'Picked Up',
+  shipped: 'Out For Delivery',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled'
+};
 
 const parseCoordinate = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -29,15 +38,49 @@ const isOrderInAnyAssignedZone = (order, assignedZones) => {
 };
 
 const getAssignedZonesForDeliveryUser = async (userId) => {
-  const assignments = await AreaManager.find({
-    manager: userId,
-    status: 'active'
-  }).populate('deliveryZone');
+  const [assignments, user] = await Promise.all([
+    AreaManager.find({
+      manager: userId,
+      status: 'active'
+    }).populate('deliveryZone'),
+    User.findById(userId)
+      .select('deliveryPartner.assignedArea')
+      .populate('deliveryPartner.assignedArea')
+  ]);
 
-  return assignments
+  const zones = assignments
     .map(assignment => assignment.deliveryZone)
     .filter(Boolean)
     .filter(zone => zone.isActive);
+
+  if (user?.deliveryPartner?.assignedArea?.isActive) {
+    zones.push(user.deliveryPartner.assignedArea);
+  }
+
+  return zones.filter((zone, index, list) => (
+    list.findIndex(candidate => String(candidate?._id) === String(zone?._id)) === index
+  ));
+};
+
+const buildDeliveryPartnerSnapshot = (partner) => ({
+  id: partner._id,
+  riderId: partner._id,
+  name: partner.name || partner.email,
+  phone: partner.phone || partner.phoneNumber || '',
+  photo: partner.profileImage || partner.profilePhoto || partner.avatar || '',
+  rating: partner.rating || 4.8,
+  vehicleType: partner.deliveryPartner?.vehicleType || partner.vehicleType || 'Bike'
+});
+
+const adjustDeliveryPartnerLoad = async (partnerId, delta) => {
+  if (!partnerId || !delta) return;
+
+  const partner = await User.findById(partnerId);
+  if (!partner?.deliveryPartner) return;
+
+  const currentLoad = Number(partner.deliveryPartner.currentLoad || 0);
+  partner.deliveryPartner.currentLoad = Math.max(0, currentLoad + delta);
+  await partner.save();
 };
 
 const isAssignedToPartner = (order, userId) => {
@@ -50,6 +93,18 @@ const isAssignedToPartner = (order, userId) => {
 
 const hasAnyAssignedPartner = (order) => {
   return Boolean(order?.assignedDeliveryPartner || order?.deliveryPartner?.id || order?.deliveryPartner?.riderId);
+};
+
+const MANAGEABLE_ROLES = ['admin', 'manager', 'delivery_partner'];
+
+const normalizeStoredRoles = (roles = []) => {
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  return Array.from(new Set(
+    roleArray
+      .filter(Boolean)
+      .map(role => String(role).toLowerCase().trim())
+      .filter(role => MANAGEABLE_ROLES.includes(role))
+  ));
 };
 
 // ==================== DASHBOARD STATS ====================
@@ -345,21 +400,26 @@ exports.deleteProduct = async (req, res, next) => {
 exports.listOrders = async (req, res, next) => {
   try {
     const { status, page = 1, limit = 50 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
+    const wantsAllOrders = String(limit).toLowerCase() === 'all';
+    const parsedLimit = wantsAllOrders ? null : Math.max(parseInt(limit, 10) || 50, 1);
+    const skip = parsedLimit ? (parsedPage - 1) * parsedLimit : 0;
     const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
+    const isManager = hasAnyRole(req.user?.roles, ['manager']);
     const isDeliveryPartner = hasAnyRole(req.user?.roles, ['delivery_partner']);
+    const isDeliveryOnly = !isAdmin && !isManager && isDeliveryPartner;
 
-    if (!isAdmin && !isDeliveryPartner) {
+    if (!isAdmin && !isManager && !isDeliveryPartner) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    if (isDeliveryPartner) {
+    if (isDeliveryOnly) {
       const assignedZones = await getAssignedZonesForDeliveryUser(req.user.id);
       if (assignedZones.length === 0) {
         return res.json({
           orders: [],
           total: 0,
-          page: parseInt(page),
+          page: parsedPage,
           totalPages: 0
         });
       }
@@ -378,11 +438,13 @@ exports.listOrders = async (req, res, next) => {
         // or orders already assigned to themselves.
         return !hasAnyAssignedPartner(order) || isAssignedToPartner(order, req.user.id);
       });
-      const paginatedOrders = zoneFilteredOrders.slice(skip, skip + parseInt(limit));
+      const paginatedOrders = parsedLimit
+        ? zoneFilteredOrders.slice(skip, skip + parsedLimit)
+        : zoneFilteredOrders;
 
       const formattedOrders = paginatedOrders.map(order => ({
-        id: order._id,
-        _id: order._id,
+        id: order._id.toString(),
+        _id: order._id.toString(),
         customer: order.customer?.name || 'Unknown',
         customerEmail: order.customer?.email || '',
         items: order.items,
@@ -391,7 +453,8 @@ exports.listOrders = async (req, res, next) => {
         voucherDiscount: order.voucherDiscount || 0,
         voucher: order.voucher || null,
         status: order.status,
-        assignedDeliveryPartner: order.assignedDeliveryPartner,
+        assignedDeliveryPartner: order.assignedDeliveryPartner ? order.assignedDeliveryPartner.toString() : null,
+        deliveryPartner: order.deliveryPartner || null,
         deliveryStatus: order.deliveryStatus,
         statusHistory: order.statusHistory || [],
         isTrial: order.isTrial || false,
@@ -406,8 +469,8 @@ exports.listOrders = async (req, res, next) => {
       return res.json({
         orders: formattedOrders,
         total: zoneFilteredOrders.length,
-        page: parseInt(page),
-        totalPages: Math.ceil(zoneFilteredOrders.length / parseInt(limit))
+        page: parsedPage,
+        totalPages: parsedLimit ? Math.ceil(zoneFilteredOrders.length / parsedLimit) : (zoneFilteredOrders.length > 0 ? 1 : 0)
       });
     }
 
@@ -417,19 +480,25 @@ exports.listOrders = async (req, res, next) => {
     }
 
     const [orders, total] = await Promise.all([
-      Order.find(filter)
-        .populate('customer', 'name email')
-        .skip(skip)
-        .limit(parseInt(limit))
-        .sort({ createdAt: -1 }),
+      (() => {
+        const query = Order.find(filter)
+          .populate('customer', 'name email')
+          .sort({ createdAt: -1 });
+
+        if (parsedLimit) {
+          query.skip(skip).limit(parsedLimit);
+        }
+
+        return query;
+      })(),
       Order.countDocuments(filter)
     ]);
 
     logger.info(`📦 Admin fetching orders: ${orders.length} found, ${total} total in DB`);
 
     const formattedOrders = orders.map(order => ({
-      id: order._id,
-      _id: order._id,
+      id: order._id.toString(),
+      _id: order._id.toString(),
       customer: order.customer?.name || 'Unknown',
       customerEmail: order.customer?.email || '',
       items: order.items,
@@ -438,6 +507,8 @@ exports.listOrders = async (req, res, next) => {
       voucherDiscount: order.voucherDiscount || 0,
       voucher: order.voucher || null,
       status: order.status,
+      assignedDeliveryPartner: order.assignedDeliveryPartner ? order.assignedDeliveryPartner.toString() : null,
+      deliveryPartner: order.deliveryPartner || null,
       deliveryStatus: order.deliveryStatus,
       statusHistory: order.statusHistory || [],
       isTrial: order.isTrial || false,
@@ -452,8 +523,8 @@ exports.listOrders = async (req, res, next) => {
     res.json({
       orders: formattedOrders,
       total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit))
+      page: parsedPage,
+      totalPages: parsedLimit ? Math.ceil(total / parsedLimit) : (total > 0 ? 1 : 0)
     });
   } catch (err) {
     logger.error('❌ Error fetching orders:', err);
@@ -466,10 +537,12 @@ exports.getOrder = async (req, res, next) => {
     const order = await Order.findById(req.params.id).populate('customer', 'name email');
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
-    const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
-    const isDeliveryPartner = hasAnyRole(req.user?.roles, ['delivery_partner']);
+  const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
+  const isManager = hasAnyRole(req.user?.roles, ['manager']);
+  const isDeliveryPartner = hasAnyRole(req.user?.roles, ['delivery_partner']);
 
-    if (!isAdmin && isDeliveryPartner) {
+  // Only restrict delivery partners by zone/assignment; admins and managers can see any order
+  if (!isAdmin && !isManager && isDeliveryPartner) {
       if (!CURRENT_DELIVERY_ORDER_STATUSES.includes(order.status)) {
         return res.status(403).json({ error: 'You can only access current orders' });
       }
@@ -488,8 +561,8 @@ exports.getOrder = async (req, res, next) => {
     }
 
     res.json({
-      id: order._id,
-      _id: order._id,
+      id: order._id.toString(),
+      _id: order._id.toString(),
       customer: order.customer?.name || 'Unknown',
       customerEmail: order.customer?.email || '',
       items: order.items,
@@ -498,7 +571,8 @@ exports.getOrder = async (req, res, next) => {
       voucherDiscount: order.voucherDiscount || 0,
       voucher: order.voucher || null,
       status: order.status,
-      assignedDeliveryPartner: order.assignedDeliveryPartner,
+      assignedDeliveryPartner: order.assignedDeliveryPartner ? order.assignedDeliveryPartner.toString() : null,
+      deliveryPartner: order.deliveryPartner || null,
       deliveryStatus: order.deliveryStatus,
       statusHistory: order.statusHistory || [],
       isTrial: order.isTrial || false,
@@ -519,13 +593,16 @@ exports.updateOrderStatus = async (req, res, next) => {
     const { id } = req.params;
     const { status, note } = req.body;
     const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
+    const isManager = hasAnyRole(req.user?.roles, ['manager']);
+    const isAdminOrManager = isAdmin || isManager;
     const isDeliveryPartner = hasAnyRole(req.user?.roles, ['delivery_partner']);
+    const isDeliveryOnly = !isAdminOrManager && isDeliveryPartner;
 
-    if (!isAdmin && !isDeliveryPartner) {
+    if (!isAdminOrManager && !isDeliveryPartner) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    const validStatuses = isAdmin
+    const validStatuses = isAdminOrManager
       ? ['pending', 'confirmed', 'packed', 'processing', 'shipped', 'delivered', 'cancelled']
       : ['packed', 'processing', 'shipped', 'delivered'];
 
@@ -536,7 +613,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     const existingOrder = await Order.findById(id);
     if (!existingOrder) return res.status(404).json({ error: 'Order not found' });
 
-    if (isDeliveryPartner) {
+    if (isDeliveryOnly) {
       const assignedZones = await getAssignedZonesForDeliveryUser(req.user.id);
       const canAccessOrder = isOrderInAnyAssignedZone(existingOrder, assignedZones);
 
@@ -549,16 +626,40 @@ exports.updateOrderStatus = async (req, res, next) => {
       }
     }
 
+    const previousStatus = existingOrder.status;
+    const assignedPartnerId = existingOrder.assignedDeliveryPartner || existingOrder.deliveryPartner?.id || existingOrder.deliveryPartner?.riderId;
+
     existingOrder.status = status;
+    if (STATUS_TO_DELIVERY_STATUS[status]) {
+      existingOrder.deliveryStatus = STATUS_TO_DELIVERY_STATUS[status];
+    }
     existingOrder.deliveryUpdates = existingOrder.deliveryUpdates || [];
     existingOrder.deliveryUpdates.push({
       status,
       note: typeof note === 'string' ? note.trim() : undefined,
       updatedBy: req.user.id,
-      updatedByRole: isAdmin ? 'admin' : 'delivery_partner',
+      updatedByRole: isAdminOrManager ? (isAdmin ? 'admin' : 'manager') : 'delivery_partner',
       updatedAt: new Date()
     });
+    existingOrder.statusHistory = existingOrder.statusHistory || [];
+    existingOrder.statusHistory.push({
+      status,
+      timestamp: new Date(),
+      updatedBy: req.user.id,
+      updatedByRole: isAdminOrManager ? (isAdmin ? 'admin' : 'manager') : 'delivery_partner'
+    });
+
+    const shouldReleaseLoad = Boolean(
+      assignedPartnerId &&
+      ['delivered', 'cancelled'].includes(status) &&
+      !['delivered', 'cancelled'].includes(previousStatus)
+    );
+
     await existingOrder.save();
+
+    if (shouldReleaseLoad) {
+      await adjustDeliveryPartnerLoad(assignedPartnerId, -1);
+    }
 
     const order = await Order.findById(id).populate('customer');
 
@@ -634,14 +735,7 @@ exports.acceptDelivery = async (req, res, next) => {
     order.assignedAt = new Date();
     order.assignedBy = req.user.id;
 
-    order.deliveryPartner = {
-      id: partner._id,
-      name: partner.name,
-      phone: partner.phone || partner.phoneNumber,
-      photo: partner.profilePhoto || partner.photo,
-      rating: partner.rating || 4.8,
-      vehicleType: partner.vehicleType || 'bike'
-    };
+    order.deliveryPartner = buildDeliveryPartnerSnapshot(partner);
 
     // Update order status to processing and initialize delivery timeline status
     order.status = 'processing';
@@ -682,6 +776,7 @@ exports.acceptDelivery = async (req, res, next) => {
     });
 
     await order.save();
+    await adjustDeliveryPartnerLoad(partner._id, 1);
 
     // Send notification to customer (if notification service exists)
     try {
@@ -792,13 +887,13 @@ exports.getUser = async (req, res, next) => {
 
 exports.updateUser = async (req, res, next) => {
   try {
-    const { id } = req.params;
+    const id = req.params.id || req.params.userId;
     const { name, email, roles, blocked } = req.body;
 
     const updateData = {};
     if (name !== undefined) updateData.name = name;
     if (email !== undefined) updateData.email = email;
-    if (roles !== undefined) updateData.roles = roles;
+    if (roles !== undefined) updateData.roles = normalizeStoredRoles(roles);
     if (blocked !== undefined) updateData.blocked = blocked;
 
     const user = await User.findByIdAndUpdate(id, updateData, { new: true }).select('-password -refreshToken');
@@ -820,7 +915,7 @@ exports.updateUser = async (req, res, next) => {
 
 exports.deleteUser = async (req, res, next) => {
   try {
-    const user = await User.findByIdAndDelete(req.params.id);
+    const user = await User.findByIdAndDelete(req.params.id || req.params.userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json({ ok: true, message: 'User deleted successfully' });
   } catch (err) {
@@ -868,26 +963,38 @@ exports.getAllUsers = async (req, res, next) => {
     const { search, role, status, page = 1, limit = 20 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Build query
-    let query = {};
+    const conditions = [];
 
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
-      ];
+      conditions.push({
+        $or: [
+          { name: { $regex: search, $options: 'i' } },
+          { email: { $regex: search, $options: 'i' } },
+          { phone: { $regex: search, $options: 'i' } }
+        ]
+      });
     }
 
     if (role && role !== 'all') {
-      query.roles = role;
+      if (role === 'customer') {
+        conditions.push({
+          $or: [
+            { roles: { $size: 0 } },
+            { roles: 'customer' }
+          ]
+        });
+      } else {
+        conditions.push({ roles: role });
+      }
     }
 
     if (status === 'banned') {
-      query.isBanned = true;
+      conditions.push({ isBanned: true });
     } else if (status === 'active') {
-      query.isBanned = false;
+      conditions.push({ isBanned: false });
     }
+
+    const query = conditions.length ? { $and: conditions } : {};
 
     const [users, total] = await Promise.all([
       User.find(query)
@@ -967,17 +1074,12 @@ exports.getUserDetails = async (req, res, next) => {
 exports.changeUserRole = async (req, res, next) => {
   try {
     const { userId } = req.params;
-    const { roles } = req.body;
+    const normalizedRoles = normalizeStoredRoles(req.body.roles || []);
 
-    if (!roles || !Array.isArray(roles) || roles.length === 0) {
-      return res.status(400).json({ success: false, error: 'Roles must be a non-empty array' });
-    }
-
-    // Validate roles
-    const validRoles = ['admin', 'manager', 'delivery_partner', 'customer'];
-    const isValid = roles.every(role => validRoles.includes(role));
-    if (!isValid) {
-      return res.status(400).json({ success: false, error: 'Invalid role specified' });
+    if (String(req.user.id) === String(userId)) {
+      if (!normalizedRoles.includes('admin') && req.user.roles?.includes('admin')) {
+        return res.status(403).json({ success: false, error: 'You cannot remove your own admin role.' });
+      }
     }
 
     const user = await User.findById(userId);
@@ -985,7 +1087,7 @@ exports.changeUserRole = async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
 
-    user.roles = roles;
+    user.roles = normalizedRoles;
     await user.save();
 
     res.json({
@@ -1234,31 +1336,50 @@ exports.assignDeliveryPartner = async (req, res, next) => {
       });
     }
 
+    if (['delivered', 'cancelled', 'failed'].includes(order.status)) {
+      return res.status(400).json({
+        ok: false,
+        error: `Cannot assign delivery partner to ${order.status} order`
+      });
+    }
+
+    const previousPartnerId = order.assignedDeliveryPartner || order.deliveryPartner?.id || order.deliveryPartner?.riderId;
+
     // Assign the delivery partner
     order.assignedDeliveryPartner = deliveryPartnerId;
     order.assignedAt = new Date();
     order.assignedBy = req.user.id;
 
     // Update deliveryPartner info for tracking
-    order.deliveryPartner = {
-      riderId: deliveryPartner._id,
-      name: deliveryPartner.name || deliveryPartner.email,
-      phone: deliveryPartner.phone || deliveryPartner.phoneNumber || '',
-      photo: deliveryPartner.profileImage || deliveryPartner.profilePhoto || '',
-      rating: deliveryPartner.rating || 4.8,
-      vehicleType: deliveryPartner.vehicleType || 'bike'
-    };
+    order.deliveryPartner = buildDeliveryPartnerSnapshot(deliveryPartner);
+    if (!order.deliveryStatus || order.deliveryStatus === 'Cancelled') {
+      order.deliveryStatus = 'Order Placed';
+    }
 
     // Add to delivery updates
+    order.deliveryUpdates = order.deliveryUpdates || [];
     order.deliveryUpdates.push({
       status: order.status,
-      note: `Assigned to ${deliveryPartner.name || deliveryPartner.email}`,
+      note: previousPartnerId && String(previousPartnerId) !== String(deliveryPartnerId)
+        ? `Reassigned to ${deliveryPartner.name || deliveryPartner.email}`
+        : `Assigned to ${deliveryPartner.name || deliveryPartner.email}`,
       updatedBy: req.user.id,
-      updatedByRole: 'admin',
+      updatedByRole: hasAnyRole(req.user?.roles, ['admin']) ? 'admin' : 'manager',
       updatedAt: new Date()
     });
 
     await order.save();
+
+    try {
+      if (previousPartnerId && String(previousPartnerId) !== String(deliveryPartnerId)) {
+        await adjustDeliveryPartnerLoad(previousPartnerId, -1);
+      }
+      if (!previousPartnerId || String(previousPartnerId) !== String(deliveryPartnerId)) {
+        await adjustDeliveryPartnerLoad(deliveryPartnerId, 1);
+      }
+    } catch (loadErr) {
+      logger.warn('Failed to bump delivery partner load on manual assign:', loadErr);
+    }
 
     // Emit socket event for real-time updates
     if (req.app.get('io')) {
@@ -1293,7 +1414,7 @@ exports.unassignDeliveryPartner = async (req, res, next) => {
       return res.status(404).json({ ok: false, error: 'Order not found' });
     }
 
-    if (!order.assignedDeliveryPartner) {
+    if (!hasAnyAssignedPartner(order)) {
       return res.status(400).json({
         ok: false,
         error: 'Order has no assigned delivery partner'
@@ -1301,21 +1422,32 @@ exports.unassignDeliveryPartner = async (req, res, next) => {
     }
 
     // Remove assignment
-    const previousPartner = order.assignedDeliveryPartner;
+    const previousPartner = order.assignedDeliveryPartner || order.deliveryPartner?.id || order.deliveryPartner?.riderId;
     order.assignedDeliveryPartner = undefined;
     order.assignedAt = undefined;
     order.assignedBy = undefined;
+    order.deliveryPartner = undefined;
+    if (order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Cancelled') {
+      order.deliveryStatus = 'Order Placed';
+    }
 
     // Add to delivery updates
+    order.deliveryUpdates = order.deliveryUpdates || [];
     order.deliveryUpdates.push({
       status: order.status,
       note: 'Delivery partner assignment removed',
       updatedBy: req.user.id,
-      updatedByRole: 'admin',
+      updatedByRole: hasAnyRole(req.user?.roles, ['admin']) ? 'admin' : 'manager',
       updatedAt: new Date()
     });
 
     await order.save();
+
+    try {
+      await adjustDeliveryPartnerLoad(previousPartner, -1);
+    } catch (loadErr) {
+      logger.warn('Failed to decrement delivery partner load on unassign:', loadErr);
+    }
 
     // Emit socket event
     if (req.app.get('io')) {

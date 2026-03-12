@@ -12,6 +12,26 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
 
+const adjustDeliveryPartnerLoad = async (partnerId, delta) => {
+  if (!partnerId || !delta) return;
+
+  const partner = await User.findById(partnerId);
+  if (!partner?.deliveryPartner) return;
+
+  const currentLoad = Number(partner.deliveryPartner.currentLoad || 0);
+  partner.deliveryPartner.currentLoad = Math.max(0, currentLoad + delta);
+  await partner.save();
+};
+
+const isAssignedToPartner = (order, userId) => {
+  const mine = String(userId);
+  return [
+    order?.assignedDeliveryPartner,
+    order?.deliveryPartner?.id,
+    order?.deliveryPartner?.riderId
+  ].some((value) => String(value || '') === mine);
+};
+
 // ==================== HELPER FUNCTIONS ====================
 const getAssignedZonesForDeliveryUser = async (userId) => {
   const assignments = await AreaManager.find({
@@ -32,14 +52,23 @@ const getAssignedZonesForDeliveryUser = async (userId) => {
  */
 exports.getMyOrders = async (req, res, next) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, page = 1, limit = 20, orderId } = req.query;
     const userId = req.user._id;
 
     // Build filter
-    const filter = { assignedDeliveryPartner: userId };
+    const filter = {
+      $or: [
+        { assignedDeliveryPartner: userId },
+        { 'deliveryPartner.id': userId },
+        { 'deliveryPartner.riderId': userId }
+      ]
+    };
+    const specificOrderId = req.params.id || orderId;
     
     // Filter by status if provided
-    if (status && status !== 'all') {
+    if (specificOrderId) {
+      filter._id = specificOrderId;
+    } else if (status && status !== 'all') {
       filter.status = status;
     } else {
       // By default, show only current delivery orders
@@ -100,8 +129,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     // Verify this order is assigned to the delivery partner
-    if (!order.assignedDeliveryPartner || 
-        order.assignedDeliveryPartner.toString() !== userId.toString()) {
+    if (!isAssignedToPartner(order, userId)) {
       return res.status(403).json({
         ok: false,
         error: 'This order is not assigned to you'
@@ -129,10 +157,13 @@ exports.updateOrderStatus = async (req, res, next) => {
     });
 
     // Update orderStatus for tracking UI
+    const shouldReleaseLoad = status === 'delivered';
+
     if (status === 'shipped') {
       order.orderStatus = 'OUT_FOR_DELIVERY';
     } else if (status === 'delivered') {
       order.orderStatus = 'DELIVERED';
+      order.deliveryStatus = 'Delivered';
       if (!order.proofOfDelivery?.deliveredAt) {
         order.proofOfDelivery = {
           ...order.proofOfDelivery,
@@ -143,6 +174,10 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     await order.save();
+
+    if (shouldReleaseLoad) {
+      await adjustDeliveryPartnerLoad(userId, -1);
+    }
 
     // Emit socket event (if io is attached to app)
     if (req.app.get('io')) {
@@ -194,8 +229,7 @@ exports.updateLocation = async (req, res, next) => {
     }
 
     // Verify assignment
-    if (!order.assignedDeliveryPartner || 
-        order.assignedDeliveryPartner.toString() !== userId.toString()) {
+    if (!isAssignedToPartner(order, userId)) {
       return res.status(403).json({
         ok: false,
         error: 'This order is not assigned to you'
@@ -265,8 +299,7 @@ exports.uploadProofOfDelivery = async (req, res, next) => {
     }
 
     // Verify assignment
-    if (!order.assignedDeliveryPartner || 
-        order.assignedDeliveryPartner.toString() !== userId.toString()) {
+    if (!isAssignedToPartner(order, userId)) {
       return res.status(403).json({
         ok: false,
         error: 'This order is not assigned to you'
@@ -291,9 +324,12 @@ exports.uploadProofOfDelivery = async (req, res, next) => {
     };
 
     // Auto-update status to delivered
-    if (order.status !== 'delivered') {
+    const newlyDelivered = order.status !== 'delivered';
+
+    if (newlyDelivered) {
       order.status = 'delivered';
       order.orderStatus = 'DELIVERED';
+      order.deliveryStatus = 'Delivered';
       
       order.deliveryUpdates.push({
         status: 'delivered',
@@ -302,9 +338,14 @@ exports.uploadProofOfDelivery = async (req, res, next) => {
         updatedByRole: 'delivery_partner',
         updatedAt: new Date()
       });
+
     }
 
     await order.save();
+
+    if (newlyDelivered) {
+      await adjustDeliveryPartnerLoad(userId, -1);
+    }
 
     // Emit socket event
     if (req.app.get('io')) {
@@ -345,8 +386,7 @@ exports.getLocationHistory = async (req, res, next) => {
     }
 
     // Verify assignment
-    if (!order.assignedDeliveryPartner || 
-        order.assignedDeliveryPartner.toString() !== userId.toString()) {
+    if (!isAssignedToPartner(order, userId)) {
       return res.status(403).json({
         ok: false,
         error: 'This order is not assigned to you'
@@ -379,8 +419,7 @@ exports.acceptDelivery = async (req, res, next) => {
     }
 
     // Check if already assigned
-    if (order.assignedDeliveryPartner && 
-        order.assignedDeliveryPartner.toString() !== userId.toString()) {
+    if (order.assignedDeliveryPartner && !isAssignedToPartner(order, userId)) {
       return res.status(400).json({
         ok: false,
         error: 'This order is already assigned to another delivery partner'
@@ -402,6 +441,7 @@ exports.acceptDelivery = async (req, res, next) => {
     
     // Update deliveryPartner info for tracking
     order.deliveryPartner = {
+      id: userId,
       riderId: userId,
       name: user.name || user.email,
       phone: user.phone || '',
@@ -419,6 +459,7 @@ exports.acceptDelivery = async (req, res, next) => {
     });
 
     await order.save();
+    await adjustDeliveryPartnerLoad(userId, 1);
 
     // Emit socket event
     if (req.app.get('io')) {

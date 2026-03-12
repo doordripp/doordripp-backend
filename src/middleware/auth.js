@@ -4,9 +4,42 @@ const logger = require('../utils/logger');
 
 const normalizeRoles = (roles = []) => {
   const roleArray = Array.isArray(roles) ? roles : [roles];
-  return roleArray
+  const normalized = roleArray
     .filter(Boolean)
     .map(role => String(role).toLowerCase().trim());
+  return Array.from(new Set(['customer', ...normalized]));
+};
+
+const ROLE_PERMISSIONS = {
+  admin: [
+    'manage_orders', 'assign_delivery', 'manage_customers', 
+    'manage_delivery_partners', 'manage_delivery_schedules', 
+    'view_reports', 'manage_managers', 'manage_roles', 'system_controls'
+  ],
+  manager: [
+    'manage_orders', 'assign_delivery', 'manage_customers', 
+    'manage_delivery_partners', 'manage_delivery_schedules', 
+    'view_reports'
+  ],
+  delivery_partner: [
+    'view_assigned_deliveries', 'update_delivery_status'
+  ],
+  customer: [
+    'browse_products', 'place_orders', 'view_orders'
+  ]
+};
+
+const getPermissionsForRoles = (roles = []) => {
+  const perms = new Set();
+  const normalizedRoles = normalizeRoles(roles);
+  
+  normalizedRoles.forEach(role => {
+    if (ROLE_PERMISSIONS[role]) {
+      ROLE_PERMISSIONS[role].forEach(p => perms.add(p));
+    }
+  });
+  
+  return Array.from(perms);
 };
 
 const hasAnyRole = (userRoles, allowedRoles = []) => {
@@ -14,6 +47,9 @@ const hasAnyRole = (userRoles, allowedRoles = []) => {
   const normalizedAllowedRoles = normalizeRoles(allowedRoles);
   return normalizedAllowedRoles.some(role => normalizedUserRoles.includes(role));
 };
+
+exports.getPermissionsForRoles = getPermissionsForRoles;
+exports.ROLE_PERMISSIONS = ROLE_PERMISSIONS;
 
 exports.verifyToken = async (req, res, next) => {
   let token = null;
@@ -50,11 +86,27 @@ exports.verifyToken = async (req, res, next) => {
       name: user.name,
       email: user.email,
       phone: user.phone,
+      permissions: payload.permissions || getPermissionsForRoles(user.roles || [])
     };
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+};
+
+exports.authorize = (permission) => {
+  return (req, res, next) => {
+    if (!req.user || !req.user.permissions) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    
+    // Always allow admin super permissions or specific permission match
+    if (req.user.permissions.includes('system_controls') || req.user.permissions.includes(permission)) {
+      return next();
+    }
+    
+    return res.status(403).json({ error: `Permission denied: Requires ${permission}` });
+  };
 };
 
 exports.requireAdmin = (req, res, next) => {

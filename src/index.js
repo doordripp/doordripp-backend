@@ -36,6 +36,7 @@ const contentRoutes = require('./routes/content');
 const deliveryRoutes = require('./routes/delivery');
 const deliveryPartnerRoutes = require('./routes/deliveryPartner');
 const voucherRoutes = require('./routes/voucher.routes');
+const managerRoutes = require('./routes/manager');
 // Socket.io setup
 const { setupSocketIO } = require('./sockets')
 const logger = require('./utils/logger')
@@ -125,6 +126,7 @@ app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/trial-room', trialRoomRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/manager', managerRoutes);
 app.use('/api', imagekitRoutes);
 app.use('/api', addressRoutes);
 app.use('/api/invoices', invoiceRoutes);

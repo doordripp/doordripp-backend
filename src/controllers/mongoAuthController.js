@@ -9,6 +9,8 @@ const mailService = require('../services/mail.service');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 
+const { getPermissionsForRoles } = require('../middleware/auth');
+
 const getJwtSecret = () => {
   const jwtSecret = process.env.JWT_SECRET;
   if (!jwtSecret) {
@@ -18,7 +20,12 @@ const getJwtSecret = () => {
 };
 
 const generateToken = (user) => {
-  const payload = { id: user._id, roles: user.roles || [] };
+  const payload = { 
+    id: user._id, 
+    userId: user._id,
+    roles: user.roles || [],
+    permissions: getPermissionsForRoles(user.roles || [])
+  };
   return jwt.sign(payload, getJwtSecret(), { expiresIn: '7d' });
 };
 

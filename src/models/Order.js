@@ -75,9 +75,16 @@ const OrderSchema = new mongoose.Schema({
   // Delivery partner info (no live location)
   deliveryPartner: {
     id: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    riderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     name: { type: String },
     phone: { type: String },
-    photo: { type: String }
+    photo: { type: String },
+    rating: { type: Number },
+    vehicleType: { type: String },
+    location: {
+      lat: { type: Number },
+      lng: { type: Number }
+    }
   },
 
   payment: {
@@ -115,6 +122,7 @@ const OrderSchema = new mongoose.Schema({
   },
   assignedAt: { type: Date },
   assignedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  deliverySlot: { type: String, default: null },
 
   // Proof of Delivery (Feature 4)
   proofOfDelivery: {

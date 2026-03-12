@@ -148,6 +148,93 @@ async function getDeliveryZoneAndManagers(address) {
   }
 }
 
+/**
+ * Automatically assign an available delivery partner to an order
+ * Returns the deliveryInfo (zone + managers) used for assignment.
+ */
+async function autoAssignDeliveryPartner(order, existingDeliveryInfo = null) {
+  let deliveryInfo = existingDeliveryInfo;
+
+  try {
+    if (!deliveryInfo) {
+      deliveryInfo = await getDeliveryZoneAndManagers(order.shippingAddress);
+    }
+
+    if (deliveryInfo?.zone) {
+      const User = require('../models/User');
+      // Prefer partners explicitly assigned to this zone, but fall back to any active delivery partner
+      let partners = await User.find({
+        roles: 'delivery_partner',
+        'deliveryPartner.assignedArea': deliveryInfo.zone._id,
+        isBanned: false
+      });
+
+      if (!partners.length) {
+        partners = await User.find({
+          roles: 'delivery_partner',
+          isBanned: false
+        });
+      }
+
+      if (partners.length > 0) {
+        const availablePartners = partners.filter(p =>
+          (p.deliveryPartner?.currentLoad || 0) < (p.deliveryPartner?.maxOrdersPerSlot || 10)
+        );
+
+        if (availablePartners.length > 0) {
+          availablePartners.sort((a, b) =>
+            (a.deliveryPartner?.currentLoad || 0) - (b.deliveryPartner?.currentLoad || 0)
+          );
+
+          const selectedPartner = availablePartners[0];
+
+          order.assignedDeliveryPartner = selectedPartner._id;
+          order.assignedAt = new Date();
+
+          order.deliveryPartner = {
+            id: selectedPartner._id,
+            riderId: selectedPartner._id,
+            name: selectedPartner.name,
+            phone: selectedPartner.phone,
+            photo: selectedPartner.avatar || selectedPartner.profileImage || selectedPartner.profilePhoto || '',
+            rating: selectedPartner.rating || 4.8,
+            vehicleType: selectedPartner.deliveryPartner?.vehicleType || 'Bike'
+          };
+
+          selectedPartner.deliveryPartner.currentLoad = (selectedPartner.deliveryPartner.currentLoad || 0) + 1;
+          await selectedPartner.save();
+
+          if (!Array.isArray(order.deliveryUpdates)) {
+            order.deliveryUpdates = [];
+          }
+
+          order.deliveryUpdates.push({
+            status: order.status,
+            note: `Auto-assigned to delivery partner: ${selectedPartner.name}`,
+            updatedByRole: 'system',
+            updatedAt: new Date()
+          });
+
+          await order.save();
+          console.log(`✅ Auto-assigned order ${order._id} to partner ${selectedPartner.name}`);
+        } else {
+          console.log(`⚠️ All partners for zone ${deliveryInfo.zone.name} are at max capacity. Kept unassigned.`);
+        }
+      } else {
+        console.log(`⚠️ No delivery partners found for zone ${deliveryInfo.zone.name}.`);
+      }
+    } else {
+      console.log('⚠️ No delivery zone matched for this order. Skipping auto-assignment.');
+    }
+  } catch (err) {
+    console.error('Failed to auto-assign delivery partner:', err);
+  }
+
+  return deliveryInfo;
+}
+
+exports.autoAssignDeliveryPartner = autoAssignDeliveryPartner;
+
 exports.create = async (req, res, next) => {
   try {
     const {
@@ -406,6 +493,9 @@ exports.verifyPayment = async (req, res, next) => {
     }
     console.log('✅ Stock updated for order:', orderId);
 
+    // Find assigned managers for this delivery area and auto-assign delivery partner
+    const deliveryInfo = await autoAssignDeliveryPartner(order);
+
     // Generate invoice for paid order (non-blocking)
     const InvoiceService = require('../services/invoiceService');
     InvoiceService.generateInvoice(order._id.toString())
@@ -441,7 +531,7 @@ exports.verifyPayment = async (req, res, next) => {
     }
 
     // Find assigned managers for this delivery area and send them notifications (non-blocking)
-    const deliveryInfo = await getDeliveryZoneAndManagers(order.shippingAddress);
+    // deliveryInfo already retrieved above
     if (deliveryInfo?.managers?.length > 0) {
       const managerEmails = deliveryInfo.managers.map(m => m.email);
       console.log(`📧 Sending order notification to ${managerEmails.length} manager(s): ${managerEmails.join(', ')}`);
@@ -518,8 +608,14 @@ exports.get = async (req, res, next) => {
   try {
     const order = await Order.findById(req.params.id).populate('customer').populate('items.product');
     if (!order) return res.status(404).json({ error: 'Not found' });
-    if (String(order.customer._id) !== String(req.user.id) && !req.user.roles.includes('admin'))
+
+    const roles = req.user.roles || [];
+    const isAdminOrManager = roles.includes('admin') || roles.includes('manager');
+
+    if (String(order.customer._id) !== String(req.user.id) && !isAdminOrManager) {
       return res.status(403).json({ error: 'Forbidden' });
+    }
+
     res.json(order);
   } catch (err) {
     next(err);
@@ -527,30 +623,31 @@ exports.get = async (req, res, next) => {
 };
 
 /**
- * List all orders (admin only)
+ * List all orders (admin & manager)
  */
 exports.list = async (req, res, next) => {
   try {
-    // Allow admins to list all orders. For regular users, return only their orders.
-    const isAdmin = req.user.roles && req.user.roles.includes('admin')
+    // Allow admins/managers to list all orders. For regular users, return only their orders.
+    const roles = req.user.roles || [];
+    const isAdminOrManager = roles.includes('admin') || roles.includes('manager');
     const { status, sort = '-createdAt', limit = 20, page = 1 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     let query = {}
     if (status) query.status = status
 
-    if (!isAdmin) {
+    if (!isAdminOrManager) {
       // restrict to current user's orders
       query.customer = req.user.id
     }
 
-    // Populate customer for admins, and product references for items for richer client-side rendering
+    // Populate customer for admins/managers, and product references for items for richer client-side rendering
     const q = Order.find(query)
       .sort(sort)
       .skip(skip)
       .limit(parseInt(limit))
 
-    if (isAdmin) q.populate('customer', 'name email phone')
+    if (isAdminOrManager) q.populate('customer', 'name email phone')
     // always populate products inside items where possible
     q.populate('items.product')
 
