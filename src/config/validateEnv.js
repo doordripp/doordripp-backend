@@ -14,6 +14,8 @@ const recommendedEnvVars = [
   'IMAGEKIT_PRIVATE_KEY',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
+  'GOOGLE_APP_CLIENT_ID_1',
+  'GOOGLE_APP_CLIENT_ID_2',
 ];
 
 function isBrevoConfigured() {

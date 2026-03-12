@@ -479,17 +479,23 @@ exports.signInWithGoogle = async (req, res, next) => {
     const { OAuth2Client } = require('google-auth-library');
     const client = new OAuth2Client();
 
-    // Define ALL accepted client IDs (both website and app)
+    // Accept one web client ID + two app client IDs.
     const ACCEPTED_CLIENT_IDS = [
-      process.env.GOOGLE_CLIENT_ID,  // Your existing website client ID
-      '72023349261-71l2pk4f8vptk9vgpll8iutjql0qj9ia.apps.googleusercontent.com'  // Flutter app client ID
-    ].filter(Boolean); // Remove any undefined/null values
+      process.env.GOOGLE_CLIENT_ID, // Web client ID
+      process.env.GOOGLE_APP_CLIENT_ID_1 || '72023349261-71l2pk4f8vptk9vgpll8iutjql0qj9ia.apps.googleusercontent.com',
+      process.env.GOOGLE_APP_CLIENT_ID_2 || '1000596440300-qpmt33mqedhlgsk435dov0o2g95hn8h9.apps.googleusercontent.com'
+    ].filter(Boolean);
+
+    if (ACCEPTED_CLIENT_IDS.length === 0) {
+      logger.error('No Google client IDs configured for idToken verification');
+      return res.status(500).json({ error: 'Google login is not configured' });
+    }
 
     let ticket;
     let payload;
     let usedClientId = null;
 
-    // Try verification with each client ID until one works
+    // Try verification with each allowed audience until one works.
     for (const clientId of ACCEPTED_CLIENT_IDS) {
       try {
         ticket = await client.verifyIdToken({
@@ -505,29 +511,10 @@ exports.signInWithGoogle = async (req, res, next) => {
       }
     }
 
-    // If no client ID worked, try one last verification without specifying audience
+    // Reject tokens that do not match any explicit trusted audience.
     if (!payload) {
-      try {
-        logger.warn('Trying Google token verification without audience');
-        ticket = await client.verifyIdToken({
-          idToken: idToken,
-          // No audience specified - accepts any valid Google token
-        });
-        payload = ticket.getPayload();
-
-        // Log the actual audience for debugging
-        logger.info(`Google token audience: ${payload.aud}`);
-
-        // Check if this audience should be trusted
-        const actualAudience = payload.aud;
-        if (!ACCEPTED_CLIENT_IDS.includes(actualAudience)) {
-          logger.warn(`Google token has untrusted audience: ${actualAudience}`);
-          // Still accept it, but log a warning
-        }
-      } catch (err) {
-        logger.error('All Google verification attempts failed', err);
-        return res.status(401).json({ error: 'Invalid Google token' });
-      }
+      logger.warn('Google token verification failed for all configured audiences');
+      return res.status(401).json({ error: 'Invalid Google token audience' });
     }
 
     // Extract user info from payload
