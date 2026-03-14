@@ -14,6 +14,9 @@ const recommendedEnvVars = [
   'IMAGEKIT_PRIVATE_KEY',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
+];
+
+const googleAppAudienceVars = [
   'GOOGLE_APP_CLIENT_ID_1',
   'GOOGLE_APP_CLIENT_ID_2',
 ];
@@ -43,6 +46,18 @@ function validateEnv() {
     // Use process.stderr directly here since the logger module is not yet loaded at startup
     process.stderr.write(
       `[Startup] Warning: Recommended environment variables not set: ${missingRecommended.join(', ')}\n`
+    );
+  }
+
+  // App client IDs are optional and only needed when accepting mobile app idTokens.
+  const hasWebGoogleClientId = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID.trim());
+  const hasAnyGoogleAppAudience = googleAppAudienceVars.some(
+    v => Boolean(process.env[v] && process.env[v].trim())
+  );
+
+  if (hasWebGoogleClientId && !hasAnyGoogleAppAudience) {
+    process.stderr.write(
+      '[Startup] Info: GOOGLE_APP_CLIENT_ID_1/GOOGLE_APP_CLIENT_ID_2 not set; mobile Google idTokens will be rejected.\n'
     );
   }
 }

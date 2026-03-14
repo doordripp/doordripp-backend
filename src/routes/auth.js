@@ -11,6 +11,76 @@ const passwordController = require('../controllers/auth.controller');
 const passport = require('../config/passport');
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const FRONTEND_URLS = (process.env.FRONTEND_URLS || '')
+  .split(',')
+  .map(url => url.trim())
+  .filter(Boolean)
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000'
+const BACKEND_URLS = (process.env.BACKEND_URLS || '')
+  .split(',')
+  .map(url => url.trim())
+  .filter(Boolean)
+
+const defaultFrontendUrls = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+  'https://doordripp.com',
+  'https://www.doordripp.com',
+]
+
+const allowedFrontendUrls = Array.from(
+  new Set([FRONTEND_URL, ...FRONTEND_URLS, ...defaultFrontendUrls])
+)
+
+const defaultBackendUrls = [
+  'http://localhost:4000',
+  'https://doordripp-backend.onrender.com',
+]
+
+const allowedBackendUrls = Array.from(
+  new Set([BACKEND_URL, ...BACKEND_URLS, ...defaultBackendUrls])
+)
+
+function getFrontendUrlForRequest(req) {
+  const rawOrigin = req.get('origin')
+  const rawReferer = req.get('referer')
+
+  const candidateOrigins = []
+  if (rawOrigin) candidateOrigins.push(rawOrigin)
+  if (rawReferer) {
+    try {
+      candidateOrigins.push(new URL(rawReferer).origin)
+    } catch (err) {
+      logger.warn('Invalid Referer header while resolving frontend URL')
+    }
+  }
+
+  for (const candidate of candidateOrigins) {
+    if (allowedFrontendUrls.includes(candidate)) {
+      return candidate
+    }
+  }
+
+  return FRONTEND_URL
+}
+
+function getBackendUrlForRequest(req) {
+  const forwardedProto = (req.get('x-forwarded-proto') || '').split(',')[0].trim()
+  const forwardedHost = (req.get('x-forwarded-host') || '').split(',')[0].trim()
+  const host = forwardedHost || req.get('host')
+  const protocol = forwardedProto || req.protocol || (req.secure ? 'https' : 'http')
+
+  if (!host) {
+    return BACKEND_URL
+  }
+
+  const requestBackendUrl = `${protocol}://${host}`
+  if (allowedBackendUrls.includes(requestBackendUrl)) {
+    return requestBackendUrl
+  }
+
+  return BACKEND_URL
+}
 
 const bcrypt = require('bcryptjs')
 const Otp = require('../models/Otp')
@@ -447,11 +517,16 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   router.get('/google', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
     // Initiates OAuth flow
-    passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+    const backendUrl = getBackendUrlForRequest(req);
+    passport.authenticate('google', {
+      scope: ['profile', 'email'],
+      callbackURL: `${backendUrl}/api/auth/google/callback`,
+    })(req, res, next);
   });
 
   router.get('/google/callback', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
     passport.authenticate('google', { session: false }, async (err, user) => {
+      const frontendUrl = getFrontendUrlForRequest(req);
       if (err) {
         logger.error('Google OAuth error:', err);
       }
@@ -459,7 +534,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         logger.warn('Google OAuth: no user returned from strategy');
       }
       if (err || !user) {
-        const redirect = `${FRONTEND_URL}/login?error=oauth_failed`;
+        const redirect = `${frontendUrl}/login?error=oauth_failed`;
         return res.redirect(redirect);
       }
       try {
@@ -469,9 +544,9 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         // Set httpOnly cookie for token (frontend will rely on cookies)
         res.cookie('token', token, cookieOptions);
         // Redirect back to the frontend (SPA) home page
-        return res.redirect(FRONTEND_URL);
+        return res.redirect(frontendUrl);
       } catch (e) {
-        const redirect = `${FRONTEND_URL}/login?error=server_error`;
+        const redirect = `${frontendUrl}/login?error=server_error`;
         return res.redirect(redirect);
       }
     })(req, res, next);
@@ -479,12 +554,14 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 } else {
   // If Google OAuth is not configured, redirect to frontend login with an error
   router.get('/google', (req, res) => {
-    const redirect = `${FRONTEND_URL}/login?error=oauth_not_configured`;
+    const frontendUrl = getFrontendUrlForRequest(req);
+    const redirect = `${frontendUrl}/login?error=oauth_not_configured`;
     return res.redirect(redirect);
   });
 
   router.get('/google/callback', (req, res) => {
-    const redirect = `${FRONTEND_URL}/login?error=oauth_not_configured`;
+    const frontendUrl = getFrontendUrlForRequest(req);
+    const redirect = `${frontendUrl}/login?error=oauth_not_configured`;
     return res.redirect(redirect);
   });
 }
