@@ -5,6 +5,7 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const AreaManager = require('../models/AreaManager');
 const { hasAnyRole } = require('../middleware/auth');
+const { getOrderTrackUrl } = require('../utils/appUrls');
 
 const CURRENT_DELIVERY_ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'processing', 'shipped'];
 const STATUS_TO_DELIVERY_STATUS = {
@@ -788,7 +789,7 @@ exports.acceptDelivery = async (req, res, next) => {
           orderId: order._id,
           status: 'processing',
           deliveryPartner: order.deliveryPartner,
-          trackingUrl: `${process.env.FRONTEND_URL}/order/${order._id}/track`
+          trackingUrl: getOrderTrackUrl(order._id)
         }).catch(err => logger.error('Order update email failed:', err));
       }
     } catch (err) {
@@ -798,7 +799,7 @@ exports.acceptDelivery = async (req, res, next) => {
     res.json({ 
       ok: true, 
       order,
-      trackingUrl: `/order/${order._id}/track`
+      trackingUrl: getOrderTrackUrl(order._id)
     });
   } catch (err) {
     logger.error('❌ Error accepting delivery:', err);

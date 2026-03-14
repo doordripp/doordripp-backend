@@ -2,6 +2,7 @@
 const logger = require('../utils/logger');
 const User = require('../models/User');
 const mailService = require('../services/mail.service');
+const { getOrderUrl } = require('../utils/appUrls');
 
 /**
  * Order Controller with Email Notifications
@@ -196,7 +197,7 @@ exports.updateOrderStatus = async (req, res, next) => {
         trackingNumber: order.trackingNumber || 'N/A',
         carrier: order.carrier || 'Standard Delivery',
         estimatedDelivery,
-        trackingUrl: `${process.env.CLIENT_URL}/orders/${order._id}`
+        trackingUrl: getOrderUrl(order._id)
       }).catch(err => {
         logger.error('Failed to send shipping update email:', err);
       });

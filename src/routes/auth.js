@@ -88,6 +88,11 @@ const nodemailer = require('nodemailer')
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID
 const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
 const TWILIO_FROM = process.env.TWILIO_FROM
+const smtpHost = process.env.MAIL_HOST || process.env.SMTP_HOST
+const smtpPort = process.env.MAIL_PORT || process.env.SMTP_PORT || '587'
+const smtpUser = process.env.MAIL_USER || process.env.SMTP_USER
+const smtpPass = process.env.MAIL_PASS || process.env.SMTP_PASS
+const smtpSecure = process.env.MAIL_SECURE === 'true' || process.env.SMTP_PORT === '465'
 
 // Check if rate limiting is disabled (for development)
 const DISABLE_RATE_LIMIT = process.env.DISABLE_RATE_LIMIT === 'true'
@@ -428,15 +433,15 @@ router.post('/send-otp', async (req, res) => {
       await Otp.deleteMany({ identifier: email, type: 'email' })
       await Otp.create({ identifier: email, type: 'email', codeHash, expiresAt })
 
-      if (process.env.MAIL_HOST && process.env.MAIL_USER && process.env.MAIL_PASS) {
+      if (smtpHost && smtpUser && smtpPass) {
         try {
           const transporter = nodemailer.createTransport({
-            host: process.env.MAIL_HOST,
-            port: parseInt(process.env.MAIL_PORT || '587'),
-            secure: (process.env.MAIL_SECURE === 'true'),
-            auth: { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS }
+            host: smtpHost,
+            port: parseInt(smtpPort, 10),
+            secure: smtpSecure,
+            auth: { user: smtpUser, pass: smtpPass }
           })
-          const mailFrom = process.env.MAIL_FROM || process.env.MAIL_USER
+          const mailFrom = process.env.MAIL_FROM || smtpUser
           await transporter.sendMail({ from: mailFrom, to: email, subject: 'Your OTP code', text: `Your OTP code is ${code}` })
           responses.push({ to: email, via: 'email' })
         } catch (e) {

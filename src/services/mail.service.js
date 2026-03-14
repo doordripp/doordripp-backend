@@ -2,6 +2,7 @@ const nodemailer = require('nodemailer');
 const fs = require('fs').promises;
 const path = require('path');
 const logger = require('../utils/logger');
+const { getAdminOrdersUrl, getClientUrl, getOrderUrl } = require('../utils/appUrls');
 let SibApiV3Sdk = null; // Lazy-load Brevo SDK
 
 /**
@@ -336,10 +337,10 @@ class MailService {
       items: this.formatOrderItems(orderData.items),
       shippingAddress: this.formatAddress(orderData.shippingAddress),
       estimatedDelivery: orderData.estimatedDelivery || 'Within 5-7 business days',
-      trackingUrl: `${process.env.CLIENT_URL || process.env.FRONTEND_URL}/orders/${orderData.orderId}`,
+      trackingUrl: getOrderUrl(orderData.orderId),
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
+      clientUrl: getClientUrl()
     });
 
     return this.sendEmail({
@@ -390,7 +391,7 @@ class MailService {
       itemCount: orderData.items.length,
       items: this.formatOrderItems(orderData.items),
       zoneName: orderData.zoneName || 'Your Zone',
-      trackingUrl: `${process.env.CLIENT_URL || process.env.FRONTEND_URL}/admin/orders?id=${orderData.orderId}`,
+      trackingUrl: getAdminOrdersUrl(orderData.orderId),
       currentYear: new Date().getFullYear()
     });
 
@@ -419,7 +420,7 @@ class MailService {
     const template = await this.loadTemplate('reset-password.html');
     
     // Build reset URL - use FRONTEND_URL first, fallback to CLIENT_URL, fallback to default
-    const baseUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173';
+    const baseUrl = getClientUrl();
     const resetUrl = `${baseUrl}/reset-password?token=${resetToken}`;
     
     const html = this.replacePlaceholders(template, {
@@ -445,7 +446,7 @@ class MailService {
    */
   async sendPasswordResetSuccessEmail(email, userName = 'User') {
     const safeUserName = userName || 'User';
-    const clientUrl = process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173';
+    const clientUrl = getClientUrl();
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #111;">
         <h2 style="color: #111;">Your password was reset</h2>
@@ -495,10 +496,10 @@ class MailService {
       trackingNumber: shippingData.trackingNumber || 'N/A',
       carrier: shippingData.carrier || 'Standard Delivery',
       estimatedDelivery: shippingData.estimatedDelivery || 'Soon',
-      trackingUrl: shippingData.trackingUrl || `${process.env.CLIENT_URL}/orders/${shippingData.orderId}`,
+      trackingUrl: shippingData.trackingUrl || getOrderUrl(shippingData.orderId),
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
+      clientUrl: getClientUrl()
     });
 
     return this.sendEmail({

@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const { getAuthCookieOptions } = require('../utils/authCookies');
 
 const generateToken = (user) => {
   const jwtSecret = process.env.JWT_SECRET;
@@ -15,16 +16,7 @@ const generateToken = (user) => {
 // Create token and return cookie options (used by OAuth callback)
 exports.createTokenForUser = async (user) => {
   const token = generateToken(user);
-  // Allow http-only cookie to work locally over HTTP; force secure in prod/HTTPS.
-  const isProdLike = process.env.NODE_ENV === 'production' || (process.env.BACKEND_URL || '').startsWith('https://');
-  const secure = process.env.COOKIE_SECURE === 'true' || isProdLike;
-  const cookieOptions = {
-    httpOnly: true,
-    sameSite: secure ? 'none' : 'lax',
-    secure,
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    domain: process.env.COOKIE_DOMAIN || (process.env.NODE_ENV === 'production' ? '.doordripp.com' : undefined),
-  };
+  const cookieOptions = getAuthCookieOptions();
   return { token, cookieOptions };
 };
 

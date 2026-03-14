@@ -1,9 +1,21 @@
 const path = require('path');
 const dotenv = require('dotenv');
+const fs = require('fs');
 
 // Load environment variables based on NODE_ENV
 const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
-dotenv.config({ path: path.join(__dirname, '..', envFile) });
+const envDir = path.join(__dirname, '..');
+const baseEnvPath = path.join(envDir, envFile);
+const envLocalPath = path.join(envDir, `${envFile}.local`);
+const rootLocalPath = path.join(envDir, '.env.local');
+
+dotenv.config({ path: baseEnvPath });
+if (fs.existsSync(envLocalPath)) {
+  dotenv.config({ path: envLocalPath, override: true });
+}
+if (fs.existsSync(rootLocalPath)) {
+  dotenv.config({ path: rootLocalPath, override: true });
+}
 
 // Validate required environment variables before anything else
 const validateEnv = require('./config/validateEnv');
@@ -42,6 +54,12 @@ const { setupSocketIO } = require('./sockets')
 const logger = require('./utils/logger')
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+function captureRawBody(req, res, buf) {
+  if (buf && buf.length > 0) {
+    req.rawBody = buf.toString('utf8');
+  }
+}
 
 // Middlewares
 // Support single FRONTEND_URL and/or comma-separated FRONTEND_URLS
@@ -89,6 +107,8 @@ const corsOptions = {
   maxAge: 86400, // 24 hours
 };
 
+app.use('/webhooks', express.json({ verify: captureRawBody }), webhookRoutes);
+
 // Preflight request handler (MUST be before routes)
 app.options('*', cors(corsOptions));
 
@@ -135,13 +155,10 @@ app.use('/api/content', contentRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/delivery-partner', deliveryPartnerRoutes);
 app.use('/api/voucher', voucherRoutes);
-app.use('/webhooks', webhookRoutes);
-
 // Health
 app.get('/', (req, res) => res.json({ ok: true, version: '0.1.0' }));
 
 // Serve React build if present
-const fs = require('fs');
 const clientBuildPath = path.join(__dirname, '../client-build');
 const frontendBuildPath = path.join(__dirname, '../frontend/build');
 const staticPath = fs.existsSync(clientBuildPath) ? clientBuildPath : (fs.existsSync(frontendBuildPath) ? frontendBuildPath : null);

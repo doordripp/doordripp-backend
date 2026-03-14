@@ -28,6 +28,31 @@ function isBrevoConfigured() {
   return hasApiKey || (hasSmtpUser && hasSmtpPass);
 }
 
+function hasCompleteConfig(keys) {
+  return keys.every(key => Boolean(process.env[key] && process.env[key].trim()));
+}
+
+function hasAnyConfig(keys) {
+  return keys.some(key => Boolean(process.env[key] && process.env[key].trim()));
+}
+
+function isWeakJwtSecret(secret) {
+  if (!secret || !secret.trim()) {
+    return true;
+  }
+
+  const normalized = secret.trim();
+  if (normalized === 'secret') {
+    return true;
+  }
+
+  if (normalized.includes('CHANGE-THIS-IN-PRODUCTION')) {
+    return true;
+  }
+
+  return normalized.length < 32;
+}
+
 function validateEnv() {
   const missing = requiredEnvVars.filter(v => !process.env[v]);
 
@@ -36,6 +61,14 @@ function validateEnv() {
       `[Startup] Missing required environment variables: ${missing.join(', ')}\n` +
       'Please set them in your .env file before starting the server.'
     );
+  }
+
+  if (isWeakJwtSecret(process.env.JWT_SECRET)) {
+    const message = '[Startup] JWT_SECRET is weak or still using the placeholder value.';
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(`${message} Configure a strong secret before starting the server.`);
+    }
+    process.stderr.write(`${message} Local development should use a strong secret too.\n`);
   }
 
   const missingRecommended = recommendedEnvVars.filter(v => !process.env[v]);
@@ -59,6 +92,15 @@ function validateEnv() {
     process.stderr.write(
       '[Startup] Info: GOOGLE_APP_CLIENT_ID_1/GOOGLE_APP_CLIENT_ID_2 not set; mobile Google idTokens will be rejected.\n'
     );
+  }
+
+  const smtpKeys = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'];
+  const legacyMailKeys = ['MAIL_HOST', 'MAIL_USER', 'MAIL_PASS'];
+  if (hasAnyConfig(smtpKeys) && !hasCompleteConfig(smtpKeys)) {
+    process.stderr.write('[Startup] Warning: SMTP config is partial; mail sending may fail.\n');
+  }
+  if (hasAnyConfig(legacyMailKeys) && !hasCompleteConfig(legacyMailKeys)) {
+    process.stderr.write('[Startup] Warning: legacy MAIL_* config is partial; OTP email fallback may fail.\n');
   }
 }
 

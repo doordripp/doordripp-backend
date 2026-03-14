@@ -8,6 +8,7 @@ const otpUtil = require('../utils/otp.util');
 const mailService = require('../services/mail.service');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
+const { getAuthCookieOptions } = require('../utils/authCookies');
 
 const { getPermissionsForRoles } = require('../middleware/auth');
 
@@ -31,16 +32,7 @@ const generateToken = (user) => {
 
 exports.createTokenForUser = async (user) => {
   const token = generateToken(user);
-  // Allow cookies to work in local HTTP dev; tighten in prod/HTTPS.
-  const isProdLike = process.env.NODE_ENV === 'production' || (process.env.BACKEND_URL || '').startsWith('https://');
-  const secure = process.env.COOKIE_SECURE === 'true' || isProdLike;
-  const cookieOptions = {
-    httpOnly: true,
-    sameSite: secure ? 'none' : 'lax',
-    secure,
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    domain: process.env.COOKIE_DOMAIN || undefined,
-  };
+  const cookieOptions = getAuthCookieOptions();
   return { token, cookieOptions };
 };
 

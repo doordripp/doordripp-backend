@@ -3,6 +3,7 @@ const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const router = express.Router();
 const authController = require('../controllers/auth.controller');
+const { getAuthDocsUrl } = require('../utils/appUrls');
 
 /**
  * Authentication Routes with Rate Limiting
@@ -299,7 +300,7 @@ router.get('/info', (req, res) => {
         resetPassword: '3 requests per 15 minutes'
       }
     },
-    documentation: `${process.env.CLIENT_URL}/docs/api/auth`
+    documentation: getAuthDocsUrl()
   });
 });
 
