@@ -482,8 +482,8 @@ exports.signInWithGoogle = async (req, res, next) => {
     // Accept one web client ID + two app client IDs.
     const ACCEPTED_CLIENT_IDS = [
       process.env.GOOGLE_CLIENT_ID, // Web client ID
-      process.env.GOOGLE_APP_CLIENT_ID_1 || '72023349261-71l2pk4f8vptk9vgpll8iutjql0qj9ia.apps.googleusercontent.com',
-      process.env.GOOGLE_APP_CLIENT_ID_2 || '1000596440300-qpmt33mqedhlgsk435dov0o2g95hn8h9.apps.googleusercontent.com'
+       '72023349261-71l2pk4f8vptk9vgpll8iutjql0qj9ia.apps.googleusercontent.com',
+      '1000596440300-qpmt33mqedhlgsk435dov0o2g95hn8h9.apps.googleusercontent.com'
     ].filter(Boolean);
 
     if (ACCEPTED_CLIENT_IDS.length === 0) {
