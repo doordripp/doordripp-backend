@@ -55,11 +55,12 @@ UserSchema.methods.matchPassword = async function (enteredPassword) {
 }
 
 // Allow pre-hashed password to be set when skipPasswordHash flag is true (used for verified OTP flow)
-UserSchema.pre('save', async function () {
-  if (!this.isModified('password')) return
-  if (this.skipPasswordHash) return
+UserSchema.pre('save', async function (next) {
+  if (!this.isModified('password')) return next()
+  if (this.skipPasswordHash) return next()
   const salt = await bcrypt.genSalt(10)
   this.password = await bcrypt.hash(this.password, salt)
+  next()
 })
 
 // Ensure delivery partner metadata is always initialized for delivery_partner users
