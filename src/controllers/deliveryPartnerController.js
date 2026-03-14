@@ -139,7 +139,7 @@ exports.getOrderDetails = async (req, res, next) => {
 /**
  * Update order delivery status
  * PATCH /api/delivery-partner/orders/:orderId/status
- * Body: { status: "Accepted" | "Picked Up" | "Out For Delivery" | "Delivered" }
+ * Body: { status: "accepted" | "picked_up" | "out_for_delivery" | "delivered" }
  */
 exports.updateOrderStatus = async (req, res, next) => {
   try {
@@ -148,7 +148,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     const deliveryPartnerId = req.user.id;
 
     // Validate status
-    const validStatuses = ['Accepted', 'Picked Up', 'Out For Delivery', 'Delivered'];
+    const validStatuses = ['accepted', 'picked_up', 'out_for_delivery', 'delivered'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -174,7 +174,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     // Prevent updating if already delivered or cancelled
-    if (order.deliveryStatus === 'Delivered' || order.deliveryStatus === 'Cancelled') {
+    if (order.deliveryStatus === 'delivered' || order.deliveryStatus === 'cancelled') {
       return res.status(400).json({
         success: false,
         error: `Cannot update order that is already ${order.deliveryStatus.toLowerCase()}`
@@ -198,7 +198,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     });
 
     // If delivered, update proof of delivery timestamp
-    const shouldReleaseLoad = status === 'Delivered';
+    const shouldReleaseLoad = status === 'delivered';
 
     if (shouldReleaseLoad) {
       if (!order.proofOfDelivery) {
@@ -269,7 +269,7 @@ exports.getStats = async (req, res, next) => {
           { 'deliveryPartner.id': deliveryPartnerId },
           { 'deliveryPartner.riderId': deliveryPartnerId }
         ],
-        deliveryStatus: { $nin: ['Delivered', 'Cancelled'] }
+        deliveryStatus: { $nin: ['delivered', 'cancelled'] }
       }),
       Order.countDocuments({
         $or: [
@@ -277,7 +277,7 @@ exports.getStats = async (req, res, next) => {
           { 'deliveryPartner.id': deliveryPartnerId },
           { 'deliveryPartner.riderId': deliveryPartnerId }
         ],
-        deliveryStatus: 'Delivered'
+        deliveryStatus: 'delivered'
       }),
       Order.countDocuments({
         $or: [

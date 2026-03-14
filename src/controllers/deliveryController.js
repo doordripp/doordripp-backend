@@ -73,7 +73,7 @@ exports.getMyOrders = async (req, res, next) => {
     } else {
       // By default, show only current delivery orders
       filter.status = { 
-        $in: ['confirmed', 'packed', 'processing', 'shipped'] 
+        $in: ['confirmed', 'accepted', 'picked_up', 'out_for_delivery'] 
       };
     }
 
@@ -114,7 +114,7 @@ exports.updateOrderStatus = async (req, res, next) => {
     const userId = req.user._id;
 
     // Allowed statuses for delivery partner
-    const allowedStatuses = ['packed', 'processing', 'shipped', 'delivered'];
+    const allowedStatuses = ['accepted', 'picked_up', 'out_for_delivery', 'delivered'];
     
     if (!allowedStatuses.includes(status)) {
       return res.status(403).json({

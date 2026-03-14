@@ -357,7 +357,7 @@ exports.create = async (req, res, next) => {
       voucherDiscount,
       voucher,
       total,
-      status: 'pending',
+      status: 'confirmed',
       payment: { razorpayOrderId: razorOrder.id, status: 'pending' },
       shippingAddress
     });
@@ -671,7 +671,7 @@ exports.updateStatus = async (req, res, next) => {
     }
 
     const { status, trackingNumber } = req.body;
-    const validStatuses = ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled'];
+    const validStatuses = ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'failed', 'cancelled'];
 
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({ error: `Invalid status. Valid statuses: ${validStatuses.join(', ')}` });
@@ -711,7 +711,7 @@ exports.cancel = async (req, res, next) => {
     }
 
     // Only allow cancellation of pending/confirmed orders
-    if (['shipped', 'delivered', 'cancelled'].includes(order.status)) {
+    if (['out_for_delivery', 'delivered', 'cancelled'].includes(order.status)) {
       return res.status(400).json({ error: `Cannot cancel order with status: ${order.status}` });
     }
 

@@ -51,17 +51,18 @@ const OrderSchema = new mongoose.Schema({
   },
   total: { type: Number, required: true }, // final payable amount after discount
 
+
   status: {
     type: String,
-    default: 'pending',
-    enum: ['pending', 'confirmed', 'packed', 'processing', 'shipped', 'delivered', 'cancelled', 'failed']
+    default: 'confirmed',
+    enum: ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'failed', 'cancelled']
   },
 
   // Delivery Status (controlled by delivery partner)
   deliveryStatus: {
     type: String,
-    enum: ['Order Placed', 'Accepted', 'Picked Up', 'Out For Delivery', 'Delivered', 'Cancelled'],
-    default: 'Order Placed'
+    enum: ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'cancelled'],
+    default: 'confirmed'
   },
 
   // Status History (timeline of all status changes)

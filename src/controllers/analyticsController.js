@@ -37,7 +37,7 @@ exports.getDeliveryAnalytics = async (req, res, next) => {
       Order.countDocuments({ ...dateFilter, status: 'delivered' }),
       Order.countDocuments({ 
         ...dateFilter, 
-        status: { $in: ['pending', 'confirmed', 'packed', 'processing', 'shipped'] } 
+        status: { $in: ['confirmed', 'accepted', 'picked_up', 'out_for_delivery'] } 
       }),
       Order.countDocuments({ ...dateFilter, status: 'cancelled' }),
       Order.countDocuments({ ...dateFilter, assignedDeliveryPartner: { $exists: true, $ne: null } })
@@ -381,7 +381,7 @@ exports.getPartnerStats = async (req, res, next) => {
       Order.countDocuments({ ...dateFilter, status: 'delivered' }),
       Order.countDocuments({ 
         ...dateFilter, 
-        status: { $in: ['packed', 'processing', 'shipped'] } 
+        status: { $in: ['accepted', 'picked_up', 'out_for_delivery'] } 
       }),
       Order.countDocuments({ ...dateFilter, status: 'cancelled' }),
       Order.find(dateFilter)

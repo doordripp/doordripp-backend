@@ -7,15 +7,15 @@ const AreaManager = require('../models/AreaManager');
 const { hasAnyRole } = require('../middleware/auth');
 const { getOrderTrackUrl } = require('../utils/appUrls');
 
-const CURRENT_DELIVERY_ORDER_STATUSES = ['pending', 'confirmed', 'packed', 'processing', 'shipped'];
+const CURRENT_DELIVERY_ORDER_STATUSES = ['confirmed', 'accepted', 'picked_up', 'out_for_delivery'];
 const STATUS_TO_DELIVERY_STATUS = {
-  pending: 'Order Placed',
-  confirmed: 'Order Placed',
-  packed: 'Accepted',
-  processing: 'Picked Up',
-  shipped: 'Out For Delivery',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled'
+  confirmed: 'confirmed',
+  accepted: 'accepted',
+  picked_up: 'picked_up',
+  out_for_delivery: 'out_for_delivery',
+  delivered: 'delivered',
+  failed: 'failed',
+  cancelled: 'cancelled'
 };
 
 const parseCoordinate = (value) => {
@@ -604,8 +604,8 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     const validStatuses = isAdminOrManager
-      ? ['pending', 'confirmed', 'packed', 'processing', 'shipped', 'delivered', 'cancelled']
-      : ['packed', 'processing', 'shipped', 'delivered'];
+      ? ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'failed', 'cancelled']
+      : ['accepted', 'picked_up', 'out_for_delivery', 'delivered'];
 
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
