@@ -43,6 +43,8 @@ const UserSchema = new mongoose.Schema({
   isPasswordSet: { type: Boolean, default: false },
   // OAuth fields
   googleId: { type: String, unique: true, sparse: true },
+  // Password hashing control
+  skipPasswordHash: { type: Boolean, default: false },
   // Password reset fields
   resetPasswordToken: { type: String, default: null },
   resetPasswordExpires: { type: Date, default: null },
@@ -55,41 +57,45 @@ UserSchema.methods.matchPassword = async function (enteredPassword) {
 }
 
 // Allow pre-hashed password to be set when skipPasswordHash flag is true (used for verified OTP flow)
-UserSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next()
-  if (this.skipPasswordHash) return next()
-  const salt = await bcrypt.genSalt(10)
-  this.password = await bcrypt.hash(this.password, salt)
-  next()
-})
+// UserSchema.pre('save', async function (next) {
+//   if (this.skipPasswordHash) {
+//     return next();
+//   }
+//   if (!this.isModified('password') || !this.password) {
+//     return next();
+//   }
+//   const salt = await bcrypt.genSalt(10);
+//   this.password = await bcrypt.hash(this.password, salt);
+//   return next();
+// })
 
 // Ensure delivery partner metadata is always initialized for delivery_partner users
-UserSchema.pre('save', function (next) {
-  try {
-    const hasDeliveryRole = Array.isArray(this.roles) && this.roles.includes('delivery_partner')
-    if (hasDeliveryRole) {
-      if (!this.deliveryPartner) {
-        this.deliveryPartner = {}
-      }
+// UserSchema.pre('save', function (next) {
+//   try {
+//     const hasDeliveryRole = Array.isArray(this.roles) && this.roles.includes('delivery_partner')
+//     if (hasDeliveryRole) {
+//       if (!this.deliveryPartner) {
+//         this.deliveryPartner = {}
+//       }
 
-      // Initialize critical fields if missing
-      if (typeof this.deliveryPartner.currentLoad !== 'number') {
-        this.deliveryPartner.currentLoad = 0
-      }
-      if (typeof this.deliveryPartner.maxOrdersPerSlot !== 'number' || this.deliveryPartner.maxOrdersPerSlot <= 0) {
-        this.deliveryPartner.maxOrdersPerSlot = 10
-      }
-      if (!this.deliveryPartner.workingHours) {
-        this.deliveryPartner.workingHours = '9 AM - 5 PM'
-      }
-      if (!Array.isArray(this.deliveryPartner.availabilitySlots) || this.deliveryPartner.availabilitySlots.length === 0) {
-        this.deliveryPartner.availabilitySlots = ['Morning 9-12', 'Afternoon 12-4', 'Evening 4-8']
-      }
-    }
-    next()
-  } catch (err) {
-    next(err)
-  }
-})
+//       // Initialize critical fields if missing
+//       if (typeof this.deliveryPartner.currentLoad !== 'number') {
+//         this.deliveryPartner.currentLoad = 0
+//       }
+//       if (typeof this.deliveryPartner.maxOrdersPerSlot !== 'number' || this.deliveryPartner.maxOrdersPerSlot <= 0) {
+//         this.deliveryPartner.maxOrdersPerSlot = 10
+//       }
+//       if (!this.deliveryPartner.workingHours) {
+//         this.deliveryPartner.workingHours = '9 AM - 5 PM'
+//       }
+//       if (!Array.isArray(this.deliveryPartner.availabilitySlots) || this.deliveryPartner.availabilitySlots.length === 0) {
+//         this.deliveryPartner.availabilitySlots = ['Morning 9-12', 'Afternoon 12-4', 'Evening 4-8']
+//       }
+//     }
+//     next()
+//   } catch (err) {
+//     next(err)
+//   }
+// })
 
 module.exports = mongoose.models.User || mongoose.model('User', UserSchema)

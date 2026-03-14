@@ -536,7 +536,8 @@ exports.signInWithGoogle = async (req, res, next) => {
         roles: [],
         termsAccepted: true,
         googleId, // Store Google ID for future reference
-        authProvider: 'google'
+        authProvider: 'google',
+        skipPasswordHash: true // Skip password hashing for Google users
       });
       await user.save();
       console.log(`✅ New user created from Google: ${email}`);
