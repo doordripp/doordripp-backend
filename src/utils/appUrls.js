@@ -1,4 +1,4 @@
-const DEFAULT_CLIENT_URL = 'http://localhost:5173';
+const DEFAULT_CLIENT_URL = 'https://doordripp-frontend.netlify.app';
 
 function getClientUrl() {
   return process.env.FRONTEND_URL || process.env.CLIENT_URL || DEFAULT_CLIENT_URL;

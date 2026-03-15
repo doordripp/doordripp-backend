@@ -11,21 +11,14 @@ const passwordController = require('../controllers/auth.controller');
 const passport = require('../config/passport');
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
-const FRONTEND_URLS = (process.env.FRONTEND_URLS || '')
-  .split(',')
-  .map(url => url.trim())
-  .filter(Boolean)
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000'
-const BACKEND_URLS = (process.env.BACKEND_URLS || '')
-  .split(',')
-  .map(url => url.trim())
-  .filter(Boolean)
 
 const defaultFrontendUrls = [
   'http://localhost:5173',
   'http://localhost:5174',
   'https://doordripp.com',
   'https://www.doordripp.com',
+  'https://doordripp-frontend.netlify.app',
   'https://doordripp-frontned.netlify.app',
 ]
 
@@ -35,7 +28,7 @@ const normalizeOrigin = (url) => {
 }
 
 const allowedFrontendUrls = Array.from(
-  new Set([FRONTEND_URL, ...FRONTEND_URLS, ...defaultFrontendUrls].map(normalizeOrigin).filter(Boolean))
+  new Set([FRONTEND_URL, ...defaultFrontendUrls].map(normalizeOrigin).filter(Boolean))
 )
 
 const defaultBackendUrls = [
@@ -44,7 +37,7 @@ const defaultBackendUrls = [
 ]
 
 const allowedBackendUrls = Array.from(
-  new Set([BACKEND_URL, ...BACKEND_URLS, ...defaultBackendUrls])
+  new Set([BACKEND_URL, ...defaultBackendUrls])
 )
 
 function getFrontendUrlForRequest(req) {

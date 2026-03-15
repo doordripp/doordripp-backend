@@ -62,12 +62,8 @@ function captureRawBody(req, res, buf) {
 }
 
 // Middlewares
-// Support single FRONTEND_URL and/or comma-separated FRONTEND_URLS
+// Support a single FRONTEND_URL plus built-in defaults
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const FRONTEND_URLS = (process.env.FRONTEND_URLS || '')
-  .split(',')
-  .map(u => u.trim())
-  .filter(Boolean);
 
 const normalizeOrigin = (url) => {
   if (!url || typeof url !== 'string') return '';
@@ -82,11 +78,12 @@ const defaultOrigins = [
   'http://localhost:5177',
   'https://doordripp.com',
   'https://www.doordripp.com',
-  'https://doordripp-frontned.netlify.app'
+  
+  'https://doordripp-frontend.netlify.app'
 ];
 
 const allowedOrigins = Array.from(
-  new Set([...defaultOrigins, FRONTEND_URL, ...FRONTEND_URLS].map(normalizeOrigin).filter(Boolean))
+  new Set([...defaultOrigins, FRONTEND_URL].map(normalizeOrigin).filter(Boolean))
 );
 
 const corsOptions = {
