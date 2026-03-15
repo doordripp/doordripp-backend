@@ -26,10 +26,16 @@ const defaultFrontendUrls = [
   'http://localhost:5174',
   'https://doordripp.com',
   'https://www.doordripp.com',
+  'https://doordripp-frontned.netlify.app',
 ]
 
+const normalizeOrigin = (url) => {
+  if (!url || typeof url !== 'string') return ''
+  return url.trim().replace(/\/$/, '')
+}
+
 const allowedFrontendUrls = Array.from(
-  new Set([FRONTEND_URL, ...FRONTEND_URLS, ...defaultFrontendUrls])
+  new Set([FRONTEND_URL, ...FRONTEND_URLS, ...defaultFrontendUrls].map(normalizeOrigin).filter(Boolean))
 )
 
 const defaultBackendUrls = [
@@ -56,12 +62,13 @@ function getFrontendUrlForRequest(req) {
   }
 
   for (const candidate of candidateOrigins) {
-    if (allowedFrontendUrls.includes(candidate)) {
-      return candidate
+    const normalizedCandidate = normalizeOrigin(candidate)
+    if (allowedFrontendUrls.includes(normalizedCandidate)) {
+      return normalizedCandidate
     }
   }
 
-  return FRONTEND_URL
+  return normalizeOrigin(FRONTEND_URL)
 }
 
 function getBackendUrlForRequest(req) {

@@ -69,6 +69,11 @@ const FRONTEND_URLS = (process.env.FRONTEND_URLS || '')
   .map(u => u.trim())
   .filter(Boolean);
 
+const normalizeOrigin = (url) => {
+  if (!url || typeof url !== 'string') return '';
+  return url.trim().replace(/\/$/, '');
+};
+
 const defaultOrigins = [
   'http://localhost:5173',
   'http://localhost:5174',
@@ -77,9 +82,12 @@ const defaultOrigins = [
   'http://localhost:5177',
   'https://doordripp.com',
   'https://www.doordripp.com',
+  'https://doordripp-frontned.netlify.app'
 ];
 
-const allowedOrigins = Array.from(new Set([...defaultOrigins, FRONTEND_URL, ...FRONTEND_URLS]));
+const allowedOrigins = Array.from(
+  new Set([...defaultOrigins, FRONTEND_URL, ...FRONTEND_URLS].map(normalizeOrigin).filter(Boolean))
+);
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -97,7 +105,8 @@ const corsOptions = {
       return callback(null, true);
     }
 
-    if (allowedOrigins.includes(origin)) return callback(null, true);
+    const normalizedOrigin = normalizeOrigin(origin);
+    if (allowedOrigins.includes(normalizedOrigin)) return callback(null, true);
 
     return callback(new Error('CORS not allowed for origin: ' + origin), false);
   },
