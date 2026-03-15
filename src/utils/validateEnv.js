@@ -44,6 +44,14 @@ const validateEnvironment = () => {
     logger.warn(`Optional environment variables not set: ${missingOptional.join(', ')}`);
   }
 
+  if (
+    process.env.NODE_ENV === 'production' &&
+    process.env.GOOGLE_CALLBACK_URL &&
+    process.env.GOOGLE_CALLBACK_URL.includes('localhost')
+  ) {
+    logger.warn('GOOGLE_CALLBACK_URL points to localhost in production. Google OAuth will fail with redirect_uri_mismatch.');
+  }
+
   logger.info('Environment variables validated successfully');
   return true;
 };
