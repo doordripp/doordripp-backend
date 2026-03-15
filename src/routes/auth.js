@@ -11,7 +11,6 @@ const passwordController = require('../controllers/auth.controller');
 const passport = require('../config/passport');
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4000'
 
 const defaultFrontendUrls = [
   'http://localhost:5173',
@@ -29,15 +28,6 @@ const normalizeOrigin = (url) => {
 
 const allowedFrontendUrls = Array.from(
   new Set([FRONTEND_URL, ...defaultFrontendUrls].map(normalizeOrigin).filter(Boolean))
-)
-
-const defaultBackendUrls = [
-  'http://localhost:4000',
-  'https://doordripp-backend.onrender.com',
-]
-
-const allowedBackendUrls = Array.from(
-  new Set([BACKEND_URL, ...defaultBackendUrls])
 )
 
 function getFrontendUrlForRequest(req) {
@@ -62,24 +52,6 @@ function getFrontendUrlForRequest(req) {
   }
 
   return normalizeOrigin(FRONTEND_URL)
-}
-
-function getBackendUrlForRequest(req) {
-  const forwardedProto = (req.get('x-forwarded-proto') || '').split(',')[0].trim()
-  const forwardedHost = (req.get('x-forwarded-host') || '').split(',')[0].trim()
-  const host = forwardedHost || req.get('host')
-  const protocol = forwardedProto || req.protocol || (req.secure ? 'https' : 'http')
-
-  if (!host) {
-    return BACKEND_URL
-  }
-
-  const requestBackendUrl = `${protocol}://${host}`
-  if (allowedBackendUrls.includes(requestBackendUrl)) {
-    return requestBackendUrl
-  }
-
-  return BACKEND_URL
 }
 
 const bcrypt = require('bcryptjs')
@@ -522,10 +494,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   router.get('/google', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
     // Initiates OAuth flow
-    const backendUrl = getBackendUrlForRequest(req);
     passport.authenticate('google', {
       scope: ['profile', 'email'],
-      callbackURL: `${backendUrl}/api/auth/google/callback`,
     })(req, res, next);
   });
 
