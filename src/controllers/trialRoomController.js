@@ -22,7 +22,7 @@ const Product = require('../models/Product');
  */
 const TRIAL_CONSTANTS = {
   MAX_ITEMS: 3,
-  MIN_ITEMS: 1,
+  MIN_ITEMS: 2,
   TRIAL_FEE: 119
 };
 
