@@ -54,6 +54,7 @@ router.get('/area-managers', adminOrManager, adminController.getAreaManagerAssig
 
 // Reports — admin & manager
 router.get('/reports/best-sellers', adminOrManager, adminController.getBestSellers);
+router.get('/reports/stats', adminOrManager, adminController.getReportStats);
 
 // Vouchers / Coupons — admin only
 router.get('/vouchers', requireAdmin, adminVoucherController.listVouchers);

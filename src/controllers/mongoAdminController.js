@@ -954,6 +954,81 @@ exports.getBestSellers = async (req, res, next) => {
   }
 };
 
+// ==================== REPORT STATS ====================
+exports.getReportStats = async (req, res, next) => {
+  try {
+    // 1. Total Revenue — sum of totals from non-cancelled/non-failed orders
+    const revenueOrders = await Order.find(
+      { status: { $nin: ['cancelled', 'failed'] } },
+      'total items status'
+    );
+    const totalRevenue = revenueOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+
+    // 2. Total Orders — only confirmed, accepted, picked_up, out_for_delivery, delivered
+    const activeStatuses = ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered'];
+    const totalOrders = await Order.countDocuments({ status: { $in: activeStatuses } });
+
+    // 3. Average Order Value
+    const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    // 4. Total Returns — cancelled + failed
+    const totalReturns = await Order.countDocuments({ status: { $in: ['cancelled', 'failed'] } });
+
+    // 5. Per-product revenue breakdown via aggregation
+    const productRevenue = await Order.aggregate([
+      { $match: { status: { $nin: ['cancelled', 'failed'] } } },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.product',
+          productName: { $first: '$items.name' },
+          unitsSold: { $sum: '$items.quantity' },
+          avgPrice: { $avg: '$items.price' },
+          totalRevenue: { $sum: { $multiply: ['$items.price', '$items.quantity'] } }
+        }
+      },
+      { $sort: { totalRevenue: -1 } }
+    ]);
+
+    // Enrich with current stock and price from Product collection
+    const productIds = productRevenue
+      .map(p => p._id)
+      .filter(Boolean);
+
+    const products = await Product.find(
+      { _id: { $in: productIds } },
+      'name price stock'
+    );
+
+    const productMap = products.reduce((acc, p) => {
+      acc[p._id.toString()] = p;
+      return acc;
+    }, {});
+
+    const productRevenueList = productRevenue.map(item => {
+      const prod = item._id ? productMap[item._id.toString()] : null;
+      return {
+        productId: item._id ? item._id.toString() : null,
+        name: prod?.name || item.productName || 'Unknown Product',
+        price: prod?.price ?? item.avgPrice ?? 0,
+        unitsSold: item.unitsSold || 0,
+        stockRemaining: prod?.stock ?? 0,
+        totalRevenue: item.totalRevenue || 0
+      };
+    });
+
+    res.json({
+      totalRevenue,
+      aov,
+      totalOrders,
+      totalReturns,
+      productRevenue: productRevenueList
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ==================== USER MANAGEMENT ====================
 
 /**
