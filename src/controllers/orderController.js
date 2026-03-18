@@ -357,7 +357,7 @@ exports.create = async (req, res, next) => {
       voucherDiscount,
       voucher,
       total,
-      status: 'confirmed',
+      status: 'pending',
       payment: { razorpayOrderId: razorOrder.id, status: 'pending' },
       shippingAddress
     });
@@ -671,7 +671,7 @@ exports.updateStatus = async (req, res, next) => {
     }
 
     const { status, trackingNumber } = req.body;
-    const validStatuses = ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'failed', 'cancelled'];
+    const validStatuses = ['pending', 'confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'failed', 'cancelled'];
 
     if (!status || !validStatuses.includes(status)) {
       return res.status(400).json({ error: `Invalid status. Valid statuses: ${validStatuses.join(', ')}` });

@@ -54,8 +54,8 @@ const OrderSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    default: 'confirmed',
-    enum: ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'failed', 'cancelled']
+    default: 'pending',
+    enum: ['pending', 'confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'failed', 'cancelled']
   },
 
   // Delivery Status (controlled by delivery partner)
