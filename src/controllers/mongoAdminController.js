@@ -18,6 +18,30 @@ const STATUS_TO_DELIVERY_STATUS = {
   cancelled: 'cancelled'
 };
 
+const normalizeProductDetails = (details) => {
+  if (!details) return {};
+  if (details instanceof Map) return Object.fromEntries(details);
+  if (typeof details.toObject === 'function') return details.toObject();
+  return details;
+};
+
+const normalizeProductKeyFeatures = (keyFeatures) => {
+  if (!keyFeatures) return [];
+  if (Array.isArray(keyFeatures)) return keyFeatures;
+  if (typeof keyFeatures === 'string') {
+    try {
+      const parsed = JSON.parse(keyFeatures);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return keyFeatures
+        .split('\n')
+        .map(feature => feature.trim())
+        .filter(Boolean);
+    }
+  }
+  return [];
+};
+
 const parseCoordinate = (value) => {
   if (value === null || value === undefined || value === '') return null;
   const parsed = parseFloat(value);
@@ -196,6 +220,8 @@ exports.listProducts = async (req, res, next) => {
       isNewArrival: p.isNewArrival || false,
       isBestSeller: p.isBestSeller || false,
       isFeatured: p.isFeatured || false,
+      details: normalizeProductDetails(p.details),
+      keyFeatures: normalizeProductKeyFeatures(p.keyFeatures),
       status: p.stock > 0 ? 'Active' : 'Out of Stock'
     }));
 
@@ -238,7 +264,9 @@ exports.getProduct = async (req, res, next) => {
       rating: product.rating || { rating: 4.5, reviews: 0 },
       isNewArrival: product.isNewArrival || false,
       isBestSeller: product.isBestSeller || false,
-      isFeatured: product.isFeatured || false
+      isFeatured: product.isFeatured || false,
+      details: normalizeProductDetails(product.details),
+      keyFeatures: normalizeProductKeyFeatures(product.keyFeatures)
     });
   } catch (err) {
     next(err);
@@ -330,8 +358,8 @@ exports.createProduct = async (req, res, next) => {
       isNewArrival: product.isNewArrival,
       isBestSeller: product.isBestSeller,
       isFeatured: product.isFeatured,
-      details: product.details,
-      keyFeatures: product.keyFeatures,
+      details: normalizeProductDetails(product.details),
+      keyFeatures: normalizeProductKeyFeatures(product.keyFeatures),
       status: product.stock > 0 ? 'Active' : 'Out of Stock'
     });
   } catch (err) {
@@ -418,8 +446,8 @@ exports.updateProduct = async (req, res, next) => {
       isNewArrival: product.isNewArrival,
       isBestSeller: product.isBestSeller,
       isFeatured: product.isFeatured,
-      details: product.details,
-      keyFeatures: product.keyFeatures,
+      details: normalizeProductDetails(product.details),
+      keyFeatures: normalizeProductKeyFeatures(product.keyFeatures),
       status: product.stock > 0 ? 'Active' : 'Out of Stock'
     });
   } catch (err) {
