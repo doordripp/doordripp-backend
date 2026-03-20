@@ -1,14 +1,20 @@
-﻿const Product = require('../models/Product')
+const Product = require('../models/Product')
 
 exports.list = async (req, res, next) => {
   try {
     const { search, category, sort } = req.query
     const filter = {}
     if (category && category !== 'All') filter.category = category
-    if (search) filter.$or = [
-      { name: new RegExp(search, 'i') },
-      { description: new RegExp(search, 'i') }
-    ]
+    
+    // Improved, strict search matching
+    if (search) {
+      const searchRegex = new RegExp(search, 'i')
+      filter.$or = [
+        { name: searchRegex },
+        { category: searchRegex },
+        { subcategory: searchRegex }
+      ]
+    }
 
     let query = Product.find(filter).limit(500)
 

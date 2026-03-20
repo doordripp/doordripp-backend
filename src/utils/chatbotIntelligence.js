@@ -1,6 +1,7 @@
 /**
  * Enhanced Chatbot Intelligence Module
  * Provides intent detection, entity extraction, and multi-database query capabilities
+ * Now powered by LangChain + Groq for AI-driven responses
  */
 
 const Order = require('../models/Order')
@@ -8,6 +9,7 @@ const Product = require('../models/Product')
 const DeliveryZone = require('../models/DeliveryZone')
 const SupportTicket = require('../models/SupportTicket')
 const logger = require('./logger')
+const { getLangChainResponse } = require('../services/langchainService')
 
 // Intent categories with associated keywords and synonyms
 const INTENTS = {
@@ -402,7 +404,7 @@ function generateEnhancedResponse(intent, dbData, faqMatch) {
 /**
  * Main intelligent query handler
  */
-async function getIntelligentResponse(message, faqs, userId = null) {
+async function getIntelligentResponse(message, faqs, userId = null, conversationHistory = []) {
   try {
     // Step 1: Detect intent
     const intentResult = detectIntent(message)
@@ -467,12 +469,45 @@ async function getIntelligentResponse(message, faqs, userId = null) {
       }
     }
     
-    // Step 5: Generate enhanced response
-    const response = generateEnhancedResponse(
-      intentResult,
-      dbData,
-      bestFaqScore >= 4 ? bestFaqMatch : null
-    )
+    // Step 5: Build context for LangChain
+    const contextData = {
+      intent: intentResult.intent,
+      confidence: intentResult.confidence,
+      faqMatch: bestFaqScore >= 4 ? bestFaqMatch : null,
+      orderData: null,
+      productData: null,
+      deliveryData: null
+    }
+
+    // Assign DB data to the right context field
+    switch (intentResult.intent) {
+      case 'ORDER_STATUS':
+      case 'PAYMENT':
+      case 'RETURNS':
+        contextData.orderData = dbData
+        break
+      case 'PRODUCT_INFO':
+        contextData.productData = dbData
+        break
+      case 'DELIVERY_ZONE':
+        contextData.deliveryData = dbData
+        break
+    }
+
+    // Step 6: Try LangChain AI response, fall back to hardcoded response
+    let response = {}
+    try {
+      const aiReply = await getLangChainResponse(message, conversationHistory, contextData)
+      response.reply = aiReply
+      response.shouldEscalate = false
+    } catch (langchainError) {
+      logger.warn('LangChain response failed, falling back to keyword matching:', langchainError.message)
+      response = generateEnhancedResponse(
+        intentResult,
+        dbData,
+        bestFaqScore >= 4 ? bestFaqMatch : null
+      )
+    }
     
     // Add metadata
     response.intent = intentResult.intent

@@ -20,6 +20,9 @@
   "author": "doordripp",
   "license": "MIT",
   "dependencies": {
+    "@langchain/community": "^1.1.24",
+    "@langchain/core": "^1.1.33",
+    "@langchain/groq": "^1.1.5",
     "@socket.io/redis-adapter": "^8.3.0",
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
@@ -35,6 +38,7 @@
     "google-auth-library": "^10.5.0",
     "imagekit": "^6.0.0",
     "jsonwebtoken": "^9.0.2",
+    "langchain": "^1.2.34",
     "leaflet": "^1.9.4",
     "mongoose": "^9.0.0",
     "morgan": "^1.10.0",

@@ -1,4 +1,4 @@
-﻿const express = require('express')
+const express = require('express')
 const router = express.Router()
 const SupportFaq = require('../models/SupportFaq')
 const SupportTicket = require('../models/SupportTicket')
@@ -108,7 +108,7 @@ function setCachedResponse(language, normalizedMessage, response) {
 router.post('/chat', async (req, res, next) => {
   try {
     await ensureSeedFaqs()
-    const { message, language = 'en', questionId, userId } = req.body || {}
+    const { message, language = 'en', questionId, userId, history } = req.body || {}
     const lang = String(language || 'en').toLowerCase()
 
     if (!message && !questionId) {
@@ -171,8 +171,9 @@ router.post('/chat', async (req, res, next) => {
       }
     } else if (message) {
       // Use intelligent response system for natural language queries
+      const conversationHistory = Array.isArray(history) ? history : []
       try {
-        response = await getIntelligentResponse(message, faqs, userId)
+        response = await getIntelligentResponse(message, faqs, userId, conversationHistory)
       } catch (intelligenceError) {
         // Fallback to FAQ keyword matching so chat still works for common questions.
         const normalized = normalizeText(message)
