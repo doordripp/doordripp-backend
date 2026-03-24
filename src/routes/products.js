@@ -20,6 +20,9 @@ router.get('/', async (req, res, next) => {
       filter.category = new RegExp(`^${category}$`, 'i');
     }
 
+    const { getVisibilityFilter } = require('../utils/visibility');
+    Object.assign(filter, getVisibilityFilter());
+
     let sortOption = { createdAt: -1 };
     if (sort === 'price-low') sortOption = { price: 1 };
     else if (sort === 'price-high') sortOption = { price: -1 };
@@ -77,6 +80,12 @@ router.get('/:id', async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Not found' });
+
+    // Visibility check for Retailer products
+    const { shouldShowRetailerProducts } = require('../utils/visibility');
+    if (product.productSource === 'Retailer' && !shouldShowRetailerProducts()) {
+      return res.status(403).json({ error: 'Product is currently not available based on business hours.' });
+    }
 
     res.json({
       id: product._id,

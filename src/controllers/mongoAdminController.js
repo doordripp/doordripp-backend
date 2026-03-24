@@ -220,6 +220,7 @@ exports.listProducts = async (req, res, next) => {
       isNewArrival: p.isNewArrival || false,
       isBestSeller: p.isBestSeller || false,
       isFeatured: p.isFeatured || false,
+      productSource: p.productSource || 'Manufacturer',
       details: normalizeProductDetails(p.details),
       keyFeatures: normalizeProductKeyFeatures(p.keyFeatures),
       status: p.stock > 0 ? 'Active' : 'Out of Stock'
@@ -265,6 +266,7 @@ exports.getProduct = async (req, res, next) => {
       isNewArrival: product.isNewArrival || false,
       isBestSeller: product.isBestSeller || false,
       isFeatured: product.isFeatured || false,
+      productSource: product.productSource || 'Manufacturer',
       details: normalizeProductDetails(product.details),
       keyFeatures: normalizeProductKeyFeatures(product.keyFeatures)
     });
@@ -296,6 +298,7 @@ exports.createProduct = async (req, res, next) => {
       isNewArrival,
       isBestSeller,
       isFeatured,
+      productSource,
       details,
       keyFeatures
     } = req.body;
@@ -328,6 +331,7 @@ exports.createProduct = async (req, res, next) => {
       isNewArrival: isNewArrival || false,
       isBestSeller: isBestSeller || false,
       isFeatured: isFeatured || false,
+      productSource: productSource || 'Manufacturer',
       details: details ? (typeof details === 'string' ? JSON.parse(details) : details) : {},
       keyFeatures: keyFeatures ? (typeof keyFeatures === 'string' ? JSON.parse(keyFeatures) : keyFeatures) : []
     });
@@ -358,6 +362,7 @@ exports.createProduct = async (req, res, next) => {
       isNewArrival: product.isNewArrival,
       isBestSeller: product.isBestSeller,
       isFeatured: product.isFeatured,
+      productSource: product.productSource,
       details: normalizeProductDetails(product.details),
       keyFeatures: normalizeProductKeyFeatures(product.keyFeatures),
       status: product.stock > 0 ? 'Active' : 'Out of Stock'
@@ -391,6 +396,7 @@ exports.updateProduct = async (req, res, next) => {
       isNewArrival,
       isBestSeller,
       isFeatured,
+      productSource,
       details,
       keyFeatures
     } = req.body;
@@ -416,6 +422,7 @@ exports.updateProduct = async (req, res, next) => {
     if (isNewArrival !== undefined) updateData.isNewArrival = isNewArrival;
     if (isBestSeller !== undefined) updateData.isBestSeller = isBestSeller;
     if (isFeatured !== undefined) updateData.isFeatured = isFeatured;
+    if (productSource !== undefined) updateData.productSource = productSource;
     if (details !== undefined) updateData.details = typeof details === 'string' ? JSON.parse(details) : details;
     if (keyFeatures !== undefined) updateData.keyFeatures = typeof keyFeatures === 'string' ? JSON.parse(keyFeatures) : keyFeatures;
 
@@ -446,6 +453,7 @@ exports.updateProduct = async (req, res, next) => {
       isNewArrival: product.isNewArrival,
       isBestSeller: product.isBestSeller,
       isFeatured: product.isFeatured,
+      productSource: product.productSource,
       details: normalizeProductDetails(product.details),
       keyFeatures: normalizeProductKeyFeatures(product.keyFeatures),
       status: product.stock > 0 ? 'Active' : 'Out of Stock'

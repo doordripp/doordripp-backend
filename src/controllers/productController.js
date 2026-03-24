@@ -1,4 +1,4 @@
-﻿const Product = require('../models/Product')
+const Product = require('../models/Product')
 
 exports.list = async (req, res, next) => {
   try {
@@ -9,6 +9,9 @@ exports.list = async (req, res, next) => {
       { name: new RegExp(search, 'i') },
       { description: new RegExp(search, 'i') }
     ]
+
+    const { getVisibilityFilter } = require('../utils/visibility')
+    Object.assign(filter, getVisibilityFilter())
 
     let query = Product.find(filter).limit(500)
 
@@ -51,20 +54,24 @@ exports.getRelatedProducts = async (req, res, next) => {
     
     // 1. Same category and subcategory (highest priority)
     if (currentProduct.category && currentProduct.subcategory) {
+      const { getVisibilityFilter } = require('../utils/visibility')
       const exactMatch = await Product.find({
         _id: { $ne: id },
         category: currentProduct.category,
-        subcategory: currentProduct.subcategory
+        subcategory: currentProduct.subcategory,
+        ...getVisibilityFilter()
       }).limit(4)
       recommendations.push(...exactMatch)
     }
     
     // 2. Same category, different subcategory
     if (currentProduct.category && recommendations.length < limit) {
+      const { getVisibilityFilter } = require('../utils/visibility')
       const categoryMatch = await Product.find({
         _id: { $ne: id },
         category: currentProduct.category,
-        subcategory: { $ne: currentProduct.subcategory }
+        subcategory: { $ne: currentProduct.subcategory },
+        ...getVisibilityFilter()
       }).limit(3)
       recommendations.push(...categoryMatch)
     }
@@ -73,10 +80,12 @@ exports.getRelatedProducts = async (req, res, next) => {
     if (recommendations.length < limit) {
       const priceMin = currentProduct.price * 0.7
       const priceMax = currentProduct.price * 1.3
+      const { getVisibilityFilter } = require('../utils/visibility')
       const priceMatch = await Product.find({
         _id: { $ne: id },
         price: { $gte: priceMin, $lte: priceMax },
-        category: { $ne: currentProduct.category }
+        category: { $ne: currentProduct.category },
+        ...getVisibilityFilter()
       }).limit(2)
       recommendations.push(...priceMatch)
     }
@@ -91,10 +100,12 @@ exports.getRelatedProducts = async (req, res, next) => {
         .slice(0, 5) // Top 5 keywords
       
       if (keywords.length > 0) {
+        const { getVisibilityFilter } = require('../utils/visibility')
         const keywordRegex = keywords.map(keyword => new RegExp(keyword, 'i'))
         const descMatch = await Product.find({
           _id: { $ne: id },
-          $or: keywordRegex.map(regex => ({ description: regex }))
+          $or: keywordRegex.map(regex => ({ description: regex })),
+          ...getVisibilityFilter()
         }).limit(2)
         recommendations.push(...descMatch)
       }
@@ -102,8 +113,10 @@ exports.getRelatedProducts = async (req, res, next) => {
     
     // 5. Fill remaining with popular/recent products
     if (recommendations.length < limit) {
+      const { getVisibilityFilter } = require('../utils/visibility')
       const fallback = await Product.find({
-        _id: { $ne: id }
+        _id: { $ne: id },
+        ...getVisibilityFilter()
       })
       .sort({ createdAt: -1 }) // Most recent first
       .limit(limit - recommendations.length)
@@ -161,9 +174,11 @@ exports.getRelatedProducts = async (req, res, next) => {
 // Get smart recommendations for cart/general use
 exports.getRecommendations = async (req, res, next) => {
   try {
-    const { categories, subcategories, excludeIds, limit = 6 } = req.query
-    
-    const filter = { _id: { $nin: excludeIds ? excludeIds.split(',') : [] } }
+    const { getVisibilityFilter } = require('../utils/visibility')
+    const filter = { 
+      _id: { $nin: excludeIds ? excludeIds.split(',') : [] },
+      ...getVisibilityFilter()
+    }
     
     // If categories provided, use them for targeted recommendations
     if (categories) {

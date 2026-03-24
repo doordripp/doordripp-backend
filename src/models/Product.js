@@ -49,6 +49,12 @@ const ProductSchema = new mongoose.Schema({
     min: 0,
     max: 28,
     comment: 'GST rate in percentage (0, 5, 12, 18, 28)'
+  },
+  productSource: { 
+    type: String, 
+    enum: ['Retailer', 'Manufacturer'], 
+    default: 'Manufacturer',
+    index: true
   }
 }, { timestamps: true })
 

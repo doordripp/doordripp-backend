@@ -23,6 +23,12 @@ exports.addItem = async (req, res, next) => {
     const product = await Product.findById(productId);
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
+    // Visibility check for Retailer products
+    const { shouldShowRetailerProducts } = require('../utils/visibility');
+    if (product.productSource === 'Retailer' && !shouldShowRetailerProducts()) {
+      return res.status(403).json({ error: 'This product is currently not available for purchase.' });
+    }
+
     const requestedQty = Math.max(1, parseInt(quantity) || 1);
 
     let cart = await Cart.findOne({ user: userId });
@@ -169,6 +175,13 @@ exports.checkout = async (req, res, next) => {
     for (const it of cart.items) {
       const product = it.product;
       if (!product) continue;
+
+      // Visibility check for Retailer products
+      const { shouldShowRetailerProducts } = require('../utils/visibility');
+      if (product.productSource === 'Retailer' && !shouldShowRetailerProducts()) {
+        return res.status(400).json({ error: `${product.name} is currently not available for purchase outside business hours (8 AM - 10 PM). Please remove it from your cart or check out during business hours.` });
+      }
+
       if (product.stock < it.quantity) return res.status(400).json({ error: `Out of stock for ${product.name}` });
       total += product.price * it.quantity;
       orderItems.push({
