@@ -130,6 +130,17 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(cookieParser());
 app.use(morgan('dev'));
+
+const rateLimit = require('express-rate-limit');
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each IP to 1000 requests per windowMs to prevent brute force
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes' }
+});
+app.use('/api', apiLimiter);
+
 // Initialize passport (strategies are configured in `src/config/passport.js`)
 app.use(passport.initialize());
 

@@ -10,6 +10,14 @@ exports.createBanner = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Image URL is required' })
     }
 
+    const singleCategories = ['new_arrivals', 'best_sellers', 'featured', 'accessories', 'footwear', 'men', 'women'];
+    if (singleCategories.includes(type)) {
+      const existing = await Banner.findOne({ type, platform: platform || 'app' });
+      if (existing) {
+        return res.status(400).json({ success: false, message: `Only 1 image allowed for this category on ${platform || 'app'}. Please delete the existing one first.` });
+      }
+    }
+
     const banner = new Banner({
       title: title || 'Promo Banner',
       imageUrl,
@@ -86,6 +94,22 @@ exports.updateStatus = async (req, res, next) => {
 exports.updateBanner = async (req, res, next) => {
   try {
     const { title, imageUrl, imageKitId, link, type, platform, order, isActive } = req.body
+
+    const singleCategories = ['new_arrivals', 'best_sellers', 'featured', 'accessories', 'footwear', 'men', 'women'];
+    if (type && singleCategories.includes(type)) {
+      const currentBanner = await Banner.findById(req.params.id);
+      if (currentBanner) {
+        const targetPlatform = platform || currentBanner.platform;
+        const existing = await Banner.findOne({
+          type,
+          platform: targetPlatform,
+          _id: { $ne: req.params.id }
+        });
+        if (existing) {
+          return res.status(400).json({ success: false, message: `Only 1 image allowed for this category on ${targetPlatform}. Please delete the existing one first.` });
+        }
+      }
+    }
 
     const updateData = {}
     if (title !== undefined) updateData.title = title
