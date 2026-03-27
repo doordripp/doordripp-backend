@@ -604,31 +604,26 @@ exports.signInWithGoogle = async (req, res, next) => {
 
 exports.me = async (req, res, next) => {
   try {
-    console.log('🔍 /me called - checking auth...');
-    console.log('🍪 Cookies received:', Object.keys(req.cookies || {}).length ? Object.keys(req.cookies) : 'none');
-    console.log('📋 Headers auth:', req.headers.authorization ? 'present' : 'none');
     let token = null;
     if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
-      console.log('✅ Token found in cookies');
     }
     if (!token && req.headers.authorization) {
       const parts = req.headers.authorization.split(' ');
       if (parts.length === 2 && parts[0] === 'Bearer') {
         token = parts[1];
-        console.log('✅ Token found in Authorization header');
       }
     }
     if (!token) {
-      console.log('❌ No token found - returning 401');
-      return res.status(401).json({ error: 'Not authenticated' });
+      return res.json({ authenticated: false });
     }
 
     const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
     const user = await User.findById(payload.id, '-password -refreshToken');
-    if (!user) return res.status(401).json({ error: 'Invalid token user' });
+    if (!user) return res.json({ authenticated: false });
 
     return res.json({ 
+      authenticated: true,
       _id: user._id, 
       name: user.name, 
       email: user.email, 
@@ -638,7 +633,7 @@ exports.me = async (req, res, next) => {
       address: user.address || null
     });
   } catch (e) {
-    return res.status(401).json({ error: 'Invalid token' });
+    return res.json({ authenticated: false });
   }
 };
 

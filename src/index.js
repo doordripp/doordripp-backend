@@ -154,6 +154,28 @@ try {
 
 // Routes
 app.use('/api/auth', authRoutes);
+
+// OAuth compatibility aliases (Spring-style paths) mapped to existing auth routes.
+app.get('/oauth2/authorization/google', (req, res) => {
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  return res.redirect(`/api/auth/google${query}`);
+});
+
+app.get('/oauth2/authorization/google-auth-dev', (req, res) => {
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  return res.redirect(`/api/auth/google-auth-dev${query}`);
+});
+
+app.get('/login/oauth2/code/google', (req, res) => {
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  return res.redirect(`/api/auth/google/callback${query}`);
+});
+
+app.get('/login/oauth2/code/google-auth-dev', (req, res) => {
+  const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+  return res.redirect(`/api/auth/google-auth-dev/callback${query}`);
+});
+
 app.use('/api/products', productRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/orders', orderRoutes);

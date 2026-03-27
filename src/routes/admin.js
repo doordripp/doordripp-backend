@@ -3,6 +3,7 @@ const router = express.Router();
 const adminController = require('../controllers/mongoAdminController');
 const adminDeliveryController = require('../controllers/adminDeliveryController');
 const analyticsController = require('../controllers/analyticsController');
+const advancedAnalyticsController = require('../controllers/advancedAnalyticsController');
 const adminVoucherController = require('../controllers/adminVoucherController');
 const { verifyToken, requireAdmin, requireAnyRole } = require('../middleware/auth');
 
@@ -69,5 +70,27 @@ router.get('/delivery-zones/:id', adminOrManager, adminDeliveryController.getDel
 router.put('/delivery-zones/:id', adminOrManager, adminDeliveryController.updateDeliveryZone);
 router.delete('/delivery-zones/:id', requireAdmin, adminDeliveryController.deleteDeliveryZone);
 router.patch('/delivery-zones/:id/toggle', adminOrManager, adminDeliveryController.toggleZoneStatus);
+
+// ============================================
+// ADVANCED ANALYTICS ENDPOINTS — admin & manager
+// ============================================
+
+// Marketing Analytics
+router.get('/analytics/customer-acquisition', adminOrManager, advancedAnalyticsController.getCustomerAcquisition);
+router.get('/analytics/campaign-performance', adminOrManager, advancedAnalyticsController.getCampaignPerformance);
+router.get('/analytics/conversion-funnel', adminOrManager, advancedAnalyticsController.getConversionFunnel);
+
+// Product Analytics
+router.get('/analytics/product-performance', adminOrManager, advancedAnalyticsController.getProductPerformance);
+
+// Financial Analytics
+router.get('/analytics/revenue', adminOrManager, advancedAnalyticsController.getRevenue);
+router.get('/analytics/profit-loss', adminOrManager, advancedAnalyticsController.getProfitLoss);
+router.get('/analytics/cash-flow', adminOrManager, advancedAnalyticsController.getCashFlow);
+router.get('/analytics/unit-economics', adminOrManager, advancedAnalyticsController.getUnitEconomics);
+
+// Comprehensive Report & Dashboard
+router.get('/analytics/comprehensive-report', adminOrManager, advancedAnalyticsController.getComprehensiveReport);
+router.get('/analytics/dashboard', adminOrManager, advancedAnalyticsController.getDashboardMetrics);
 
 module.exports = router;

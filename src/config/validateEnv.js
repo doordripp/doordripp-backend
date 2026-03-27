@@ -14,6 +14,8 @@ const recommendedEnvVars = [
   'IMAGEKIT_PRIVATE_KEY',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
+  'GOOGLE_CLIENT_ID_DEV',
+  'GOOGLE_CLIENT_SECRET_DEV',
 ];
 
 const googleAppAudienceVars = [

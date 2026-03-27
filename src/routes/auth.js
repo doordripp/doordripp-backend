@@ -99,6 +99,37 @@ const googleOAuthLimiter = rateLimit({
   handler: (req, res) => res.status(429).json({ error: 'Too many Google auth attempts. Please try again later.' }),
 });
 
+const hasGoogleOAuthProd = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+const hasGoogleOAuthDev = Boolean(process.env.GOOGLE_CLIENT_ID_DEV && process.env.GOOGLE_CLIENT_SECRET_DEV)
+
+const handleOAuthCallback = (strategyName) => async (req, res, next) => {
+  passport.authenticate(strategyName, { session: false }, async (err, user) => {
+    const frontendUrl = getFrontendUrlForRequest(req);
+    if (err) {
+      logger.error('Google OAuth error:', err);
+    }
+    if (!user) {
+      logger.warn(`Google OAuth (${strategyName}): no user returned from strategy`);
+    }
+    if (err || !user) {
+      const redirect = `${frontendUrl}/login?error=oauth_failed`;
+      return res.redirect(redirect);
+    }
+    try {
+      // create token + set cookie or redirect with token
+      const { token, cookieOptions } = await authController.createTokenForUser(user);
+      logger.info(`Google OAuth (${strategyName}) success for: ${user.email}`);
+      // Set httpOnly cookie for token (frontend will rely on cookies)
+      res.cookie('token', token, cookieOptions);
+      // Redirect back to the frontend (SPA) home page
+      return res.redirect(frontendUrl);
+    } catch (e) {
+      const redirect = `${frontendUrl}/login?error=server_error`;
+      return res.redirect(redirect);
+    }
+  })(req, res, next);
+}
+
 // NOTE: Alias the legacy /register endpoint to the new initiate flow
 // to ensure no user is created before email verification.
 router.post(
@@ -479,7 +510,7 @@ router.post('/verify-otp', async (req, res) => {
 
 // Google Sign-In with idToken (POST - for Flutter/mobile apps)
 // Receives idToken from client, verifies it, and signs in or creates user
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+if (hasGoogleOAuthProd) {
   router.post('/google', skipIfDisabled(googleOAuthLimiter), async (req, res, next) => {
     try {
       return authController.signInWithGoogle(req, res, next);
@@ -491,7 +522,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 }
 
 // Google OAuth routes - only enable if Google creds are configured
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+if (hasGoogleOAuthProd) {
   router.get('/google', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
     // Initiates OAuth flow
     passport.authenticate('google', {
@@ -499,33 +530,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     })(req, res, next);
   });
 
-  router.get('/google/callback', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
-    passport.authenticate('google', { session: false }, async (err, user) => {
-      const frontendUrl = getFrontendUrlForRequest(req);
-      if (err) {
-        logger.error('Google OAuth error:', err);
-      }
-      if (!user) {
-        logger.warn('Google OAuth: no user returned from strategy');
-      }
-      if (err || !user) {
-        const redirect = `${frontendUrl}/login?error=oauth_failed`;
-        return res.redirect(redirect);
-      }
-      try {
-        // create token + set cookie or redirect with token
-        const { token, cookieOptions } = await authController.createTokenForUser(user);
-        logger.info(`Google OAuth success for: ${user.email}`);
-        // Set httpOnly cookie for token (frontend will rely on cookies)
-        res.cookie('token', token, cookieOptions);
-        // Redirect back to the frontend (SPA) home page
-        return res.redirect(frontendUrl);
-      } catch (e) {
-        const redirect = `${frontendUrl}/login?error=server_error`;
-        return res.redirect(redirect);
-      }
-    })(req, res, next);
-  });
+  router.get('/google/callback', skipIfDisabled(googleOAuthLimiter), handleOAuthCallback('google'));
 } else {
   // If Google OAuth is not configured, redirect to frontend login with an error
   router.get('/google', (req, res) => {
@@ -537,6 +542,29 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   router.get('/google/callback', (req, res) => {
     const frontendUrl = getFrontendUrlForRequest(req);
     const redirect = `${frontendUrl}/login?error=oauth_not_configured`;
+    return res.redirect(redirect);
+  });
+}
+
+// Dedicated Google OAuth DEV routes using independent credentials and callback URI
+if (hasGoogleOAuthDev) {
+  router.get('/google-auth-dev', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
+    passport.authenticate('google-auth-dev', {
+      scope: ['profile', 'email'],
+    })(req, res, next);
+  });
+
+  router.get('/google-auth-dev/callback', skipIfDisabled(googleOAuthLimiter), handleOAuthCallback('google-auth-dev'));
+} else {
+  router.get('/google-auth-dev', (req, res) => {
+    const frontendUrl = getFrontendUrlForRequest(req);
+    const redirect = `${frontendUrl}/login?error=oauth_dev_not_configured`;
+    return res.redirect(redirect);
+  });
+
+  router.get('/google-auth-dev/callback', (req, res) => {
+    const frontendUrl = getFrontendUrlForRequest(req);
+    const redirect = `${frontendUrl}/login?error=oauth_dev_not_configured`;
     return res.redirect(redirect);
   });
 }
