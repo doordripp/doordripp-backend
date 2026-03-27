@@ -57,34 +57,70 @@ async function generateInvoicePDF(invoiceData, outputPath) {
 }
 
 /**
+ * Generate base64 SVG logo from company initials
+ */
+function generateLogoBase64() {
+  // Generate "DD" logo in black and white
+  const svg = `
+    <svg width="200" height="200" xmlns="http://www.w3.org/2000/svg">
+      <rect width="200" height="200" fill="#000000" rx="8"/>
+      <text x="65" y="80" font-size="60" font-weight="bold" fill="#ffffff" text-anchor="middle" font-family="Arial, sans-serif">DD</text>
+    </svg>
+  `;
+  return 'data:image/svg+xml;base64,' + Buffer.from(svg).toString('base64');
+}
+
+/**
  * Add header with invoice title and company details
  */
 function addHeader(doc, data) {
   const pageWidth = doc.page.width;
+  const headerY = doc.y;
   
-  // Title
+  // Add branded header box
+  doc.rect(40, headerY, pageWidth - 80, 90)
+    .fillAndStroke('#ffffff', '#000000');
+  
+  // Add logo (base64 SVG)
+  try {
+    const logoBase64 = generateLogoBase64();
+    doc.image(logoBase64, 50, headerY + 5, { width: 75, height: 75 });
+  } catch (e) {
+    // Fallback if image fails
+    doc.fontSize(14)
+      .font('Helvetica-Bold')
+      .text('DD', 55, headerY + 25, { width: 60, align: 'center' });
+  }
+  
+  // Company branding section (right side of logo)
+  const brandX = 135;
+  doc.fontSize(18)
+    .font('Helvetica-Bold')
+    .text(data.sellerName || 'DoorDripp', brandX, headerY + 10, { width: pageWidth - brandX - 50 });
+  
+  doc.fontSize(9)
+    .font('Helvetica')
+    .text('www.doordripp.com', brandX, doc.y, { width: pageWidth - brandX - 50 });
+  
+  doc.fontSize(8)
+    .font('Helvetica')
+    .text(`GSTIN: ${data.sellerGSTIN}`, brandX, doc.y, { width: pageWidth - brandX - 50 });
+  
+  // Move to next line after header box
+  doc.y = headerY + 95;
+  doc.moveDown(0.3);
+  
+  // Tax Invoice title with border
   doc.fontSize(20)
     .font('Helvetica-Bold')
     .text('TAX INVOICE', { align: 'center' });
   
   doc.moveDown(0.5);
   
-  // Company name
-  doc.fontSize(16)
-    .text(data.sellerName || 'DoorDripp', { align: 'center' });
-  
-  doc.fontSize(9)
-    .font('Helvetica')
-    .text(`GSTIN: ${data.sellerGSTIN}`, { align: 'center' });
-  
-  // PAN removed from invoice for privacy
-  
-  doc.moveDown(1);
-  
-  // Horizontal line
+  // Horizontal line separator
   doc.moveTo(40, doc.y)
     .lineTo(pageWidth - 40, doc.y)
-    .stroke();
+    .stroke('#000000');
   
   doc.moveDown(0.5);
 }

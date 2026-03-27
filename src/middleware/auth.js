@@ -120,6 +120,19 @@ exports.requireAdmin = (req, res, next) => {
   next();
 };
 
+exports.requireAdminOrManager = (req, res, next) => {
+  if (!req.user || !req.user.roles) {
+    return res.status(403).json({ error: 'Admin or manager role required' });
+  }
+
+  const isAllowed = hasAnyRole(req.user.roles, ['admin', 'manager']);
+  if (!isAllowed) {
+    return res.status(403).json({ error: 'Admin or manager role required' });
+  }
+
+  next();
+};
+
 exports.requireAnyRole = (...allowedRoles) => {
   return (req, res, next) => {
     if (!req.user || !req.user.roles) {

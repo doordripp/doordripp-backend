@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const fs = require('fs');
+const path = require('path');
 const logger = require('../utils/logger');
 const User = require('../models/User');
 const Product = require('../models/Product');
@@ -571,7 +573,7 @@ exports.listOrders = async (req, res, next) => {
       Order.countDocuments(filter)
     ]);
 
-    logger.info(`📦 Admin fetching orders: ${orders.length} found, ${total} total in DB`);
+    logger.info('Admin fetching orders: ' + orders.length + ' found, ' + total + ' total in DB');
 
     const formattedOrders = orders.map(order => ({
       id: order._id.toString(),
@@ -665,6 +667,403 @@ exports.getOrder = async (req, res, next) => {
   }
 };
 
+exports.getOrderBill = async (req, res, next) => {
+  try {
+    const order = await Order.findById(req.params.id).populate('customer', 'name email phone').populate('items.product');
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    // Check permissions
+    const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
+    const isManager = hasAnyRole(req.user?.roles, ['manager']);
+    
+    if (!isAdmin && !isManager) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
+    // Generate bill HTML
+    const billHtml = generateBillHTML(order);
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(billHtml);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// Helper function to format currency
+function formatMoney(amount) {
+  return parseFloat(amount || 0).toFixed(2);
+}
+
+let cachedBillLogoDataUri = null;
+
+function getDoordrippBillLogoDataUri() {
+  if (cachedBillLogoDataUri) {
+    return cachedBillLogoDataUri;
+  }
+
+  try {
+    const logoPath = path.join(__dirname, '../../../node-frontend/public/vite.svg');
+    const svg = fs.readFileSync(logoPath, 'utf8');
+    cachedBillLogoDataUri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
+    return cachedBillLogoDataUri;
+  } catch (error) {
+    logger.warn('Bill logo file not found, using fallback icon:', error.message);
+    return null;
+  }
+}
+
+// Helper function to generate bill HTML
+function generateBillHTML(order) {
+  const orderDate = new Date(order.createdAt);
+  const dateStr = orderDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const timeStr = orderDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  
+  const items = order.items || [];
+  const subtotal = parseFloat(order.totalBeforeDiscount || order.total || 0);
+  const discount = parseFloat(order.voucherDiscount || 0);
+  const deliveryFee = parseFloat(order.deliveryFee || 0);
+  const total = parseFloat(order.total || 0);
+  const billLogoDataUri = getDoordrippBillLogoDataUri();
+  const shippingAddress = order.shippingAddress || {};
+  const customerPhone = order.customer?.phone || shippingAddress.phone || 'N/A';
+  const fullAddress = [
+    shippingAddress.line1,
+    shippingAddress.line2,
+    shippingAddress.street,
+    shippingAddress.city,
+    shippingAddress.state,
+    shippingAddress.pincode || shippingAddress.zip
+  ]
+    .filter(Boolean)
+    .join(', ') || 'N/A';
+  
+  // Generate order ID in format like #DRP10247
+  const orderId = '#DRP' + order._id.toString().slice(-5).toUpperCase();
+  
+  // Format items for receipt
+  const itemsReceipt = items.map(item => {
+    const itemTotal = parseFloat(item.price * item.quantity);
+    return `${item.name || item.product?.name || 'Product'} ${' '.repeat(40 - (item.name || item.product?.name || 'Product').length)} ${item.quantity} ₹${formatMoney(item.price)} ₹${formatMoney(itemTotal)}`;
+  }).join('\n');
+
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Order Bill - DoorDripp</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        @page {
+          size: 50mm auto;
+          margin: 0;
+        }
+        body {
+          font-family: 'Courier New', monospace;
+          line-height: 1.3;
+          color: #000;
+          background: #f0f0f0;
+          padding: 2mm;
+          display: flex;
+          justify-content: center;
+        }
+        .receipt {
+          width: 50mm;
+          max-width: 50mm;
+          margin: 0 auto;
+          background: white;
+          padding: 2mm;
+          border: 0.25mm solid #000;
+          position: relative;
+          box-shadow: 0 1mm 2mm rgba(0,0,0,0.2);
+          overflow: hidden;
+        }
+        .receipt::before,
+        .receipt::after {
+          content: '';
+          position: absolute;
+          left: -2mm;
+          right: -2mm;
+          height: 2mm;
+          background: repeating-linear-gradient(45deg, transparent, transparent 2mm, #ddd 2mm, #ddd 4mm);
+        }
+        .receipt::before {
+          top: -2mm;
+        }
+        .receipt::after {
+          bottom: -2mm;
+        }
+        .center { text-align: center; }
+        .logo-box {
+          text-align: center;
+          margin-bottom: 2mm;
+          font-size: 2.7mm;
+          font-weight: bold;
+          letter-spacing: 0.25mm;
+        }
+        .brand-logo {
+          display: block;
+          width: 16mm;
+          max-width: 60%;
+          height: auto;
+          object-fit: contain;
+          margin: 0 auto 1mm auto;
+        }
+        .logo-text {
+          font-size: 4.2mm;
+          font-weight: bold;
+          margin: 1mm 0;
+          letter-spacing: 0.15mm;
+        }
+        .tagline {
+          font-size: 2.4mm;
+          font-weight: bold;
+          font-style: italic;
+          margin: 0.5mm 0;
+          letter-spacing: 0.1mm;
+        }
+        .categories {
+          font-size: 2.1mm;
+          font-weight: bold;
+          margin: 0.5mm 0 1.5mm 0;
+          letter-spacing: 0.05mm;
+        }
+        .separator {
+          border-top: 0.2mm dashed #000;
+          margin: 1.5mm 0;
+        }
+        .bill-title {
+          font-size: 2.6mm;
+          font-weight: bold;
+          letter-spacing: 0.1mm;
+          margin: 1.5mm 0;
+        }
+        .info-row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 2.3mm;
+          margin: 0.6mm 0;
+          gap: 1mm;
+          flex-wrap: wrap;
+        }
+        .label { font-weight: bold; }
+        .value { text-align: right; max-width: 58%; word-break: break-word; }
+        .status-badge {
+          display: inline-block;
+          background: #000;
+          color: white;
+          padding: 0.5mm 1.5mm;
+          font-size: 2mm;
+          font-weight: bold;
+          border-radius: 0.5mm;
+        }
+        .customer-section {
+          font-size: 2.3mm;
+          margin: 1mm 0;
+          line-height: 1.35;
+          word-break: break-word;
+        }
+        .table-header {
+          display: grid;
+          grid-template-columns: 1.5fr 1fr 1fr 1fr;
+          gap: 0.6mm;
+          font-size: 2.1mm;
+          font-weight: bold;
+          background: #000;
+          color: white;
+          padding: 0.8mm;
+          margin: 1mm 0;
+        }
+        .table-row {
+          display: grid;
+          grid-template-columns: 1.5fr 1fr 1fr 1fr;
+          gap: 0.6mm;
+          font-size: 2.1mm;
+          padding: 0.6mm 0;
+          border-bottom: 0.2mm solid #eee;
+        }
+        .table-row .col {
+          word-break: break-word;
+          overflow-wrap: break-word;
+        }
+        .promo-box {
+          border: 0.25mm solid #000;
+          padding: 1.2mm;
+          margin: 1.5mm 0;
+          text-align: center;
+          font-size: 2.2mm;
+          font-weight: bold;
+        }
+        .promo-icon {
+          font-size: 2.5mm;
+          margin: 0 0.8mm;
+        }
+        .footer-msg {
+          text-align: center;
+          font-size: 2.4mm;
+          font-weight: bold;
+          margin: 1.5mm 0;
+          line-height: 1.35;
+        }
+        .footer-tagline {
+          text-align: center;
+          font-size: 2mm;
+          margin: 1.5mm 0;
+          font-weight: bold;
+          letter-spacing: 0.08mm;
+        }
+        .summary-line {
+          display: flex;
+          justify-content: space-between;
+          font-size: 2.2mm;
+          margin: 0.5mm 0;
+        }
+        .total-line {
+          display: flex;
+          justify-content: space-between;
+          font-size: 3.2mm;
+          font-weight: bold;
+          margin: 1mm 0;
+          padding: 0.6mm 0;
+        }
+        @media print {
+          body { background: white; padding: 0; margin: 0; display: block; }
+          .receipt { box-shadow: none; border-radius: 0; margin: 0; width: 50mm; max-width: 50mm; }
+          .receipt::before, .receipt::after { background: none; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="receipt">
+        <!-- Logo & Branding -->
+        <div class="logo-box">
+          ${billLogoDataUri ? `<img src="${billLogoDataUri}" alt="DoorDripp Logo" class="brand-logo" />` : `<div style="font-size: 3.5mm; margin-bottom: 1mm;">DD</div>`}
+          <div class="logo-text">DOORDRIPP</div>
+          <div class="tagline">FAST DELIVERY</div>
+          <div class="categories">Clothes, Accessories, Footwear</div>
+        </div>
+        
+        <div class="separator"></div>
+        
+        <!-- Bill Title -->
+        <div class="center bill-title">BILL / INVOICE</div>
+        
+        <!-- Order Info -->
+        <div class="info-row">
+          <span class="label">Order ID :</span>
+          <span class="value">${orderId}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Date</span>
+          <span class="value">${dateStr}</span>
+          <span class="label" style="margin-left: 15px;">Time:</span>
+          <span class="value">${timeStr}</span>
+        </div>
+        <div class="info-row">
+          <span class="label">Type</span>
+          <span class="value">Delivery</span>
+          <span style="margin-left: auto;"><span class="status-badge">PAID</span></span>
+        </div>
+        
+        <div class="separator"></div>
+        
+        <!-- Customer Info -->
+        <div class="customer-section">
+          <div><strong>Customer:</strong> ${order.customer?.name || 'Customer'}</div>
+          <div><strong>Phone</strong>: ${customerPhone}</div>
+          <div><strong>Address</strong>: ${fullAddress}</div>
+        </div>
+        
+        <div class="separator"></div>
+        
+        <!-- Items Table -->
+        <div class="table-header">
+          <span>ITEM</span>
+          <span>QTY</span>
+          <span>PRICE</span>
+          <span>AMT</span>
+        </div>
+        ${items.map((item, idx) => {
+          const itemTotal = parseFloat(item.price * item.quantity);
+          return `
+            <div class="table-row">
+              <span class="col">${item.name || item.product?.name || 'Product'}</span>
+              <span class="col">${item.quantity}</span>
+              <span class="col">₹${formatMoney(item.price)}</span>
+              <span class="col">₹${formatMoney(itemTotal)}</span>
+            </div>
+          `;
+        }).join('')}
+        
+        <div class="separator"></div>
+        
+        <!-- Summary -->
+        <div class="summary-line">
+          <span class="label">SubTotal:</span>
+          <span>₹${formatMoney(subtotal)}</span>
+        </div>
+        ${deliveryFee > 0 ? `
+          <div class="summary-line">
+            <span class="label">Delivery Fee</span>
+            <span>₹${formatMoney(deliveryFee)}</span>
+          </div>
+        ` : ''}
+        ${discount > 0 ? `
+          <div class="summary-line">
+            <span class="label">Discount</span>
+            <span>-₹${formatMoney(discount)}</span>
+          </div>
+        ` : ''}
+        
+        <div class="separator"></div>
+        
+        <!-- Total -->
+        <div class="total-line">
+          <span>TOTAL</span>
+          <span>₹${formatMoney(total)}</span>
+        </div>
+        
+        <div class="separator"></div>
+        
+        <!-- Payment & Delivery Info -->
+        <div class="info-row" style="font-size: 10px; margin: 5px 0;">
+          <span class="label">Payment Method:</span>
+          <span class="value">${order.payment?.method?.toUpperCase() || 'COD'}</span>
+        </div>
+        ${order.assignedDeliveryPartner ? `
+          <div class="info-row" style="font-size: 10px; margin: 5px 0;">
+            <span class="label">Rider</span>
+            <span class="value"><strong>Assigned</strong></span>
+          </div>
+        ` : ''}
+        
+        <div class="separator"></div>
+        
+        <!-- Promo Box -->
+        <div class="promo-box">
+          <span class="promo-icon">🎁</span>
+          Free Delivery on orders above ₹499
+          <span class="promo-icon">🎁</span>
+        </div>
+        
+        <!-- Thank You Message -->
+        <div class="footer-msg">
+          ⚠️ THANK YOU FOR ORDERING! ⚠️<br>
+          your Dripp will arive soon.
+        </div>
+        
+        <!-- Footer -->
+        <div class="footer-tagline">
+          — DOORDRIPP —
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
 exports.updateOrderStatus = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -745,7 +1144,7 @@ exports.updateOrderStatus = async (req, res, next) => {
       const InvoiceService = require('../services/invoiceService');
       InvoiceService.generateInvoice(order._id.toString())
         .then(invoiceResult => {
-          logger.info(`✅ Invoice generated for delivered COD order: ${invoiceResult.invoice.invoiceNumber}`);
+          logger.info('Invoice generated for delivered COD order: ' + invoiceResult.invoice.invoiceNumber);
           // Send invoice email if mail service available
           const mailService = require('../services/mail.service');
           if (mailService && mailService.sendInvoiceEmail) {

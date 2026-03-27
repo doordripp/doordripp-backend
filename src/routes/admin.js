@@ -5,7 +5,7 @@ const adminDeliveryController = require('../controllers/adminDeliveryController'
 const analyticsController = require('../controllers/analyticsController');
 const advancedAnalyticsController = require('../controllers/advancedAnalyticsController');
 const adminVoucherController = require('../controllers/adminVoucherController');
-const { verifyToken, requireAdmin, requireAnyRole } = require('../middleware/auth');
+const { verifyToken, requireAdmin, requireAnyRole, requireAdminOrManager } = require('../middleware/auth');
 
 // All admin routes require authentication
 router.use(verifyToken);
@@ -28,6 +28,7 @@ router.delete('/products/:id', requireAdmin, adminController.deleteProduct);
 // Orders — accessible by admin, manager & delivery_partner
 router.get('/orders', adminManagerOrDP, adminController.listOrders);
 router.get('/orders/:id', adminManagerOrDP, adminController.getOrder);
+router.get('/orders/:id/bill', requireAdminOrManager, adminController.getOrderBill);
 router.put('/orders/:id/status', adminManagerOrDP, adminController.updateOrderStatus);
 router.post('/orders/:id/accept', requireAnyRole('delivery_partner'), adminController.acceptDelivery);
 
