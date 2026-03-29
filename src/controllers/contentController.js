@@ -10,7 +10,7 @@ exports.createBanner = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Image URL is required' })
     }
 
-    const singleCategories = ['new_arrivals', 'best_sellers', 'featured', 'accessories', 'footwear', 'men', 'women'];
+    const singleCategories = ['new_arrivals', 'best_sellers', 'featured', 'accessories', 'men', 'women'];
     if (singleCategories.includes(type)) {
       const existing = await Banner.findOne({ type, platform: platform || 'app' });
       if (existing) {
@@ -95,7 +95,7 @@ exports.updateBanner = async (req, res, next) => {
   try {
     const { title, imageUrl, imageKitId, link, type, platform, order, isActive } = req.body
 
-    const singleCategories = ['new_arrivals', 'best_sellers', 'featured', 'accessories', 'footwear', 'men', 'women'];
+    const singleCategories = ['new_arrivals', 'best_sellers', 'featured', 'accessories', 'men', 'women'];
     if (type && singleCategories.includes(type)) {
       const currentBanner = await Banner.findById(req.params.id);
       if (currentBanner) {

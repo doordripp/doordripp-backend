@@ -19,7 +19,6 @@ const CATEGORY_GST_MAP = {
   grocery: { hsnSac: '2106', gstRate: 0 },
   furniture: { hsnSac: '9403', gstRate: 0 },
   toys: { hsnSac: '9503', gstRate: 0 },
-  footwear: { hsnSac: '6403', gstRate: 0 },
   beauty: { hsnSac: '3304', gstRate: 0 },
   personalcare: { hsnSac: '3304', gstRate: 0 }
 };
