@@ -540,11 +540,18 @@ exports.verifyPayment = async (req, res, next) => {
         orderDate: order.createdAt,
         items: order.items.map(it => ({
           name: it.name,
+          variant: it.variant,
           quantity: it.quantity,
-          price: it.price
+          price: it.price,
+          image: it.image,
+          size: it.size,
+          color: it.color,
+          sku: it.sku,
+          product: it.product
         })),
         totalAmount: order.total,
-        shippingAddress: order.shippingAddress
+        shippingAddress: order.shippingAddress,
+        paymentMethod: order.payment?.method
       }).catch(err => console.error('Customer email send failed:', err));
     }
 
