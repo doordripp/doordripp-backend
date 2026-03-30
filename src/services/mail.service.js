@@ -298,7 +298,7 @@ class MailService {
       expiryMinutes: '5',
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'http://localhost:5173'
+      clientUrl: process.env.CLIENT_URL || process.env.FRONTEND_URL || 'https://doordripp.com'
     });
 
 

@@ -2,14 +2,18 @@ const path = require('path');
 const dotenv = require('dotenv');
 const fs = require('fs');
 
-// Load environment variables based on NODE_ENV
-const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+// Load base .env first to get any base variables and optionally NODE_ENV
 const envDir = path.join(__dirname, '..');
+dotenv.config({ path: path.join(envDir, '.env') });
+
+// Determine environment-specific file
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
 const baseEnvPath = path.join(envDir, envFile);
 const envLocalPath = path.join(envDir, `${envFile}.local`);
 const rootLocalPath = path.join(envDir, '.env.local');
 
-dotenv.config({ path: baseEnvPath });
+// Load environment-specific file (override base .env values)
+dotenv.config({ path: baseEnvPath, override: true });
 if (fs.existsSync(envLocalPath)) {
   dotenv.config({ path: envLocalPath, override: true });
 }
@@ -77,9 +81,7 @@ const defaultOrigins = [
   'http://localhost:5176',
   'http://localhost:5177',
   'https://doordripp.com',
-  'https://www.doordripp.com',
-  
-  'https://doordripp-frontend.netlify.app'
+  'https://www.doordripp.com'
 ];
 
 const allowedOrigins = Array.from(

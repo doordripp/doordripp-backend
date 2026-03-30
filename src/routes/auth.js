@@ -17,8 +17,6 @@ const defaultFrontendUrls = [
   'http://localhost:5174',
   'https://doordripp.com',
   'https://www.doordripp.com',
-  'https://doordripp-frontend.netlify.app',
-  'https://doordripp-frontned.netlify.app',
 ]
 
 const normalizeOrigin = (url) => {

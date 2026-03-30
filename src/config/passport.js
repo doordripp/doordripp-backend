@@ -11,26 +11,18 @@ const GOOGLE_CLIENT_ID_DEV = process.env.GOOGLE_CLIENT_ID_DEV
 const GOOGLE_CLIENT_SECRET_DEV = process.env.GOOGLE_CLIENT_SECRET_DEV
 
 const normalizeBaseUrl = (url) => (url || '').trim().replace(/\/+$/, '')
-const DEFAULT_PROD_BACKEND_URL = 'https://doordripp-backend.onrender.com'
-const DEFAULT_DEV_BACKEND_URL = 'http://localhost:4000'
 
 const rawCallbackUrl = (process.env.GOOGLE_CALLBACK_URL || '').trim()
 const rawDevCallbackUrl = (process.env.GOOGLE_CALLBACK_URL_DEV || '').trim()
 const rawBackendUrl = normalizeBaseUrl(process.env.BACKEND_URL)
 const isProd = process.env.NODE_ENV === 'production'
 
-const fallbackBackendUrl = isProd ? DEFAULT_PROD_BACKEND_URL : DEFAULT_DEV_BACKEND_URL
+const fallbackBackendUrl = isProd ? 'https://doordripp.com' : 'http://localhost:4000'
 const safeBackendUrl = rawBackendUrl || fallbackBackendUrl
 
-// In production, ignore localhost callback values to prevent redirect_uri_mismatch.
-const GOOGLE_CALLBACK_URL = (() => {
-  if (rawCallbackUrl && !(isProd && rawCallbackUrl.includes('localhost'))) {
-    return rawCallbackUrl
-  }
-  return `${safeBackendUrl}/api/auth/google/callback`
-})()
-
-const GOOGLE_CALLBACK_URL_DEV = rawDevCallbackUrl || `${DEFAULT_DEV_BACKEND_URL}/login/oauth2/code/google-auth-dev`
+// Callback URL determination
+const GOOGLE_CALLBACK_URL = rawCallbackUrl || `${safeBackendUrl}/api/auth/google/callback`
+const GOOGLE_CALLBACK_URL_DEV = rawDevCallbackUrl || `http://localhost:4000/login/oauth2/code/google-auth-dev`
 
 if (isProd && GOOGLE_CALLBACK_URL.includes('localhost')) {
   logger.warn('Google OAuth callback URL still points to localhost in production. Check BACKEND_URL/GOOGLE_CALLBACK_URL env vars.')
