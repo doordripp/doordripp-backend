@@ -2,6 +2,7 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const RazorpayUtil = require('../utils/razorpay');
 const mailService = require('../services/mail.service');
+const pushService = require('../services/pushNotification.service');
 const DeliveryZone = require('../models/DeliveryZone');
 const AreaManager = require('../models/AreaManager');
 const voucherService = require('../services/voucher.service');
@@ -540,18 +541,11 @@ exports.verifyPayment = async (req, res, next) => {
         orderDate: order.createdAt,
         items: order.items.map(it => ({
           name: it.name,
-          variant: it.variant,
           quantity: it.quantity,
-          price: it.price,
-          image: it.image,
-          size: it.size,
-          color: it.color,
-          sku: it.sku,
-          product: it.product
+          price: it.price
         })),
         totalAmount: order.total,
-        shippingAddress: order.shippingAddress,
-        paymentMethod: order.payment?.method
+        shippingAddress: order.shippingAddress
       }).catch(err => console.error('Customer email send failed:', err));
     }
 
@@ -587,6 +581,15 @@ exports.verifyPayment = async (req, res, next) => {
     } else {
       console.warn('⚠️ No managers found for this delivery area');
     }
+
+    // Send push notification to all admins/managers (non-blocking)
+    pushService.notifyNewOrder({
+      orderId: order._id.toString(),
+      customerName: order.customer.name,
+      total: order.total,
+      itemCount: order.items.length,
+      isTrial: order.isTrial || false
+    }).catch(err => console.error('Push notification send failed:', err));
 
     res.json({ message: 'Payment verified successfully', order });
   } catch (err) {
