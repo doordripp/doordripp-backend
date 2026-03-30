@@ -336,6 +336,7 @@ class MailService {
       itemCount: orderData.items.length,
       items: this.formatOrderItems(orderData.items),
       shippingAddress: this.formatAddress(orderData.shippingAddress),
+      paymentMethod: this.formatPaymentMethod(orderData.paymentMethod || orderData?.payment?.method),
       estimatedDelivery: orderData.estimatedDelivery || 'Within 5-7 business days',
       trackingUrl: getOrderUrl(orderData.orderId),
       currentYear: new Date().getFullYear(),
@@ -659,20 +660,58 @@ class MailService {
    * Format order items for email template
    */
   formatOrderItems(items) {
-    return items.map(item => `
+    if (!Array.isArray(items) || items.length === 0) {
+      return `
       <tr>
-        <td style="padding: 12px; border-bottom: 1px solid #eee;">
-          ${item.name}
-          ${item.variant ? `<br><small style="color: #666;">${item.variant}</small>` : ''}
-        </td>
-        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
-          ${item.quantity}
-        </td>
-        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right;">
-          ₹${item.price.toLocaleString('en-IN')}
+        <td colspan="5" style="padding: 16px; text-align: center; color: #666; border-bottom: 1px solid #eee;">
+          No items found in this order.
         </td>
       </tr>
-    `).join('');
+      `;
+    }
+
+    return items.map(item => {
+      const quantity = Number(item.quantity) || 1;
+      const unitPrice = Number(item.price) || 0;
+      const lineTotal = quantity * unitPrice;
+
+      const variantParts = [
+        item.variant,
+        item.size ? `Size: ${item.size}` : '',
+        item.color ? `Color: ${item.color}` : '',
+        item.sku ? `SKU: ${item.sku}` : ''
+      ].filter(Boolean);
+
+      const imageUrl = this.resolveItemImage(item);
+      const productName = this.escapeHtml(item.name || item.productName || 'Product');
+      const variantText = variantParts.length
+        ? `<br><small style="color: #666; line-height: 1.5;">${this.escapeHtml(variantParts.join(' • '))}</small>`
+        : '';
+
+      const imageCell = imageUrl
+        ? `<img src="${this.escapeAttribute(imageUrl)}" alt="${productName}" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #e2e8f0;display:block;"/>`
+        : `<div style="width:64px;height:64px;border-radius:8px;border:1px solid #e2e8f0;background:#f7fafc;color:#94a3b8;font-size:11px;display:flex;align-items:center;justify-content:center;">No image</div>`;
+
+      return `
+      <tr>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; width: 80px;">
+          ${imageCell}
+        </td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee;">
+          <strong>${productName}</strong>${variantText}
+        </td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
+          ${quantity}
+        </td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap;">
+          ₹${unitPrice.toLocaleString('en-IN')}
+        </td>
+        <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: right; white-space: nowrap; font-weight: 600;">
+          ₹${lineTotal.toLocaleString('en-IN')}
+        </td>
+      </tr>
+      `;
+    }).join('');
   }
 
   /**
@@ -680,11 +719,78 @@ class MailService {
    */
   formatAddress(address) {
     if (!address) return 'Address not provided';
-    return `
-      ${address.street}<br>
-      ${address.city}, ${address.state} ${address.zip}<br>
-      ${address.country || 'India'}
-    `;
+
+    const line1 = address.line1 || address.addressLine1 || address.street || '';
+    const line2 = address.line2 || address.addressLine2 || '';
+    const city = address.city || '';
+    const state = address.state || '';
+    const pincode = address.pincode || address.zip || address.zipCode || '';
+    const country = address.country || 'India';
+    const recipientName = address.name || '';
+    const phone = address.phone || '';
+
+    const lines = [
+      recipientName ? `<strong>${this.escapeHtml(recipientName)}</strong>` : '',
+      phone ? `Phone: ${this.escapeHtml(phone)}` : '',
+      this.escapeHtml(line1),
+      this.escapeHtml(line2),
+      this.escapeHtml([city, state, pincode].filter(Boolean).join(', ')),
+      this.escapeHtml(country)
+    ].filter(Boolean);
+
+    return lines.join('<br>');
+  }
+
+  /**
+   * Format payment method into readable text
+   */
+  formatPaymentMethod(method) {
+    if (!method) return 'N/A';
+    const normalized = String(method).trim().toLowerCase();
+    if (!normalized) return 'N/A';
+    return normalized
+      .replace(/[_-]/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  /**
+   * Resolve product image URL from supported item shapes
+   */
+  resolveItemImage(item = {}) {
+    if (typeof item.image === 'string' && item.image.trim()) return item.image.trim();
+    if (typeof item.imageUrl === 'string' && item.imageUrl.trim()) return item.imageUrl.trim();
+    if (Array.isArray(item.images) && item.images.length > 0) {
+      const first = item.images.find((img) => typeof img === 'string' && img.trim());
+      if (first) return first.trim();
+    }
+    if (item.product && typeof item.product === 'object') {
+      const product = item.product;
+      if (typeof product.image === 'string' && product.image.trim()) return product.image.trim();
+      if (Array.isArray(product.images) && product.images.length > 0) {
+        const first = product.images.find((img) => typeof img === 'string' && img.trim());
+        if (first) return first.trim();
+      }
+    }
+    return '';
+  }
+
+  /**
+   * Escape text for safe HTML output
+   */
+  escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  /**
+   * Escape HTML attribute values
+   */
+  escapeAttribute(value) {
+    return this.escapeHtml(value).replace(/`/g, '&#96;');
   }
 }
 
