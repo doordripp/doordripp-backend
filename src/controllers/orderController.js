@@ -236,6 +236,20 @@ async function autoAssignDeliveryPartner(order, existingDeliveryInfo = null) {
 
 exports.autoAssignDeliveryPartner = autoAssignDeliveryPartner;
 
+exports.getRazorpayConfig = async (req, res, next) => {
+  try {
+    const keyId = String(process.env.RAZORPAY_KEY_ID || '').trim();
+    const isReady = /^rzp_(test|live)_/i.test(keyId);
+
+    res.json({
+      keyId,
+      ready: isReady
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 exports.create = async (req, res, next) => {
   try {
     const {

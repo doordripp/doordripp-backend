@@ -4,7 +4,49 @@ const router = express.Router();
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const crypto = require('crypto');
+const { exec } = require('child_process');
 const orderController = require('../controllers/orderController');
+
+const DEPLOY_FRONTEND_REPO_FULL_NAME = process.env.DEPLOY_FRONTEND_REPO_FULL_NAME || 'doordripp/doordripp-frontend';
+const DEPLOY_BACKEND_REPO_FULL_NAME = process.env.DEPLOY_BACKEND_REPO_FULL_NAME || 'doordripp/doordripp-backend';
+const DEPLOY_FRONTEND_BRANCH = process.env.DEPLOY_FRONTEND_BRANCH || 'main';
+const DEPLOY_BACKEND_BRANCH = process.env.DEPLOY_BACKEND_BRANCH || 'main';
+const DEPLOY_FRONTEND_REPO_PATH = process.env.DEPLOY_FRONTEND_REPO_PATH || '/var/www/doordripp-frontend';
+const DEPLOY_BACKEND_REPO_PATH = process.env.DEPLOY_BACKEND_REPO_PATH || '/var/www/doordripp-backend';
+
+const deployTargets = {
+  [DEPLOY_FRONTEND_REPO_FULL_NAME]: {
+    label: 'frontend',
+    branchRef: `refs/heads/${DEPLOY_FRONTEND_BRANCH}`,
+    command: [
+      `cd "${DEPLOY_FRONTEND_REPO_PATH}"`,
+      `git pull --ff-only origin ${DEPLOY_FRONTEND_BRANCH}`,
+      'npm ci',
+      'npm run build'
+    ].join(' && ')
+  },
+  [DEPLOY_BACKEND_REPO_FULL_NAME]: {
+    label: 'backend',
+    branchRef: `refs/heads/${DEPLOY_BACKEND_BRANCH}`,
+    command: [
+      `cd "${DEPLOY_BACKEND_REPO_PATH}"`,
+      `git pull --ff-only origin ${DEPLOY_BACKEND_BRANCH}`,
+      'npm ci',
+      'pm2 startOrReload ecosystem.config.js --only doordripp-backend --env production'
+    ].join(' && ')
+  }
+};
+
+const isValidGitHubSignature = (signature, body, secret) => {
+  if (!signature || !secret) return false;
+
+  const digest = `sha256=${crypto.createHmac('sha256', secret).update(body).digest('hex')}`;
+  const providedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(digest);
+
+  if (providedBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+};
 
 /**
  * Razorpay Webhook Handler
@@ -92,6 +134,53 @@ router.post('/razorpay', async (req, res) => {
     logger.error('Webhook error:', err);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
+});
+
+router.post('/github-deploy', (req, res) => {
+  const githubWebhookSecret = String(process.env.GITHUB_WEBHOOK_SECRET || '').trim();
+  const signature = req.headers['x-hub-signature-256'];
+  const body = req.rawBody || JSON.stringify(req.body || {});
+
+  if (!githubWebhookSecret) {
+    logger.error('GitHub deploy webhook secret is missing');
+    return res.status(500).json({ error: 'Webhook secret not configured' });
+  }
+
+  if (!isValidGitHubSignature(signature, body, githubWebhookSecret)) {
+    logger.warn('GitHub deploy webhook rejected due to invalid signature');
+    return res.status(403).json({ error: 'Invalid signature' });
+  }
+
+  const payload = req.body || {};
+  const repoName = payload?.repository?.full_name;
+  const target = deployTargets[repoName];
+
+  if (!target) {
+    logger.info(`GitHub deploy webhook ignored for unconfigured repo: ${repoName || 'unknown'}`);
+    return res.json({ ok: true, ignored: 'repo' });
+  }
+
+  if (payload.ref !== target.branchRef) {
+    logger.info(`GitHub deploy webhook ignored for ${target.label} branch ${payload.ref}`);
+    return res.json({ ok: true, ignored: 'branch' });
+  }
+
+  logger.info(`GitHub deploy webhook accepted for ${target.label} (${repoName})`);
+
+  exec(target.command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+    if (error) {
+      logger.error(`${target.label} deploy failed: ${error.message}`);
+      if (stdout) logger.info(stdout);
+      if (stderr) logger.error(stderr);
+      return;
+    }
+
+    if (stdout) logger.info(stdout);
+    if (stderr) logger.error(stderr);
+    logger.info(`${target.label} deploy completed successfully`);
+  });
+
+  return res.json({ ok: true, triggered: target.label });
 });
 
 module.exports = router;
