@@ -90,12 +90,8 @@ const allowedOrigins = Array.from(
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Block requests with no origin in production (prevents server-side request forgery)
+    // In production allow no-origin requests from same-server health checks / Nginx
     if (!origin) {
-      if (process.env.NODE_ENV === 'production') {
-        return callback(new Error('CORS not allowed: missing origin'), false);
-      }
-      // Allow no-origin requests only in development (e.g., curl, Postman)
       return callback(null, true);
     }
 
@@ -107,7 +103,9 @@ const corsOptions = {
     const normalizedOrigin = normalizeOrigin(origin);
     if (allowedOrigins.includes(normalizedOrigin)) return callback(null, true);
 
-    return callback(new Error('CORS not allowed for origin: ' + origin), false);
+    const err = new Error('CORS not allowed for origin: ' + origin);
+    err.status = 403;
+    return callback(err, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
