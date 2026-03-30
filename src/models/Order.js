@@ -11,6 +11,7 @@ const OrderItemSchema = new mongoose.Schema({
   cgst: { type: Number, default: 0 },
   sgst: { type: Number, default: 0 },
   igst: { type: Number, default: 0 },
+  productSource: { type: String, enum: ['Retailer', 'Manufacturer'], default: 'Manufacturer' },
   itemTotal: { type: Number } // price * quantity + GST
 })
 
@@ -31,7 +32,8 @@ const OrderSchema = new mongoose.Schema({
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     name: { type: String },
     image: { type: String },
-    price: { type: Number }
+    price: { type: Number },
+    productSource: { type: String, enum: ['Retailer', 'Manufacturer'], default: 'Manufacturer' }
   }],
   deliveryType: {
     type: String,

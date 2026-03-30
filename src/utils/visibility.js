@@ -19,13 +19,10 @@ const shouldShowRetailerProducts = () => {
  * @returns {object}
  */
 const getVisibilityFilter = () => {
-  if (shouldShowRetailerProducts()) {
-    // Both Retailer and Manufacturer are visible
-    return {};
-  } else {
-    // Only Manufacturer (or undefined) is visible
-    return { productSource: { $ne: 'Retailer' } };
-  }
+  // We no longer filter out products at the DB level to avoid products appearing "lost".
+  // Visibility logic should be handled by the frontend (displaying "Closed" status) 
+  // or at the checkout level to prevent orders.
+  return {};
 };
 
 module.exports = {
