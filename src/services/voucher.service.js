@@ -116,7 +116,7 @@ async function consumeVoucherUsage({ voucherId, userId }) {
   const updatedVoucher = await Voucher.findOneAndUpdate(
     voucherFilter,
     { $inc: { usedCount: 1 } },
-    { new: true }
+    { returnDocument: 'after' }
   )
 
   if (!updatedVoucher) {
@@ -128,7 +128,7 @@ async function consumeVoucherUsage({ voucherId, userId }) {
       await VoucherUsage.findOneAndUpdate(
         { voucher: voucherId, user: userId },
         { $inc: { count: 1 }, $setOnInsert: { voucher: voucherId, user: userId } },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
+        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
       )
       return
     }
@@ -140,7 +140,7 @@ async function consumeVoucherUsage({ voucherId, userId }) {
         count: { $lt: updatedVoucher.perUserLimit }
       },
       { $inc: { count: 1 }, $setOnInsert: { voucher: voucherId, user: userId } },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     )
 
     if (!userUsage || userUsage.count > updatedVoucher.perUserLimit) {

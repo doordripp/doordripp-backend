@@ -95,7 +95,7 @@ exports.registerInitiate = async (req, res, next) => {
         attempts: 0,
         phone: normalizedPhone || undefined,
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true }
+      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
     );
 
     // Send OTP via email

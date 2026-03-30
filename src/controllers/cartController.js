@@ -1,5 +1,39 @@
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
+const mongoose = require('mongoose');
+const { ALL_PRODUCTS = [] } = require('../data/frontendProducts');
+
+const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const LEGACY_PRODUCT_NAME_BY_ID = ALL_PRODUCTS.reduce((acc, product) => {
+  if (product?.id && product?.name) acc[product.id] = product.name;
+  return acc;
+}, {});
+
+const resolveProductId = async (rawProductId) => {
+  if (!rawProductId) return null;
+
+  const candidate = String(rawProductId).trim();
+  if (!candidate) return null;
+
+  if (mongoose.Types.ObjectId.isValid(candidate)) {
+    const exists = await Product.exists({ _id: candidate });
+    return exists ? candidate : null;
+  }
+
+  const bySlug = await Product.findOne({ slug: candidate }).select('_id').lean();
+  if (bySlug?._id) return String(bySlug._id);
+
+  const legacyName = LEGACY_PRODUCT_NAME_BY_ID[candidate];
+  if (legacyName) {
+    const byName = await Product.findOne({
+      name: { $regex: `^${escapeRegex(legacyName)}$`, $options: 'i' }
+    }).select('_id').lean();
+    if (byName?._id) return String(byName._id);
+  }
+
+  return null;
+};
 
 exports.getCart = async (req, res, next) => {
   try {
@@ -20,7 +54,12 @@ exports.addItem = async (req, res, next) => {
     const { productId, quantity = 1, size = 'M', color = 'default' } = req.body;
     if (!productId) return res.status(400).json({ error: 'productId required' });
 
-    const product = await Product.findById(productId);
+    const resolvedProductId = await resolveProductId(productId);
+    if (!resolvedProductId) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const product = await Product.findById(resolvedProductId);
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
     // Visibility check for Retailer products
@@ -37,7 +76,7 @@ exports.addItem = async (req, res, next) => {
     }
 
     const existing = cart.items.find(i =>
-      i.product.toString() === productId &&
+      i.product.toString() === resolvedProductId &&
       i.size === size &&
       i.color === color
     );
@@ -50,7 +89,7 @@ exports.addItem = async (req, res, next) => {
     if (existing) {
       existing.quantity += requestedQty;
     } else {
-      cart.items.push({ product: productId, quantity: requestedQty, size, color });
+      cart.items.push({ product: resolvedProductId, quantity: requestedQty, size, color });
     }
 
     await cart.save();
@@ -69,11 +108,14 @@ exports.updateQuantity = async (req, res, next) => {
     if (!productId) return res.status(400).json({ error: 'productId required' });
     if (typeof quantity !== 'number') return res.status(400).json({ error: 'quantity required' });
 
+    const resolvedProductId = await resolveProductId(productId);
+    if (!resolvedProductId) return res.status(404).json({ error: 'Product not found' });
+
     let cart = await Cart.findOne({ user: userId });
     if (!cart) return res.status(404).json({ error: 'Cart not found' });
 
     const existing = cart.items.find(i =>
-      i.product.toString() === productId &&
+      i.product.toString() === resolvedProductId &&
       i.size === size &&
       i.color === color
     );
@@ -83,7 +125,7 @@ exports.updateQuantity = async (req, res, next) => {
     if (quantity <= 0) {
       cart.items = cart.items.filter(i => i !== existing);
     } else {
-      const product = await Product.findById(productId);
+      const product = await Product.findById(resolvedProductId);
       if (product && quantity > product.stock) {
         return res.status(400).json({ error: 'Out of stock' });
       }
@@ -104,11 +146,14 @@ exports.removeItem = async (req, res, next) => {
     const { productId, size = 'M', color = 'default' } = req.body;
     if (!productId) return res.status(400).json({ error: 'productId required' });
 
+    const resolvedProductId = await resolveProductId(productId);
+    if (!resolvedProductId) return res.status(404).json({ error: 'Product not found' });
+
     const cart = await Cart.findOne({ user: userId });
     if (!cart) return res.status(404).json({ error: 'Cart not found' });
 
     cart.items = cart.items.filter(i =>
-      !(i.product.toString() === productId && i.size === size && i.color === color)
+      !(i.product.toString() === resolvedProductId && i.size === size && i.color === color)
     );
     await cart.save();
 
@@ -132,12 +177,21 @@ exports.syncCart = async (req, res, next) => {
     // Replace current cart items with sync content or merge? 
     // Usually on login, we might want to merge, but simple replacement is easier to manage if frontend holds the truth.
     // Let's go with replacement for consistency.
-    const newItems = items.map(item => ({
-      product: item.id || item.productId,
-      quantity: item.quantity,
-      size: item.selectedSize || item.size || 'M',
-      color: item.selectedColor || item.color || 'default'
+    const syncedItems = await Promise.all(items.map(async (item) => {
+      const rawId = item?.id || item?.productId;
+      const resolvedProductId = await resolveProductId(rawId);
+      if (!resolvedProductId) return null;
+
+      const quantity = Math.max(1, parseInt(item?.quantity, 10) || 1);
+      return {
+        product: resolvedProductId,
+        quantity,
+        size: item?.selectedSize || item?.size || 'M',
+        color: item?.selectedColor || item?.color || 'default'
+      };
     }));
+
+    const newItems = syncedItems.filter(Boolean);
 
     cart.items = newItems;
     await cart.save();

@@ -241,7 +241,7 @@ exports.create = async (req, res, next) => {
 
 exports.update = async (req, res, next) => {
   try {
-    const updated = await Product.findByIdAndUpdate(req.params.id, req.body, { new: true })
+    const updated = await Product.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' })
     res.json(updated)
   } catch (err) {
     next(err)

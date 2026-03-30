@@ -61,6 +61,5 @@ const ExpenseSchema = new mongoose.Schema(
 // Indexes for performance
 ExpenseSchema.index({ type: 1, date: -1 });
 ExpenseSchema.index({ status: 1, date: -1 });
-ExpenseSchema.index({ month: 1 });
 
 module.exports = mongoose.model('Expense', ExpenseSchema);

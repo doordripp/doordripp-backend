@@ -455,7 +455,7 @@ exports.updateProduct = async (req, res, next) => {
     if (details !== undefined) updateData.details = typeof details === 'string' ? JSON.parse(details) : details;
     if (keyFeatures !== undefined) updateData.keyFeatures = typeof keyFeatures === 'string' ? JSON.parse(keyFeatures) : keyFeatures;
 
-    const product = await Product.findByIdAndUpdate(id, updateData, { new: true });
+    const product = await Product.findByIdAndUpdate(id, updateData, { returnDocument: 'after' });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
     res.json({
@@ -1399,7 +1399,7 @@ exports.updateUser = async (req, res, next) => {
     if (roles !== undefined) updateData.roles = normalizeStoredRoles(roles);
     if (blocked !== undefined) updateData.blocked = blocked;
 
-    const user = await User.findByIdAndUpdate(id, updateData, { new: true }).select('-password -refreshToken');
+    const user = await User.findByIdAndUpdate(id, updateData, { returnDocument: 'after' }).select('-password -refreshToken');
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     res.json({

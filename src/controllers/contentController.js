@@ -79,7 +79,7 @@ exports.updateStatus = async (req, res, next) => {
     const banner = await Banner.findByIdAndUpdate(
       req.params.id,
       { isActive },
-      { new: true }
+      { returnDocument: 'after' }
     )
     if (!banner) {
       return res.status(404).json({ success: false, message: 'Banner not found' })
@@ -124,7 +124,7 @@ exports.updateBanner = async (req, res, next) => {
     const banner = await Banner.findByIdAndUpdate(
       req.params.id,
       updateData,
-      { new: true, runValidators: true }
+      { returnDocument: 'after', runValidators: true }
     )
 
     if (!banner) {
@@ -197,7 +197,7 @@ exports.updateCategoryStatus = async (req, res, next) => {
     const category = await Category.findByIdAndUpdate(
       req.params.id,
       { isActive },
-      { new: true }
+      { returnDocument: 'after' }
     )
     if (!category) {
       return res.status(404).json({ success: false, message: 'Category not found' })

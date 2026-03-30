@@ -683,7 +683,7 @@ exports.updateStatus = async (req, res, next) => {
         status,
         ...(trackingNumber && { trackingNumber })
       },
-      { new: true }
+      { returnDocument: 'after' }
     ).populate('customer');
 
     if (!order) return res.status(404).json({ error: 'Order not found' });

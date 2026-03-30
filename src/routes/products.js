@@ -163,7 +163,7 @@ router.put('/:id', verifyToken, requireAdmin, async (req, res, next) => {
     if (category !== undefined) updateData.category = category;
     if (images !== undefined) updateData.images = images;
 
-    const product = await Product.findByIdAndUpdate(req.params.id, updateData, { new: true });
+    const product = await Product.findByIdAndUpdate(req.params.id, updateData, { returnDocument: 'after' });
     if (!product) return res.status(404).json({ error: 'Not found' });
     res.json({ ...product.toObject(), id: product._id });
   } catch (err) {
