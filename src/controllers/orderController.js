@@ -268,6 +268,7 @@ exports.create = async (req, res, next) => {
 
       const product = await Product.findById(it.product);
       if (!product) return res.status(400).json({ error: 'Invalid product ' + it.product });
+
       // Check available stock (stock - reserved)
       const availableStock = product.stock - (product.reserved || 0);
       if (availableStock < quantity) return res.status(400).json({ error: 'Out of stock for ' + product.name });
@@ -282,6 +283,7 @@ exports.create = async (req, res, next) => {
         quantity,
         price,
         itemTotal,
+        productSource: product.productSource || 'Manufacturer',
         gstRate: 0,
         cgst: 0,
         sgst: 0,
@@ -336,6 +338,22 @@ exports.create = async (req, res, next) => {
       }
     }
 
+    // Enrich trialItems with source if present
+    const enrichedTrialItems = [];
+    if (isTrial && Array.isArray(trialItems)) {
+      for (const ti of trialItems) {
+        const pid = ti.product || ti.productId || ti._id;
+        const p = await Product.findById(pid);
+        enrichedTrialItems.push({
+          product: pid,
+          name: ti.name || p?.name,
+          image: ti.image || (p?.images && p.images[0]) || p?.image,
+          price: ti.price || p?.price,
+          productSource: p?.productSource || 'Manufacturer'
+        });
+      }
+    }
+
     // create a Razorpay order (amount in paise)
     const razorOrder = await RazorpayUtil.createOrder({ amount: Math.round(total * 100), currency: 'INR' });
 
@@ -350,7 +368,7 @@ exports.create = async (req, res, next) => {
       deliveryFee,
       trialFee: safeTrialFee,
       isTrial,
-      trialItems,
+      trialItems: enrichedTrialItems,
       deliveryType,
       deliveryETA,
       totalBeforeDiscount,

@@ -94,6 +94,44 @@ exports.verifyToken = async (req, res, next) => {
   }
 };
 
+exports.optionalVerifyToken = async (req, res, next) => {
+  let token = null;
+  
+  if (req.cookies && req.cookies.token) {
+    token = req.cookies.token;
+  }
+  if (!token && req.headers.authorization) {
+    const parts = req.headers.authorization.split(' ');
+    if (parts.length === 2 && parts[0] === 'Bearer') {
+      token = parts[1];
+    }
+  }
+
+  if (!token) return next();
+
+  try {
+    const jwtSecret = process.env.JWT_SECRET;
+    if (!jwtSecret) return next();
+    
+    const payload = jwt.verify(token, jwtSecret);
+    const user = await User.findById(payload.id);
+    if (!user) return next();
+
+    req.user = {
+      _id: user._id,
+      id: user._id,
+      roles: user.roles || [],
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      permissions: payload.permissions || getPermissionsForRoles(user.roles || [])
+    };
+    next();
+  } catch (err) {
+    next();
+  }
+};
+
 exports.authorize = (permission) => {
   return (req, res, next) => {
     if (!req.user || !req.user.permissions) {

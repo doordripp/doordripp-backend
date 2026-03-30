@@ -1,10 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const Product = require('../models/Product');
-const { verifyToken, requireAdmin } = require('../middleware/auth');
+const { verifyToken, requireAdmin, optionalVerifyToken, hasAnyRole } = require('../middleware/auth');
 
 // Public routes - fetch products
-router.get('/', async (req, res, next) => {
+router.get('/', optionalVerifyToken, async (req, res, next) => {
   try {
     const { search, category, sort, page = 1, limit = 50 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
@@ -81,11 +81,8 @@ router.get('/:id', async (req, res, next) => {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Not found' });
 
-    // Visibility check for Retailer products
-    const { shouldShowRetailerProducts } = require('../utils/visibility');
-    if (product.productSource === 'Retailer' && !shouldShowRetailerProducts()) {
-      return res.status(403).json({ error: 'Product is currently not available based on business hours.' });
-    }
+    // No visibility restriction on detail viewing to allow customers to browse
+    // even during closed hours. We handle checkout restrictions separately.
 
     res.json({
       id: product._id,
