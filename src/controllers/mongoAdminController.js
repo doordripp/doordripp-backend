@@ -44,6 +44,24 @@ const normalizeProductKeyFeatures = (keyFeatures) => {
   return [];
 };
 
+const toListedByPayload = (listedBy) => {
+  if (!listedBy) return null;
+
+  if (typeof listedBy === 'object' && listedBy.name) {
+    return {
+      id: listedBy._id || listedBy.id,
+      name: listedBy.name,
+      email: listedBy.email || ''
+    };
+  }
+
+  return {
+    id: listedBy,
+    name: '',
+    email: ''
+  };
+};
+
 const parseCoordinate = (value) => {
   if (value === null || value === undefined || value === '') return null;
   const parsed = parseFloat(value);
@@ -194,7 +212,11 @@ exports.listProducts = async (req, res, next) => {
     }
 
     const [products, total] = await Promise.all([
-      Product.find(filter).skip(skip).limit(parseInt(limit)).sort({ createdAt: -1 }),
+      Product.find(filter)
+        .populate('listedBy', 'name email')
+        .skip(skip)
+        .limit(parseInt(limit))
+        .sort({ createdAt: -1 }),
       Product.countDocuments(filter)
     ]);
 
@@ -223,6 +245,7 @@ exports.listProducts = async (req, res, next) => {
       isBestSeller: p.isBestSeller || false,
       isFeatured: p.isFeatured || false,
       productSource: p.productSource || 'Manufacturer',
+      listedBy: toListedByPayload(p.listedBy),
       details: normalizeProductDetails(p.details),
       keyFeatures: normalizeProductKeyFeatures(p.keyFeatures),
       status: p.stock > 0 ? 'Active' : 'Out of Stock'
@@ -241,7 +264,7 @@ exports.listProducts = async (req, res, next) => {
 
 exports.getProduct = async (req, res, next) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findById(req.params.id).populate('listedBy', 'name email');
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
     res.json({
@@ -269,6 +292,7 @@ exports.getProduct = async (req, res, next) => {
       isBestSeller: product.isBestSeller || false,
       isFeatured: product.isFeatured || false,
       productSource: product.productSource || 'Manufacturer',
+      listedBy: toListedByPayload(product.listedBy),
       details: normalizeProductDetails(product.details),
       keyFeatures: normalizeProductKeyFeatures(product.keyFeatures)
     });
@@ -334,11 +358,13 @@ exports.createProduct = async (req, res, next) => {
       isBestSeller: isBestSeller || false,
       isFeatured: isFeatured || false,
       productSource: productSource || 'Manufacturer',
+      listedBy: req.user?._id || req.user?.id || null,
       details: details ? (typeof details === 'string' ? JSON.parse(details) : details) : {},
       keyFeatures: keyFeatures ? (typeof keyFeatures === 'string' ? JSON.parse(keyFeatures) : keyFeatures) : []
     });
 
     await product.save();
+    await product.populate('listedBy', 'name email');
 
     res.status(201).json({
       id: product._id,
@@ -365,6 +391,7 @@ exports.createProduct = async (req, res, next) => {
       isBestSeller: product.isBestSeller,
       isFeatured: product.isFeatured,
       productSource: product.productSource,
+      listedBy: toListedByPayload(product.listedBy),
       details: normalizeProductDetails(product.details),
       keyFeatures: normalizeProductKeyFeatures(product.keyFeatures),
       status: product.stock > 0 ? 'Active' : 'Out of Stock'

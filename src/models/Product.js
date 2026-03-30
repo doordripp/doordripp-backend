@@ -55,6 +55,12 @@ const ProductSchema = new mongoose.Schema({
     enum: ['Retailer', 'Manufacturer'], 
     default: 'Manufacturer',
     index: true
+  },
+  listedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null,
+    index: true
   }
 }, { timestamps: true })
 
