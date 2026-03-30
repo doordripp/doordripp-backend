@@ -44,6 +44,14 @@ const normalizeProductKeyFeatures = (keyFeatures) => {
   return [];
 };
 
+const normalizeProductImages = (images) => {
+  if (!Array.isArray(images)) return [];
+  return images
+    .filter(image => typeof image === 'string')
+    .map(image => image.trim())
+    .filter(Boolean);
+};
+
 const toListedByPayload = (listedBy) => {
   if (!listedBy) return null;
 
@@ -350,7 +358,7 @@ exports.createProduct = async (req, res, next) => {
       category: category || 'Uncategorized',
       subcategory: subcategory || '',
       dressStyle: dressStyle || '',
-      images: images || [],
+      images: normalizeProductImages(images),
       colors: colors || [],
       sizes: sizes || [],
       rating: rating || { rating: 4.5, reviews: 0 },
@@ -444,7 +452,7 @@ exports.updateProduct = async (req, res, next) => {
     if (category !== undefined) updateData.category = category;
     if (subcategory !== undefined) updateData.subcategory = subcategory;
     if (dressStyle !== undefined) updateData.dressStyle = dressStyle;
-    if (images !== undefined) updateData.images = images;
+    if (images !== undefined) updateData.images = normalizeProductImages(images);
     if (colors !== undefined) updateData.colors = colors;
     if (sizes !== undefined) updateData.sizes = sizes;
     if (rating !== undefined) updateData.rating = rating;

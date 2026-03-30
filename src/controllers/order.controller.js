@@ -102,15 +102,10 @@ exports.createOrder = async (req, res, next) => {
         name: item.productName || item.name,
         variant: item.variant || (item.size ? `Size: ${item.size}, Color: ${item.color}` : null),
         quantity: item.quantity,
-        price: item.price,
-        image: item.image || item.imageUrl || item.productImage || (Array.isArray(item.images) ? item.images[0] : ''),
-        size: item.size,
-        color: item.color,
-        sku: item.sku || item.productId || item.product
+        price: item.price
       })),
       totalAmount,
       shippingAddress,
-      paymentMethod,
       estimatedDelivery: estimatedDelivery.toLocaleDateString('en-IN', {
         year: 'numeric',
         month: 'long',
