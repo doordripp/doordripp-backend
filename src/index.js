@@ -123,7 +123,7 @@ app.use(cors(corsOptions));
 
 // Permissions-Policy header fix for Razorpay
 app.use((req, res, next) => {
-  res.setHeader('Permissions-Policy', 'otp-credentials=*, local-network-access=*');
+  res.setHeader('Permissions-Policy', 'payment=*, camera=*, microphone=*');
   next();
 });
 
