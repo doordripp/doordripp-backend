@@ -96,10 +96,16 @@ exports.createOrder = async (req, res, next) => {
     mailService.sendOrderConfirmation({
       customerName: user.name,
       customerEmail: user.email,
+      customerPhone: user.phone || user.phoneNumber || 'N/A',
       orderId: order._id.toString(),
       orderDate: order.orderDate,
       items: items.map(item => ({
+        productName: item.productName || item.name,
         name: item.productName || item.name,
+        productImage: item.productImage || item.image,
+        productDescription: item.productDescription || item.description,
+        size: item.size,
+        color: item.color,
         variant: item.variant || (item.size ? `Size: ${item.size}, Color: ${item.color}` : null),
         quantity: item.quantity,
         price: item.price

@@ -547,10 +547,16 @@ exports.verifyPayment = async (req, res, next) => {
       mailService.sendOrderConfirmation({
         customerName: order.customer.name,
         customerEmail: order.customer.email,
+        customerPhone: order.shippingAddress?.phone || order.customer.phone || 'N/A',
         orderId: order._id.toString(),
         orderDate: order.createdAt,
         items: order.items.map(it => ({
+          productName: it.name,
           name: it.name,
+          productImage: it.image || it.productImage,
+          productDescription: it.description || it.productDescription,
+          size: it.size,
+          color: it.color,
           quantity: it.quantity,
           price: it.price
         })),

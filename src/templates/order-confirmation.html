@@ -211,54 +211,83 @@
 
       <!-- Order Summary -->
       <div class="order-summary">
-        <h2>Order Summary</h2>
-        <div class="order-info">
-          <span class="label">Order Number:</span>
-          <span class="value">#{{orderId}}</span>
-        </div>
-        <div class="order-info">
-          <span class="label">Order Date:</span>
-          <span class="value">{{orderDate}}</span>
+        <h2 style="margin: 0 0 20px 0; font-size: 18px; color: #2d3748; font-weight: 600;">📋 Order Summary</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+          <div class="order-info">
+            <span class="label">Order Number:</span>
+            <span class="value" style="font-size: 16px; color: #38a169;">#{{orderId}}</span>
+          </div>
+          <div class="order-info">
+            <span class="label">Order Date:</span>
+            <span class="value">{{orderDate}}</span>
+          </div>
         </div>
         <div class="order-info">
           <span class="label">Total Items:</span>
-          <span class="value">{{itemCount}}</span>
+          <span class="value">{{itemCount}} item(s)</span>
         </div>
       </div>
 
-      <!-- Items Table -->
-      <table class="items-table">
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th style="text-align: center;">Quantity</th>
-            <th style="text-align: right;">Price</th>
-          </tr>
-        </thead>
-        <tbody>
-          {{items}}
-        </tbody>
-      </table>
+      <!-- Order Items with Details -->
+      <h2 style="margin: 30px 0 20px 0; font-size: 18px; color: #2d3748; font-weight: 600;">Order Items</h2>
+      {{orderedItems}}
 
       <!-- Total -->
-      <div class="total-section">
-        <div class="label">Total Amount</div>
-        <div class="amount">{{totalAmount}}</div>
+      <div class="total-section" style="background: linear-gradient(135deg, #f0fff4 0%, #e6fffa 100%); border: 3px solid #38a169; margin: 30px 0;">
+        <div class="label" style="font-size: 16px;">💰 Total Amount</div>
+        <div class="amount" style="font-size: 36px; margin-top: 10px;">{{totalAmount}}</div>
+        <div style="font-size: 12px; color: #718096; margin-top: 10px; font-style: italic;">Thank you for your order!</div>
       </div>
 
-      <!-- Shipping Info -->
+      <!-- Shipping & Customer Info -->
+      <!-- Shipping & Customer Address Info Combined -->
       <div class="shipping-info">
-        <h3>📦 Shipping Information</h3>
-        <p><strong>Delivery Address:</strong></p>
+        <h3>📦 Delivery Details</h3>
+        <p><strong>Shipping Address:</strong></p>
         <p>{{shippingAddress}}</p>
+        <p><strong>Contact Number:</strong> {{customerPhone}}</p>
         <p style="margin-top: 15px;">
           <strong>Estimated Delivery:</strong> {{estimatedDelivery}}
         </p>
       </div>
 
+      <!-- Customer Information Card -->
+      <div style="background-color: #f0f4ff; border-left: 4px solid #667eea; padding: 20px; margin: 25px 0; border-radius: 4px;">
+        <h3 style="margin: 0 0 15px 0; font-size: 14px; color: #2d3748; font-weight: 600;">👤 Customer Details</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; font-size: 13px;">
+          <div>
+            <p style="margin: 0 0 3px 0; color: #718096; font-weight: 500;">Name:</p>
+            <p style="margin: 0; color: #2d3748; font-weight: 600;">{{customerName}}</p>
+          </div>
+          <div>
+            <p style="margin: 0 0 3px 0; color: #718096; font-weight: 500;">Phone:</p>
+            <p style="margin: 0; color: #2d3748; font-weight: 600;">{{customerPhone}}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- What Happens Next -->
+      <div style="background-color: #fffaf0; border: 2px solid #ed8936; border-radius: 8px; padding: 25px; margin: 25px 0;">
+        <h3 style="margin: 0 0 15px 0; font-size: 16px; color: #2d3748; font-weight: 600;">📅 What Happens Next?</h3>
+        <div style="font-size: 13px; color: #4a5568; line-height: 1.8;">
+          <div style="margin-bottom: 12px; display: flex; gap: 10px;">
+            <span style="font-weight: bold; color: #ed8936;">1.</span>
+            <span><strong>Order Confirmation:</strong> Your order has been confirmed and is being prepared.</span>
+          </div>
+          <div style="margin-bottom: 12px; display: flex; gap: 10px;">
+            <span style="font-weight: bold; color: #ed8936;">2.</span>
+            <span><strong>Preparation:</strong> We're preparing your items for shipment (usually 1-2 hours).</span>
+          </div>
+          <div style="display: flex; gap: 10px;">
+            <span style="font-weight: bold; color: #ed8936;">3.</span>
+            <span><strong>Delivery:</strong> Your package will be delivered as per your selected delivery option.</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Track Order Button -->
-      <div style="text-align: center;">
-        <a href="{{trackingUrl}}" class="cta-button">Track Your Order</a>
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="{{trackingUrl}}" class="cta-button" style="display: inline-block; background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); padding: 16px 50px; font-size: 16px;">📍 Track Your Order</a>
       </div>
 
       <p class="message" style="margin-top: 30px;">

@@ -326,6 +326,7 @@ class MailService {
     
     const html = this.replacePlaceholders(template, {
       customerName: orderData.customerName || 'Valued Customer',
+      customerPhone: orderData.customerPhone || 'N/A',
       orderId: orderData.orderId,
       orderDate: new Date(orderData.orderDate).toLocaleDateString('en-IN', {
         year: 'numeric',
@@ -334,7 +335,7 @@ class MailService {
       }),
       totalAmount: `₹${orderData.totalAmount.toLocaleString('en-IN')}`,
       itemCount: orderData.items.length,
-      items: this.formatOrderItems(orderData.items),
+      orderedItems: this.formatOrderItemsRich(orderData.items),
       shippingAddress: this.formatAddress(orderData.shippingAddress),
       estimatedDelivery: orderData.estimatedDelivery || 'Within 5-7 business days',
       trackingUrl: getOrderUrl(orderData.orderId),
@@ -673,6 +674,66 @@ class MailService {
         </td>
       </tr>
     `).join('');
+  }
+
+  /**
+   * Format order items with rich details (images, size, color, etc)
+   * Used in enhanced email templates
+   */
+  formatOrderItemsRich(items) {
+    return items.map(item => {
+      const imageHtml = item.productImage 
+        ? `<img src="${item.productImage}" alt="${item.productName || item.name}" style="width: 120px; height: 120px; object-fit: cover; border-radius: 6px; border: 1px solid #e2e8f0;">`
+        : `<div style="width: 120px; height: 120px; background-color: #e2e8f0; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #a0aec0; font-size: 12px;">No Image</div>`;
+      
+      const sizeColor = item.size || item.variant 
+        ? `<div style="margin: 10px 0; font-size: 13px;">
+            ${item.size ? `<p style="margin: 5px 0;"><span style="color: #718096;">Size:</span> <span style="color: #2d3748; font-weight: 600;">${item.size}</span></p>` : ''}
+            ${item.color ? `<p style="margin: 5px 0;"><span style="color: #718096;">Color:</span> <span style="color: #2d3748; font-weight: 600;">${item.color}</span></p>` : ''}
+            ${!item.size && item.variant ? `<p style="margin: 5px 0;"><span style="color: #718096;">Details:</span> <span style="color: #2d3748; font-weight: 600;">${item.variant}</span></p>` : ''}
+          </div>`
+        : '';
+      
+      const itemTotal = (item.price * item.quantity).toLocaleString('en-IN');
+      const itemPrice = item.price.toLocaleString('en-IN');
+      
+      return `
+      <div style="background-color: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
+        <div style="display: flex; gap: 15px;">
+          <!-- Product Image -->
+          <div style="flex-shrink: 0;">
+            ${imageHtml}
+          </div>
+          
+          <!-- Product Details -->
+          <div style="flex-grow: 1;">
+            <h3 style="margin: 0 0 8px 0; font-size: 16px; color: #2d3748; font-weight: 600;">${item.productName || item.name}</h3>
+            
+            ${item.productDescription ? `<p style="margin: 0 0 10px 0; font-size: 13px; color: #4a5568;">${item.productDescription}</p>` : ''}
+            
+            ${sizeColor}
+            
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+              <div style="display: flex; justify-content: space-between; gap: 20px;">
+                <div>
+                  <span style="color: #718096; font-size: 13px;">Quantity:</span>
+                  <p style="margin: 3px 0 0 0; font-weight: 600; color: #2d3748;">${item.quantity}</p>
+                </div>
+                <div>
+                  <span style="color: #718096; font-size: 13px;">Price per Item:</span>
+                  <p style="margin: 3px 0 0 0; font-weight: 600; color: #2d3748;">₹${itemPrice}</p>
+                </div>
+                <div>
+                  <span style="color: #718096; font-size: 13px;">Total:</span>
+                  <p style="margin: 3px 0 0 0; font-weight: 600; color: #38a169; font-size: 16px;">₹${itemTotal}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      `;
+    }).join('');
   }
 
   /**
