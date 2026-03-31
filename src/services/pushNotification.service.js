@@ -68,7 +68,7 @@ async function notifyNewOrder({ orderId, customerName, total, itemCount, isTrial
     heading,
     content,
     data: { orderId, type: 'new_order' },
-    url: `https://doordripp.com/admin/orders/${orderId}`
+    url: `https://doordripp.com/manager/orders/${orderId}`
   });
 }
 

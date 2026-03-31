@@ -5,6 +5,7 @@ const adminDeliveryController = require('../controllers/adminDeliveryController'
 const analyticsController = require('../controllers/analyticsController');
 const advancedAnalyticsController = require('../controllers/advancedAnalyticsController');
 const adminVoucherController = require('../controllers/adminVoucherController');
+const notificationController = require('../controllers/notificationController');
 const { verifyToken, requireAdmin, requireAnyRole, requireAdminOrManager } = require('../middleware/auth');
 
 // All admin routes require authentication
@@ -57,6 +58,12 @@ router.get('/area-managers', adminOrManager, adminController.getAreaManagerAssig
 // Reports — admin & manager
 router.get('/reports/best-sellers', adminOrManager, adminController.getBestSellers);
 router.get('/reports/stats', adminOrManager, adminController.getReportStats);
+
+// Notifications — admin & manager
+router.get('/notifications', adminOrManager, notificationController.listNotifications);
+router.get('/notifications/unread-count', adminOrManager, notificationController.getUnreadCount);
+router.patch('/notifications/read-all', adminOrManager, notificationController.markAllAsRead);
+router.patch('/notifications/:id/read', adminOrManager, notificationController.markAsRead);
 
 // Vouchers / Coupons — admin only
 router.get('/vouchers', requireAdmin, adminVoucherController.listVouchers);

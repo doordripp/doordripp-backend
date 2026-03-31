@@ -3,6 +3,7 @@ const Product = require('../models/Product');
 const RazorpayUtil = require('../utils/razorpay');
 const mailService = require('../services/mail.service');
 const pushService = require('../services/pushNotification.service');
+const notificationService = require('../services/notification.service');
 const DeliveryZone = require('../models/DeliveryZone');
 const AreaManager = require('../models/AreaManager');
 const voucherService = require('../services/voucher.service');
@@ -131,11 +132,14 @@ async function getDeliveryZoneAndManagers(address) {
 
           return {
             zone,
-            managers: assignments.map(a => ({
-              name: a.manager.name,
-              email: a.manager.email,
-              phone: a.manager.phone
-            }))
+            managers: assignments
+              .filter(a => a.manager)
+              .map(a => ({
+                _id: a.manager._id,
+                name: a.manager.name,
+                email: a.manager.email,
+                phone: a.manager.phone
+              }))
           };
         }
       }
@@ -597,6 +601,12 @@ exports.verifyPayment = async (req, res, next) => {
     } else {
       console.warn('⚠️ No managers found for this delivery area');
     }
+
+    notificationService.createNewOrderNotifications({
+      order,
+      deliveryInfo,
+      customerName: order.customer.name
+    }).catch(err => console.error('Notification persistence failed:', err));
 
     // Send push notification to all admins/managers (non-blocking)
     pushService.notifyNewOrder({
