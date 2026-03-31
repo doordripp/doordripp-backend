@@ -68,10 +68,10 @@ exports.registerInitiate = async (req, res, next) => {
       }
     }
 
-    // Block duplicate registrations if a verified user already exists
-    const existingUser = await User.findOne({ email: sanitizedEmail, emailVerified: true });
+    // Block duplicate registrations if any user already exists (OAuth or password, verified or not)
+    const existingUser = await User.findOne({ email: sanitizedEmail });
     if (existingUser) {
-      return res.status(400).json({ error: 'Email already registered. Please login instead.' });
+      return res.status(400).json({ error: 'User already exists. Please login or use password reset.' });
     }
 
     // Hash password now; will reuse after OTP verification without rehashing
