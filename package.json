@@ -16,6 +16,7 @@
     "test:login": "node scripts/test-login.js",
     "diagnose:brevo": "node scripts/diagnose-brevo.js",
     "backfill:product-listed-by": "node scripts/backfill-product-listed-by.js",
+    "update:delivery-cost": "node scripts/update-product-delivery-cost.js",
     "deploy:webhook": "node scripts/github-deploy-webhook.js"
   },
   "keywords": [],

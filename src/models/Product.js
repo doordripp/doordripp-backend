@@ -8,7 +8,7 @@ const ProductSchema = new mongoose.Schema({
   originalPrice: { type: Number },
   discount: { type: Number },
   costPrice: { type: Number },
-  deliveryCost: { type: Number, default: 80 },
+  deliveryCost: { type: Number, default: 60 },
   pricingMode: { type: String, enum: ['auto', 'manual'], default: 'auto' },
   stock: { type: Number, default: 0 },
   reserved: { type: Number, default: 0 },

@@ -351,7 +351,7 @@ exports.createProduct = async (req, res, next) => {
       originalPrice: originalPrice ? parseFloat(originalPrice) : undefined,
       discount: discount ? parseFloat(discount) : undefined,
       costPrice: costPrice ? parseFloat(costPrice) : undefined,
-      deliveryCost: deliveryCost !== undefined ? parseFloat(deliveryCost) : 80,
+      deliveryCost: deliveryCost !== undefined ? parseFloat(deliveryCost) : 60,
       pricingMode: pricingMode || 'auto',
       gstRate: gstRate !== undefined ? parseFloat(gstRate) : 5,
       stock: parseInt(stock) || 0,
