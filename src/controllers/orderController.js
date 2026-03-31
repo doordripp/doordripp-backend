@@ -239,11 +239,16 @@ exports.autoAssignDeliveryPartner = autoAssignDeliveryPartner;
 exports.getRazorpayConfig = async (req, res, next) => {
   try {
     const keyId = String(process.env.RAZORPAY_KEY_ID || '').trim();
-    const isReady = /^rzp_(test|live)_/i.test(keyId);
+    const webhookSecret = String(process.env.RAZORPAY_WEBHOOK_SECRET || '').trim();
+    const mode = /^rzp_live_/i.test(keyId) ? 'live' : (/^rzp_test_/i.test(keyId) ? 'test' : 'unknown');
+    const isReady = /^rzp_(test|live)_/i.test(keyId) && Boolean(webhookSecret);
+    const requiresLive = process.env.NODE_ENV === 'production';
 
     res.json({
       keyId,
-      ready: isReady
+      ready: isReady,
+      mode,
+      requiresLive
     });
   } catch (err) {
     next(err);
@@ -370,7 +375,12 @@ exports.create = async (req, res, next) => {
     }
 
     // create a Razorpay order (amount in paise)
-    const razorOrder = await RazorpayUtil.createOrder({ amount: Math.round(total * 100), currency: 'INR' });
+    const razorReceipt = `ord_${String(req.user.id).slice(-8)}_${Date.now()}`.slice(0, 40);
+    const razorOrder = await RazorpayUtil.createOrder({
+      amount: Math.round(total * 100),
+      currency: 'INR',
+      receipt: razorReceipt
+    });
 
     const order = await Order.create({
       customer: req.user.id,
@@ -452,41 +462,27 @@ exports.verifyPayment = async (req, res, next) => {
     // Verify Razorpay signature
     console.log('🔍 Verifying payment signature...');
 
-    // In test mode, allow bypass if RAZORPAY_TEST_MODE_SKIP_VERIFICATION is set
-    const isTestMode = process.env.RAZORPAY_KEY_ID?.includes('rzp_test');
-    const skipVerification = isTestMode && process.env.RAZORPAY_TEST_MODE_SKIP_VERIFICATION === 'true';
+    const isValid = RazorpayUtil.verifyPaymentSignature(
+      order.payment.razorpayOrderId,
+      razorpayPaymentId,
+      razorpaySignature
+    );
 
-    let isValid = false;
-    if (skipVerification) {
-      console.warn('⚠️ SKIPPING signature verification (test mode enabled)');
-      isValid = true;
-    } else {
-      isValid = RazorpayUtil.verifyPaymentSignature(
-        order.payment.razorpayOrderId,
-        razorpayPaymentId,
-        razorpaySignature
-      );
-
-      if (!isValid) {
-        console.error('❌ Invalid payment signature for order:', orderId);
-        // Release reserved stock on failed verification
-        const reservationReleaseList = order.isTrial ? order.trialItems : order.items;
-        for (const it of reservationReleaseList) {
-          await Product.findByIdAndUpdate(it.product, { $inc: { reserved: -(it.quantity || 1) } });
-        }
-        // Explicitly mark order as failed
-        order.status = 'failed';
-        order.payment.status = 'failed';
-        await order.save();
-        return res.status(400).json({ error: 'Payment verification failed' });
+    if (!isValid) {
+      console.error('❌ Invalid payment signature for order:', orderId);
+      // Release reserved stock on failed verification
+      const reservationReleaseList = order.isTrial ? order.trialItems : order.items;
+      for (const it of reservationReleaseList) {
+        await Product.findByIdAndUpdate(it.product, { $inc: { reserved: -(it.quantity || 1) } });
       }
+      // Explicitly mark order as failed
+      order.status = 'failed';
+      order.payment.status = 'failed';
+      await order.save();
+      return res.status(400).json({ error: 'Payment verification failed' });
     }
 
-    if (skipVerification) {
-      console.log('✅ Payment verification SKIPPED (test mode)');
-    } else {
-      console.log('✅ Payment signature verified');
-    }
+    console.log('✅ Payment signature verified');
 
     if (order.voucher?.voucherId && !order.voucher?.usageApplied) {
       await voucherService.consumeVoucherUsage({

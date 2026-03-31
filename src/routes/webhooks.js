@@ -48,6 +48,21 @@ const isValidGitHubSignature = (signature, body, secret) => {
   return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
 };
 
+const isValidRazorpaySignature = (signature, body, secret) => {
+  if (!signature || !secret) return false;
+
+  const digest = crypto
+    .createHmac('sha256', secret)
+    .update(body)
+    .digest('hex');
+
+  const providedBuffer = Buffer.from(String(signature), 'hex');
+  const expectedBuffer = Buffer.from(digest, 'hex');
+
+  if (!providedBuffer.length || providedBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
+};
+
 /**
  * Razorpay Webhook Handler
  * Listens for payment events and updates order status
@@ -63,13 +78,12 @@ router.post('/razorpay', async (req, res) => {
     const body = req.rawBody || JSON.stringify(req.body);
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    // Verify webhook signature
-    const hash = crypto
-      .createHmac('sha256', webhookSecret)
-      .update(body)
-      .digest('hex');
+    if (!webhookSecret) {
+      logger.error('Razorpay webhook secret is missing');
+      return res.status(500).json({ error: 'Webhook secret not configured' });
+    }
 
-    if (hash !== razorpaySignature) {
+    if (!isValidRazorpaySignature(razorpaySignature, body, webhookSecret)) {
       return res.status(403).json({ error: 'Invalid signature' });
     }
 
@@ -84,6 +98,11 @@ router.post('/razorpay', async (req, res) => {
       // Find and update order
       const order = await Order.findOne({ 'payment.razorpayOrderId': razorpayOrderId });
       if (order) {
+        if (order.payment?.status === 'success') {
+          logger.info(`Webhook: duplicate payment success event ignored for order ${order._id}`);
+          return res.json({ status: 'ok', duplicate: true });
+        }
+
         order.payment.transactionId = payment.id;
         order.payment.status = 'success';
         order.status = 'confirmed';
@@ -106,6 +125,8 @@ router.post('/razorpay', async (req, res) => {
         }
 
         logger.info(`✅ Webhook: Payment captured for order ${order._id}`);
+      } else {
+        logger.warn(`Webhook: no order found for razorpay order ${razorpayOrderId}`);
       }
     } else if (event === 'payment.failed') {
       // Payment failed - release reserved stock
@@ -114,6 +135,11 @@ router.post('/razorpay', async (req, res) => {
 
       const order = await Order.findOne({ 'payment.razorpayOrderId': razorpayOrderId });
       if (order) {
+        if (order.payment?.status === 'failed') {
+          logger.info(`Webhook: duplicate payment failed event ignored for order ${order._id}`);
+          return res.json({ status: 'ok', duplicate: true });
+        }
+
         // Release reserved stock
         for (const item of order.items) {
           await Product.findByIdAndUpdate(item.product, {
@@ -126,6 +152,8 @@ router.post('/razorpay', async (req, res) => {
         await order.save();
 
         logger.info(`❌ Webhook: Payment failed for order ${order._id}`);
+      } else {
+        logger.warn(`Webhook: no order found for failed razorpay order ${razorpayOrderId}`);
       }
     }
 

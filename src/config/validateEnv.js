@@ -104,6 +104,37 @@ function validateEnv() {
   if (hasAnyConfig(legacyMailKeys) && !hasCompleteConfig(legacyMailKeys)) {
     process.stderr.write('[Startup] Warning: legacy MAIL_* config is partial; OTP email fallback may fail.\n');
   }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  const razorpayKeyId = String(process.env.RAZORPAY_KEY_ID || '').trim();
+  const razorpayKeySecret = String(process.env.RAZORPAY_KEY_SECRET || '').trim();
+  const razorpayWebhookSecret = String(process.env.RAZORPAY_WEBHOOK_SECRET || '').trim();
+  const skipVerification = String(process.env.RAZORPAY_TEST_MODE_SKIP_VERIFICATION || '').trim().toLowerCase() === 'true';
+
+  const hasRazorpayAny = Boolean(razorpayKeyId || razorpayKeySecret || razorpayWebhookSecret);
+  const hasRazorpayAll = Boolean(razorpayKeyId && razorpayKeySecret && razorpayWebhookSecret);
+
+  if (hasRazorpayAny && !hasRazorpayAll) {
+    throw new Error('[Startup] Razorpay configuration is partial. Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET, and RAZORPAY_WEBHOOK_SECRET together.');
+  }
+
+  if (isProduction) {
+    if (!hasRazorpayAll) {
+      throw new Error('[Startup] Razorpay live integration is required in production. Missing RAZORPAY_KEY_ID/RAZORPAY_KEY_SECRET/RAZORPAY_WEBHOOK_SECRET.');
+    }
+
+    if (!/^rzp_live_/i.test(razorpayKeyId)) {
+      throw new Error('[Startup] Production must use Razorpay live key (RAZORPAY_KEY_ID should start with rzp_live_).');
+    }
+
+    if (skipVerification) {
+      throw new Error('[Startup] RAZORPAY_TEST_MODE_SKIP_VERIFICATION=true is not allowed in production.');
+    }
+  } else {
+    if (razorpayKeyId && /^rzp_live_/i.test(razorpayKeyId)) {
+      process.stderr.write('[Startup] Warning: live Razorpay key is configured outside production.\n');
+    }
+  }
 }
 
 module.exports = validateEnv;

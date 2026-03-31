@@ -44,6 +44,21 @@ const validateEnvironment = () => {
     logger.warn(`Optional environment variables not set: ${missingOptional.join(', ')}`);
   }
 
+  const razorpayKeyId = String(process.env.RAZORPAY_KEY_ID || '').trim();
+  const razorpayKeySecret = String(process.env.RAZORPAY_KEY_SECRET || '').trim();
+  const razorpayWebhookSecret = String(process.env.RAZORPAY_WEBHOOK_SECRET || '').trim();
+
+  // Prevent partial Razorpay setup that can cause runtime payment failures.
+  if ((razorpayKeyId && !razorpayKeySecret) || (!razorpayKeyId && razorpayKeySecret)) {
+    const error = 'RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET must both be set together';
+    logger.error(error);
+    throw new Error(error);
+  }
+
+  if (process.env.NODE_ENV === 'production' && razorpayKeyId && !razorpayWebhookSecret) {
+    logger.warn('RAZORPAY_WEBHOOK_SECRET is not set while Razorpay keys are configured in production. Webhook verification will fail closed.');
+  }
+
   if (
     process.env.NODE_ENV === 'production' &&
     process.env.GOOGLE_CALLBACK_URL &&

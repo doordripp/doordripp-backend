@@ -237,7 +237,10 @@ exports.checkout = async (req, res, next) => {
         return res.status(400).json({ error: `${product.name} is currently not available for purchase outside business hours (8 AM - 10 PM). Please remove it from your cart or check out during business hours.` });
       }
 
-      if (product.stock < it.quantity) return res.status(400).json({ error: `Out of stock for ${product.name}` });
+      const availableStock = product.stock - (product.reserved || 0);
+      if (availableStock < it.quantity) {
+        return res.status(400).json({ error: `Out of stock for ${product.name}` });
+      }
       total += product.price * it.quantity;
       orderItems.push({
         product: product._id,
@@ -250,12 +253,12 @@ exports.checkout = async (req, res, next) => {
     }
 
     const RazorpayUtil = require('../utils/razorpay');
-    let razorOrder = null;
-    try {
-      razorOrder = await RazorpayUtil.createOrder({ amount: Math.round(total * 100), currency: 'INR' });
-    } catch (e) {
-      razorOrder = null;
-    }
+    const razorReceipt = `cart_${String(userId).slice(-8)}_${Date.now()}`.slice(0, 40);
+    const razorOrder = await RazorpayUtil.createOrder({
+      amount: Math.round(total * 100),
+      currency: 'INR',
+      receipt: razorReceipt
+    });
 
     const Order = require('../models/Order');
     const order = await Order.create({
@@ -268,7 +271,7 @@ exports.checkout = async (req, res, next) => {
     });
 
     for (const it of cart.items) {
-      await Product.findByIdAndUpdate(it.product._id, { $inc: { stock: -it.quantity } });
+      await Product.findByIdAndUpdate(it.product._id, { $inc: { reserved: it.quantity } });
     }
 
     cart.items = [];
