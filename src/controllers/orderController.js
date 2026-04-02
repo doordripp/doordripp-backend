@@ -9,9 +9,9 @@ const AreaManager = require('../models/AreaManager');
 const voucherService = require('../services/voucher.service');
 
 const DELIVERY_OPTIONS = {
-  regular: { charge: 80, eta: '45 minutes', label: 'Regular Delivery' },
-  standard: { charge: 100, eta: '35 minutes', label: 'Standard Delivery' },
-  priority: { charge: 120, eta: '25 minutes', label: 'Priority Delivery' }
+  regular: { charge: 60, eta: '45 minutes', label: 'Regular Delivery' },
+  standard: { charge: 80, eta: '35 minutes', label: 'Standard Delivery' },
+  priority: { charge: 100, eta: '25 minutes', label: 'Priority Delivery' }
 };
 
 /**
