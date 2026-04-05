@@ -660,10 +660,35 @@ class MailService {
    * Format order items for email template
    */
   formatOrderItems(items) {
-    return items.map(item => `
+    const clientUrl = getClientUrl();
+
+    return items.map(item => {
+      const productUrl = item.productUrl
+        ? (String(item.productUrl).startsWith('http') ? item.productUrl : `${clientUrl}${item.productUrl}`)
+        : '';
+
+      const imageHtml = item.productImage
+        ? `${productUrl
+            ? `<a href="${productUrl}" target="_blank" rel="noopener noreferrer" style="display:inline-block;">`
+            : '<span style="display:inline-block;">'}
+              <img src="${item.productImage}" alt="${item.name || 'Product'}" style="width: 56px; height: 56px; object-fit: cover; border-radius: 8px; border: 1px solid #e2e8f0; margin-right: 10px; vertical-align: middle;">
+            ${productUrl ? '</a>' : '</span>'}`
+        : '';
+
+      const productLinkHtml = productUrl
+        ? `<div style="margin-top: 6px;"><a href="${productUrl}" target="_blank" rel="noopener noreferrer" style="font-size: 12px; color: #3182ce; text-decoration: none;">Open product</a></div>`
+        : '';
+
+      return `
       <tr>
         <td style="padding: 12px; border-bottom: 1px solid #eee;">
-          ${item.name}
+          <div style="display: flex; align-items: center; gap: 6px;">
+            ${imageHtml}
+            <div style="display: inline-block; vertical-align: middle; max-width: 280px;">
+              <div>${item.name}</div>
+              ${productLinkHtml}
+            </div>
+          </div>
           ${item.variant ? `<br><small style="color: #666;">${item.variant}</small>` : ''}
         </td>
         <td style="padding: 12px; border-bottom: 1px solid #eee; text-align: center;">
@@ -673,7 +698,8 @@ class MailService {
           ₹${item.price.toLocaleString('en-IN')}
         </td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }
 
   /**

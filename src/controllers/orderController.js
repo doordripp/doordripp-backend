@@ -588,7 +588,9 @@ exports.verifyPayment = async (req, res, next) => {
             items: order.items.map(it => ({
               name: it.name,
               quantity: it.quantity,
-              price: it.price
+              price: it.price,
+              productImage: it.image || it.productImage || '',
+              productUrl: it.product ? `/product/${it.product.toString()}` : ''
             })),
             totalAmount: order.total,
             shippingAddress: order.shippingAddress,

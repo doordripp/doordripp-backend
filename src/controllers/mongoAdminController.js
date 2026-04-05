@@ -544,6 +544,7 @@ exports.listOrders = async (req, res, next) => {
 
       const candidateOrders = await Order.find(filter)
         .populate('customer', 'name email')
+        .populate('items.product', 'name images')
         .sort({ createdAt: -1 });
 
       const zoneFilteredOrders = candidateOrders.filter(order => {
@@ -597,6 +598,7 @@ exports.listOrders = async (req, res, next) => {
       (() => {
         const query = Order.find(filter)
           .populate('customer', 'name email')
+          .populate('items.product', 'name images')
           .sort({ createdAt: -1 });
 
         if (parsedLimit) {
@@ -648,7 +650,9 @@ exports.listOrders = async (req, res, next) => {
 
 exports.getOrder = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id).populate('customer', 'name email');
+    const order = await Order.findById(req.params.id)
+      .populate('customer', 'name email')
+      .populate('items.product', 'name images');
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
   const isAdmin = hasAnyRole(req.user?.roles, ['admin']);
@@ -1547,7 +1551,10 @@ exports.getReportStats = async (req, res, next) => {
 exports.getAllUsers = async (req, res, next) => {
   try {
     const { search, role, status, page = 1, limit = 20 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
+    const wantsAllUsers = String(limit).toLowerCase() === 'all';
+    const parsedLimit = wantsAllUsers ? null : Math.max(parseInt(limit, 10) || 20, 1);
+    const skip = parsedLimit ? (parsedPage - 1) * parsedLimit : 0;
 
     const conditions = [];
 
@@ -1565,6 +1572,8 @@ exports.getAllUsers = async (req, res, next) => {
       if (role === 'customer') {
         conditions.push({
           $or: [
+            { roles: { $exists: false } },
+            { roles: null },
             { roles: { $size: 0 } },
             { roles: 'customer' }
           ]
@@ -1583,11 +1592,17 @@ exports.getAllUsers = async (req, res, next) => {
     const query = conditions.length ? { $and: conditions } : {};
 
     const [users, total] = await Promise.all([
-      User.find(query)
-        .select('-password -resetPasswordToken')
-        .skip(skip)
-        .limit(parseInt(limit))
-        .sort({ createdAt: -1 }),
+      (() => {
+        const userQuery = User.find(query)
+          .select('-password -resetPasswordToken')
+          .sort({ createdAt: -1 });
+
+        if (parsedLimit) {
+          userQuery.skip(skip).limit(parsedLimit);
+        }
+
+        return userQuery;
+      })(),
       User.countDocuments(query)
     ]);
 
@@ -1596,9 +1611,9 @@ exports.getAllUsers = async (req, res, next) => {
       users,
       pagination: {
         total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / parseInt(limit))
+        page: parsedPage,
+        limit: parsedLimit || total,
+        pages: parsedLimit ? Math.ceil(total / parsedLimit) : (total > 0 ? 1 : 0)
       }
     });
   } catch (err) {
