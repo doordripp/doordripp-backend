@@ -282,6 +282,9 @@ exports.create = async (req, res, next) => {
 
     // build order items
     let subtotal = 0;
+    let totalGST = 0;
+    let totalCGST = 0;
+    let totalSGST = 0;
     const orderItems = [];
 
     for (const it of items) {
@@ -298,26 +301,40 @@ exports.create = async (req, res, next) => {
       if (availableStock < quantity) return res.status(400).json({ error: 'Out of stock for ' + product.name });
 
       const price = product.price;
-      const itemTotal = price * quantity;
-      subtotal += itemTotal;
+      const gstRate = product.gstRate || 5; // Default 5% if not set
+      
+      // Assume price is inclusive of GST
+      const itemTaxableAmount = (price * quantity) / (1 + (gstRate / 100));
+      const itemGST = (price * quantity) - itemTaxableAmount;
+      const cgst = itemGST / 2;
+      const sgst = itemGST / 2;
+
+      subtotal += itemTaxableAmount;
+      totalGST += itemGST;
+      totalCGST += cgst;
+      totalSGST += sgst;
 
       orderItems.push({
         product: product._id,
         name: product.name,
         quantity,
-        price,
-        itemTotal,
+        price, // Original inclusive unit price
+        itemTotal: price * quantity, 
         productSource: product.productSource || 'Manufacturer',
-        gstRate: 0,
-        cgst: 0,
-        sgst: 0,
+        gstRate,
+        cgst: Math.round(cgst * 100) / 100,
+        sgst: Math.round(sgst * 100) / 100,
         igst: 0
       });
     }
 
     // Calculate final totals
-    const discountBase = subtotal;
-    const totalBeforeDiscount = subtotal + deliveryFee + safeTrialFee;
+    // Discount Base is the sum of inclusive prices for voucher application
+    const discountBaseSubtotal = orderItems.reduce((sum, it) => sum + it.itemTotal, 0); 
+    
+    // totalBeforeDiscount includes delivery and trial fees
+    const totalBeforeDiscount = discountBaseSubtotal + deliveryFee + safeTrialFee;
+    
     let voucherDiscount = 0;
     let total = totalBeforeDiscount;
     let voucher = undefined;
@@ -326,12 +343,12 @@ exports.create = async (req, res, next) => {
     if (normalizedVoucherCode) {
       const voucherResult = await voucherService.validateVoucherForUser({
         code: normalizedVoucherCode,
-        cartTotal: discountBase,
+        cartTotal: discountBaseSubtotal,
         userId: req.user.id
       });
 
       voucherDiscount = voucherResult.discount;
-      total = (discountBase - voucherDiscount) + deliveryFee + safeTrialFee;
+      total = (discountBaseSubtotal - voucherDiscount) + deliveryFee + safeTrialFee;
       voucher = {
         voucherId: voucherResult.voucher._id,
         code: voucherResult.voucher.code,
@@ -389,11 +406,11 @@ exports.create = async (req, res, next) => {
     const order = await Order.create({
       customer: req.user.id,
       items: orderItems,
-      subtotal,
-      cgstTotal: 0,
-      sgstTotal: 0,
+      subtotal: Math.round(subtotal * 100) / 100,
+      cgstTotal: Math.round(totalCGST * 100) / 100,
+      sgstTotal: Math.round(totalSGST * 100) / 100,
       igstTotal: 0,
-      totalGST: 0,
+      totalGST: Math.round(totalGST * 100) / 100,
       deliveryFee,
       trialFee: safeTrialFee,
       isTrial,
@@ -403,7 +420,7 @@ exports.create = async (req, res, next) => {
       totalBeforeDiscount,
       voucherDiscount,
       voucher,
-      total,
+      total: Math.round(total * 100) / 100,
       status: 'pending',
       payment: { razorpayOrderId: razorOrder.id, status: 'pending' },
       shippingAddress
@@ -420,7 +437,7 @@ exports.create = async (req, res, next) => {
       order,
       razorOrder,
       pricing: {
-        discountBase,
+        discountBase: discountBaseSubtotal,
         totalBeforeDiscount,
         voucherDiscount,
         payableTotal: total
