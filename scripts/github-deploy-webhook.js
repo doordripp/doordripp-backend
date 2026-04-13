@@ -4,6 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 
 const appRoot = path.join(__dirname, '..');
 
@@ -21,6 +22,13 @@ loadEnvFile(process.env.NODE_ENV === 'production' ? '.env.production.local' : '.
 
 const DEPLOY_WEBHOOK_PORT = Number(process.env.DEPLOY_WEBHOOK_PORT || 3001);
 const GITHUB_WEBHOOK_SECRET = String(process.env.GITHUB_WEBHOOK_SECRET || '').trim();
+const MONGO_URI = process.env.MONGO_URI;
+
+mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB connected for deployment logs'))
+  .catch((err) => console.error('MongoDB connection error:', err));
+
+const DeploymentLog = require('../src/models/DeploymentLog');
 
 const FRONTEND_REPO_FULL_NAME = process.env.DEPLOY_FRONTEND_REPO_FULL_NAME || 'doordripp/doordripp-frontend';
 const BACKEND_REPO_FULL_NAME = process.env.DEPLOY_BACKEND_REPO_FULL_NAME || 'doordripp/doordripp-backend';
@@ -71,20 +79,55 @@ const safeCompareSignature = (providedSignature, body) => {
   return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
 };
 
-const runDeploy = (target) => {
+const runDeploy = async (target, payload) => {
   console.log(`Starting ${target.label} deploy...`);
 
-  exec(target.command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+  // Extract commit info if available
+  const commitHash = payload?.head_commit?.id || '';
+  const commitAuthor = payload?.head_commit?.author?.name || payload?.pusher?.name || 'Unknown';
+  const commitMessage = payload?.head_commit?.message || '';
+
+  // Create pending log
+  let logEntry;
+  try {
+    logEntry = await DeploymentLog.create({
+      repo: target.label,
+      branch: target.branchRef.replace('refs/heads/', ''),
+      event: 'Webhook Received & Deploy Started',
+      status: 'pending',
+      commitHash,
+      commitAuthor,
+      commitMessage,
+      commandExecuted: target.command
+    });
+  } catch (err) {
+    console.error('Failed to create deployment log:', err);
+  }
+
+  exec(target.command, { maxBuffer: 1024 * 1024 * 10 }, async (error, stdout, stderr) => {
+    let outputLogs = '';
+    if (stdout) { console.log(stdout); outputLogs += `[STDOUT]\n${stdout}\n`; }
+    if (stderr) { console.error(stderr); outputLogs += `[STDERR]\n${stderr}\n`; }
+
     if (error) {
       console.error(`${target.label} deploy failed:`, error.message);
-      if (stdout) console.log(stdout);
-      if (stderr) console.error(stderr);
+      if (logEntry) {
+        logEntry.status = 'failed';
+        logEntry.event = 'Deployment Failed';
+        logEntry.outputLogs = outputLogs;
+        logEntry.errorMessage = error.message;
+        await logEntry.save().catch(e => console.error('Failed to save log entry err:', e));
+      }
       return;
     }
 
-    if (stdout) console.log(stdout);
-    if (stderr) console.error(stderr);
     console.log(`${target.label} deploy completed successfully.`);
+    if (logEntry) {
+      logEntry.status = 'success';
+      logEntry.event = 'Deployment Success';
+      logEntry.outputLogs = outputLogs;
+      await logEntry.save().catch(e => console.error('Failed to save log entry success:', e));
+    }
   });
 };
 
@@ -152,7 +195,7 @@ http.createServer((req, res) => {
     }
 
     console.log(`Webhook verified for ${target.label} (${repoName}) on ${payload.ref}`);
-    runDeploy(target);
+    runDeploy(target, payload);
     res.end('Deploy triggered');
   });
 }).listen(DEPLOY_WEBHOOK_PORT, () => {

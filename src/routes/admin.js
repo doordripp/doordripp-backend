@@ -59,6 +59,10 @@ router.get('/area-managers', adminOrManager, adminController.getAreaManagerAssig
 router.get('/reports/best-sellers', adminOrManager, adminController.getBestSellers);
 router.get('/reports/stats', adminOrManager, adminController.getReportStats);
 
+// System Logs — admin only
+router.get('/system-logs', requireAdmin, require('../controllers/systemLogsController').getSystemLogs);
+router.get('/server-logs', requireAdmin, require('../controllers/serverLogsController').getServerLogs);
+
 // Notifications — admin & manager
 router.get('/notifications', adminOrManager, notificationController.listNotifications);
 router.get('/notifications/unread-count', adminOrManager, notificationController.getUnreadCount);

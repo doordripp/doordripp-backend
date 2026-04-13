@@ -3,6 +3,7 @@ const logger = require('../utils/logger');
 const router = express.Router();
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const DeploymentLog = require('../models/DeploymentLog');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 const orderController = require('../controllers/orderController');
@@ -164,7 +165,7 @@ router.post('/razorpay', async (req, res) => {
   }
 });
 
-router.post('/github-deploy', (req, res) => {
+router.post('/github-deploy', async (req, res) => {
   const githubWebhookSecret = String(process.env.GITHUB_WEBHOOK_SECRET || '').trim();
   const signature = req.headers['x-hub-signature-256'];
   const body = req.rawBody || JSON.stringify(req.body || {});
@@ -195,17 +196,57 @@ router.post('/github-deploy', (req, res) => {
 
   logger.info(`GitHub deploy webhook accepted for ${target.label} (${repoName})`);
 
-  exec(target.command, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+  // Extract commit info if available
+  const commitHash = payload?.head_commit?.id || '';
+  const commitAuthor = payload?.head_commit?.author?.name || payload?.pusher?.name || 'Unknown';
+  const commitMessage = payload?.head_commit?.message || '';
+
+  let logEntry;
+  try {
+    logEntry = await DeploymentLog.create({
+      repo: target.label,
+      branch: target.branchRef.replace('refs/heads/', ''),
+      event: 'Webhook Received & Deploy Started',
+      status: 'pending',
+      commitHash,
+      commitAuthor,
+      commitMessage,
+      commandExecuted: target.command
+    });
+  } catch (err) {
+    logger.error('Failed to create deployment log:', err);
+  }
+
+  exec(target.command, { maxBuffer: 1024 * 1024 * 10 }, async (error, stdout, stderr) => {
+    let outputLogs = '';
+    if (stdout) outputLogs += `[STDOUT]\n${stdout}\n`;
+    if (stderr) outputLogs += `[STDERR]\n${stderr}\n`;
+
     if (error) {
       logger.error(`${target.label} deploy failed: ${error.message}`);
       if (stdout) logger.info(stdout);
       if (stderr) logger.error(stderr);
+
+      if (logEntry) {
+        logEntry.status = 'failed';
+        logEntry.event = 'Deployment Failed';
+        logEntry.outputLogs = outputLogs;
+        logEntry.errorMessage = error.message;
+        await logEntry.save().catch(e => logger.error('Failed to save log entry err:', e));
+      }
       return;
     }
 
     if (stdout) logger.info(stdout);
     if (stderr) logger.error(stderr);
     logger.info(`${target.label} deploy completed successfully`);
+
+    if (logEntry) {
+      logEntry.status = 'success';
+      logEntry.event = 'Deployment Success';
+      logEntry.outputLogs = outputLogs;
+      await logEntry.save().catch(e => logger.error('Failed to save log entry success:', e));
+    }
   });
 
   return res.json({ ok: true, triggered: target.label });
