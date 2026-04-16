@@ -7,12 +7,7 @@ const notificationService = require('../services/notification.service');
 const DeliveryZone = require('../models/DeliveryZone');
 const AreaManager = require('../models/AreaManager');
 const voucherService = require('../services/voucher.service');
-
-const DELIVERY_OPTIONS = {
-  regular: { charge: 60, eta: '45 minutes', label: 'Regular Delivery' },
-  standard: { charge: 80, eta: '35 minutes', label: 'Standard Delivery' },
-  priority: { charge: 100, eta: '25 minutes', label: 'Priority Delivery' }
-};
+const { getDeliveryChargeConfig, pickDeliveryOption } = require('../utils/deliveryChargeConfig');
 
 /**
  * Calculate distance between two coordinates (in km) using Haversine formula
@@ -275,9 +270,11 @@ exports.create = async (req, res, next) => {
     const parsedTrialFee = Number(trialFee);
     const safeTrialFee = Number.isFinite(parsedTrialFee) && parsedTrialFee >= 0 ? parsedTrialFee : 0;
 
-    // Validate and use delivery options constants
-    const selectedDelivery = DELIVERY_OPTIONS[deliveryType] || DELIVERY_OPTIONS.regular;
-    const deliveryFee = selectedDelivery.charge;
+    // Resolve delivery option from dynamic admin-configured settings.
+    const deliveryChargeConfig = await getDeliveryChargeConfig();
+    const selectedDelivery = pickDeliveryOption(deliveryChargeConfig, deliveryType);
+    const resolvedDeliveryType = selectedDelivery.id;
+    const deliveryFee = Number(selectedDelivery.charge) || 0;
     const deliveryETA = selectedDelivery.eta;
 
     // build order items
@@ -415,7 +412,7 @@ exports.create = async (req, res, next) => {
       trialFee: safeTrialFee,
       isTrial,
       trialItems: enrichedTrialItems,
-      deliveryType,
+      deliveryType: resolvedDeliveryType,
       deliveryETA,
       totalBeforeDiscount,
       voucherDiscount,

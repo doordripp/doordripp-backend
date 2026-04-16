@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/mongoAdminController');
 const adminDeliveryController = require('../controllers/adminDeliveryController');
+const adminDeliveryChargeController = require('../controllers/adminDeliveryChargeController');
 const analyticsController = require('../controllers/analyticsController');
 const advancedAnalyticsController = require('../controllers/advancedAnalyticsController');
 const adminVoucherController = require('../controllers/adminVoucherController');
@@ -82,6 +83,10 @@ router.get('/delivery-zones/:id', adminOrManager, adminDeliveryController.getDel
 router.put('/delivery-zones/:id', adminOrManager, adminDeliveryController.updateDeliveryZone);
 router.delete('/delivery-zones/:id', requireAdmin, adminDeliveryController.deleteDeliveryZone);
 router.patch('/delivery-zones/:id/toggle', adminOrManager, adminDeliveryController.toggleZoneStatus);
+
+// Delivery Charge Configuration — accessible by admin & manager
+router.get('/delivery-charge-config', adminOrManager, adminDeliveryChargeController.getDeliveryChargeConfig);
+router.put('/delivery-charge-config', adminOrManager, adminDeliveryChargeController.updateDeliveryChargeConfig);
 
 // ============================================
 // ADVANCED ANALYTICS ENDPOINTS — admin & manager

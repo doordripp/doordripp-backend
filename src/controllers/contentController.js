@@ -1,5 +1,6 @@
 const Banner = require('../models/Banner')
 const Category = require('../models/Category')
+const TeamMember = require('../models/TeamMember')
 
 // Add a new banner
 exports.createBanner = async (req, res, next) => {
@@ -203,6 +204,129 @@ exports.updateCategoryStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Category not found' })
     }
     res.json({ success: true, category })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// ==================== TEAM MEMBERS ====================
+// Public list (active only by default)
+exports.getTeamMembers = async (req, res, next) => {
+  try {
+    const { activeOnly } = req.query
+    const filter = {}
+    if (activeOnly !== 'false') filter.isActive = true
+
+    const members = await TeamMember.find(filter).sort({ order: 1, createdAt: -1 })
+    res.json({ success: true, members })
+  } catch (err) {
+    next(err)
+  }
+}
+
+exports.createTeamMember = async (req, res, next) => {
+  try {
+    const {
+      name,
+      roleTitle,
+      companyLabel,
+      introLabel,
+      photoUrl,
+      statement,
+      order,
+      isActive
+    } = req.body
+
+    if (!name || !roleTitle || !photoUrl || !statement) {
+      return res.status(400).json({
+        success: false,
+        message: 'Name, role title, photo URL and statement are required'
+      })
+    }
+
+    const member = new TeamMember({
+      name,
+      roleTitle,
+      companyLabel,
+      introLabel,
+      photoUrl,
+      statement,
+      order: Number.isFinite(Number(order)) ? Number(order) : 0,
+      isActive: isActive !== false
+    })
+
+    await member.save()
+    res.status(201).json({ success: true, member })
+  } catch (err) {
+    next(err)
+  }
+}
+
+exports.updateTeamMember = async (req, res, next) => {
+  try {
+    const updateData = {}
+    const fields = [
+      'name',
+      'roleTitle',
+      'companyLabel',
+      'introLabel',
+      'photoUrl',
+      'statement',
+      'isActive'
+    ]
+
+    fields.forEach((field) => {
+      if (req.body[field] !== undefined) updateData[field] = req.body[field]
+    })
+
+    if (req.body.order !== undefined) {
+      updateData.order = Number.isFinite(Number(req.body.order)) ? Number(req.body.order) : 0
+    }
+
+    const member = await TeamMember.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { returnDocument: 'after', runValidators: true }
+    )
+
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Team member not found' })
+    }
+
+    res.json({ success: true, member })
+  } catch (err) {
+    next(err)
+  }
+}
+
+exports.deleteTeamMember = async (req, res, next) => {
+  try {
+    const member = await TeamMember.findByIdAndDelete(req.params.id)
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Team member not found' })
+    }
+
+    res.json({ success: true, message: 'Team member deleted successfully' })
+  } catch (err) {
+    next(err)
+  }
+}
+
+exports.toggleTeamMemberStatus = async (req, res, next) => {
+  try {
+    const { isActive } = req.body
+
+    const member = await TeamMember.findByIdAndUpdate(
+      req.params.id,
+      { isActive },
+      { returnDocument: 'after' }
+    )
+
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Team member not found' })
+    }
+
+    res.json({ success: true, member })
   } catch (err) {
     next(err)
   }

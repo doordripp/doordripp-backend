@@ -1,5 +1,6 @@
 const Address = require('../models/Address');
 const DeliveryZone = require('../models/DeliveryZone');
+const { getDeliveryChargeConfig } = require('../utils/deliveryChargeConfig');
 const axios = require('axios');
 const logger = require('../utils/logger');
 
@@ -51,6 +52,7 @@ const sanitizeText = (value, maxLen) => {
  */
 exports.getDeliverySettings = async (req, res) => {
   try {
+    const deliveryChargeConfig = await getDeliveryChargeConfig();
     const deliveryZones = await DeliveryZone.find({ isActive: true })
       .select('-createdAt -updatedAt -__v')
       .lean();
@@ -58,6 +60,8 @@ exports.getDeliverySettings = async (req, res) => {
     res.json({
       success: true,
       zones: deliveryZones,
+      deliveryOptions: deliveryChargeConfig.options,
+      defaultDeliveryType: deliveryChargeConfig.defaultDeliveryType,
       message: deliveryZones.length > 0 
         ? 'Delivery zones retrieved successfully' 
         : 'No active delivery zones configured'
