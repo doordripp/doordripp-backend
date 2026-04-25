@@ -94,6 +94,7 @@ function isValidOTPFormat(otp) {
  * @returns {String} Sanitized email
  */
 function sanitizeEmail(email) {
+  if (!email || typeof email !== 'string') return '';
   return email.toLowerCase().trim();
 }
 

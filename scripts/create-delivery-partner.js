@@ -1,12 +1,11 @@
 #!/usr/bin/env node
 /**
- * Script to create a test delivery partner user
+ * Script to create a test delivery partner user.
  * Usage: node scripts/create-delivery-partner.js
  */
 
 require('dotenv').config();
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 const User = require('../src/models/User');
 
 const DELIVERY_PARTNER_DATA = {
@@ -17,70 +16,66 @@ const DELIVERY_PARTNER_DATA = {
   roles: ['delivery_partner'],
   emailVerified: true,
   phoneVerified: true,
-  termsAccepted: true
+  termsAccepted: true,
+  isPasswordSet: true
 };
 
 async function createDeliveryPartner() {
   try {
-    console.log('🔌 Connecting to MongoDB...');
+    console.log('Connecting to MongoDB...');
     await mongoose.connect(process.env.MONGO_URI || 'mongodb://127.0.0.1:27017/doordripp');
-    console.log('✅ Connected to MongoDB');
+    console.log('Connected to MongoDB');
 
-    // Check if user already exists
     const existingUser = await User.findOne({ email: DELIVERY_PARTNER_DATA.email });
-    
+
     if (existingUser) {
-      console.log('\n⚠️  User already exists with this email!');
+      console.log('\nUser already exists with this email.');
       console.log(`   Email: ${existingUser.email}`);
       console.log(`   Roles: ${existingUser.roles.join(', ')}`);
       console.log(`   ID: ${existingUser._id}`);
-      
-      // Ask if we should update to delivery_partner role
+
       if (!existingUser.roles.includes('delivery_partner')) {
-        console.log('\n🔄 Updating user role to include delivery_partner...');
+        console.log('\nUpdating user role to include delivery_partner...');
         existingUser.roles = ['delivery_partner'];
         await existingUser.save();
-        console.log('✅ User role updated to delivery_partner');
+        console.log('User role updated to delivery_partner');
       }
-      
-      console.log('\n📝 Login Credentials:');
+
+      if (!existingUser.isPasswordSet) {
+        existingUser.isPasswordSet = true;
+        await existingUser.save();
+        console.log('Marked existing user as password-enabled');
+      }
+
+      console.log('\nLogin credentials:');
       console.log(`   Email: ${DELIVERY_PARTNER_DATA.email}`);
       console.log(`   Password: ${DELIVERY_PARTNER_DATA.password}`);
-      
+
       await mongoose.connection.close();
       return;
     }
 
-    // Hash password
-    console.log('\n🔐 Hashing password...');
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(DELIVERY_PARTNER_DATA.password, salt);
+    console.log('Creating delivery partner user...');
+    const user = await User.create(DELIVERY_PARTNER_DATA);
 
-    // Create user
-    console.log('👤 Creating delivery partner user...');
-    const user = await User.create({
-      ...DELIVERY_PARTNER_DATA,
-      password: hashedPassword
-    });
-
-    console.log('\n✅ Delivery partner user created successfully!');
-    console.log('\n📝 Login Credentials:');
+    console.log('\nDelivery partner user created successfully.');
+    console.log('\nLogin credentials:');
     console.log(`   Email: ${user.email}`);
     console.log(`   Password: ${DELIVERY_PARTNER_DATA.password}`);
     console.log(`   Name: ${user.name}`);
     console.log(`   Phone: ${user.phone}`);
     console.log(`   Roles: ${user.roles.join(', ')}`);
     console.log(`   User ID: ${user._id}`);
-    console.log('\n💡 Next Steps:');
+    console.log('\nNext steps:');
     console.log('   1. Log in with the credentials above');
     console.log('   2. An admin needs to assign delivery zones to this user');
-    console.log('   3. Use Admin Panel → Users → Assign Manager to assign zones');
+    console.log('   3. Use Admin Panel > Users > Assign Manager to assign zones');
 
     await mongoose.connection.close();
-    console.log('\n✅ Script completed successfully');
+    console.log('\nScript completed successfully');
     process.exit(0);
   } catch (error) {
-    console.error('\n❌ Error creating delivery partner:', error.message);
+    console.error('\nError creating delivery partner:', error.message);
     if (error.code === 11000) {
       console.error('   Duplicate key error - user with this email/phone already exists');
     }
@@ -89,5 +84,4 @@ async function createDeliveryPartner() {
   }
 }
 
-// Run the script
 createDeliveryPartner();

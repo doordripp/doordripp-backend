@@ -1,9 +1,10 @@
 const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
+const { isBcryptHash } = require('../utils/password.util')
 
 const UserSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  email: { type: String, required: true, unique: true, index: true, lowercase: true },
+  email: { type: String, required: true, unique: true, index: true, lowercase: true, trim: true },
   phone: { type: String, unique: true, sparse: true },
   phoneVerified: { type: Boolean, default: false },
   emailVerified: { type: Boolean, default: false },
@@ -43,6 +44,7 @@ const UserSchema = new mongoose.Schema({
   isPasswordSet: { type: Boolean, default: false },
   // OAuth fields
   googleId: { type: String, unique: true, sparse: true },
+  authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
   // Password hashing control
   skipPasswordHash: { type: Boolean, default: false },
   // Password reset fields
@@ -53,49 +55,49 @@ const UserSchema = new mongoose.Schema({
 }, { timestamps: true })
 
 UserSchema.methods.matchPassword = async function (enteredPassword) {
+  if (!enteredPassword || !this.password) return false
   return await bcrypt.compare(enteredPassword, this.password)
 }
 
-// Allow pre-hashed password to be set when skipPasswordHash flag is true (used for verified OTP flow)
-// UserSchema.pre('save', async function (next) {
-//   if (this.skipPasswordHash) {
-//     return next();
-//   }
-//   if (!this.isModified('password') || !this.password) {
-//     return next();
-//   }
-//   const salt = await bcrypt.genSalt(10);
-//   this.password = await bcrypt.hash(this.password, salt);
-//   return next();
-// })
+// Allow a known pre-hashed password to be set when skipPasswordHash is true.
+UserSchema.pre('save', async function () {
+  if (!this.isModified('password') || !this.password) {
+    if (this.skipPasswordHash) this.skipPasswordHash = false
+    return;
+  }
+
+  if (this.skipPasswordHash && isBcryptHash(this.password)) {
+    this.skipPasswordHash = false
+    return
+  }
+
+  this.skipPasswordHash = false
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+})
 
 // Ensure delivery partner metadata is always initialized for delivery_partner users
-// UserSchema.pre('save', function (next) {
-//   try {
-//     const hasDeliveryRole = Array.isArray(this.roles) && this.roles.includes('delivery_partner')
-//     if (hasDeliveryRole) {
-//       if (!this.deliveryPartner) {
-//         this.deliveryPartner = {}
-//       }
+UserSchema.pre('save', function () {
+  const hasDeliveryRole = Array.isArray(this.roles) && this.roles.includes('delivery_partner')
+  if (hasDeliveryRole) {
+    if (!this.deliveryPartner) {
+      this.deliveryPartner = {}
+    }
 
-//       // Initialize critical fields if missing
-//       if (typeof this.deliveryPartner.currentLoad !== 'number') {
-//         this.deliveryPartner.currentLoad = 0
-//       }
-//       if (typeof this.deliveryPartner.maxOrdersPerSlot !== 'number' || this.deliveryPartner.maxOrdersPerSlot <= 0) {
-//         this.deliveryPartner.maxOrdersPerSlot = 10
-//       }
-//       if (!this.deliveryPartner.workingHours) {
-//         this.deliveryPartner.workingHours = '9 AM - 5 PM'
-//       }
-//       if (!Array.isArray(this.deliveryPartner.availabilitySlots) || this.deliveryPartner.availabilitySlots.length === 0) {
-//         this.deliveryPartner.availabilitySlots = ['Morning 9-12', 'Afternoon 12-4', 'Evening 4-8']
-//       }
-//     }
-//     next()
-//   } catch (err) {
-//     next(err)
-//   }
-// })
+    // Initialize critical fields if missing
+    if (typeof this.deliveryPartner.currentLoad !== 'number') {
+      this.deliveryPartner.currentLoad = 0
+    }
+    if (typeof this.deliveryPartner.maxOrdersPerSlot !== 'number' || this.deliveryPartner.maxOrdersPerSlot <= 0) {
+      this.deliveryPartner.maxOrdersPerSlot = 10
+    }
+    if (!this.deliveryPartner.workingHours) {
+      this.deliveryPartner.workingHours = '9 AM - 5 PM'
+    }
+    if (!Array.isArray(this.deliveryPartner.availabilitySlots) || this.deliveryPartner.availabilitySlots.length === 0) {
+      this.deliveryPartner.availabilitySlots = ['Morning 9-12', 'Afternoon 12-4', 'Evening 4-8']
+    }
+  }
+})
 
 module.exports = mongoose.models.User || mongoose.model('User', UserSchema)

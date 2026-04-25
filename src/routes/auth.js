@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 const router = express.Router();
 const logger = require('../utils/logger');
+const { hasUserSetPassword, verifyPasswordAndUpgrade } = require('../utils/password.util');
 // Primary auth controller (MongoDB-backed)
 const authController = require('../controllers/mongoAuthController');
 // Password reset and legacy handlers
@@ -64,6 +65,9 @@ const smtpUser = process.env.MAIL_USER || process.env.SMTP_USER
 const smtpPass = process.env.MAIL_PASS || process.env.SMTP_PASS
 const smtpSecure = process.env.MAIL_SECURE === 'true' || process.env.SMTP_PORT === '465'
 
+const normalizePhone = (phone) => String(phone || '').replace(/\D/g, '')
+const isStrongEnoughPassword = (password) => typeof password === 'string' && password.length >= 8
+
 // Check if rate limiting is disabled (for development)
 const DISABLE_RATE_LIMIT = process.env.DISABLE_RATE_LIMIT === 'true'
 
@@ -95,6 +99,15 @@ const googleOAuthLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => ipKeyGenerator(req),
   handler: (req, res) => res.status(429).json({ error: 'Too many Google auth attempts. Please try again later.' }),
+});
+
+const passwordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req),
+  handler: (req, res) => res.status(429).json({ error: 'Too many password operations. Please try again later.' }),
 });
 
 const hasGoogleOAuthProd = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
@@ -135,7 +148,7 @@ router.post(
   skipIfDisabled(registerOtpLimiter),
   body('name').isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
   body('email').isEmail().withMessage('Valid email is required'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('termsAccepted').isBoolean().custom((v) => v === true).withMessage('Terms must be accepted'),
   async (req, res, next) => {
     const errors = validationResult(req);
@@ -150,7 +163,7 @@ router.post(
   skipIfDisabled(registerOtpLimiter),
   body('name').isLength({ min: 3 }).withMessage('Name must be at least 3 characters'),
   body('email').isEmail().withMessage('Valid email is required'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
   body('termsAccepted').isBoolean().custom((v) => v === true).withMessage('Terms must be accepted'),
   body('phone').optional().isString().withMessage('Phone must be a string'),
   async (req, res, next) => {
@@ -183,7 +196,7 @@ router.post('/refresh', authController.refresh);
 router.get('/profile', authController.me);
 
 // Forgot password - request password reset
-router.post('/forgot-password', async (req, res, next) => {
+router.post('/forgot-password', skipIfDisabled(passwordLimiter), async (req, res, next) => {
   try {
     return passwordController.forgotPassword(req, res, next);
   } catch (e) {
@@ -193,7 +206,7 @@ router.post('/forgot-password', async (req, res, next) => {
 });
 
 // Reset password with token
-router.post('/reset-password', async (req, res, next) => {
+router.post('/reset-password', skipIfDisabled(passwordLimiter), async (req, res, next) => {
   try {
     return passwordController.resetPassword(req, res, next);
   } catch (e) {
@@ -336,7 +349,17 @@ router.put('/profile', async (req, res) => {
 
     const { name, phone, address } = req.body || {};
     if (typeof name === 'string' && name.trim()) user.name = name.trim();
-    if (typeof phone === 'string' && phone.trim()) user.phone = phone.trim();
+    if (typeof phone === 'string' && phone.trim()) {
+      const normalizedPhone = normalizePhone(phone);
+      if (normalizedPhone.length < 10 || normalizedPhone.length > 13) {
+        return res.status(400).json({ error: 'Please provide a valid phone number' });
+      }
+      const existingPhoneUser = await User.findOne({ phone: normalizedPhone, _id: { $ne: user._id } });
+      if (existingPhoneUser) {
+        return res.status(400).json({ error: 'Phone number already registered' });
+      }
+      user.phone = normalizedPhone;
+    }
     if (address && typeof address === 'object') {
       user.address = user.address || {};
       user.address.street = address.street || user.address.street;
@@ -353,7 +376,7 @@ router.put('/profile', async (req, res) => {
 });
 
 // Change password (authenticated)
-router.put('/change-password', async (req, res) => {
+router.put('/change-password', skipIfDisabled(passwordLimiter), async (req, res) => {
   try {
     const jwt = require('jsonwebtoken');
     const User = require('../models/User');
@@ -373,17 +396,21 @@ router.put('/change-password', async (req, res) => {
     const { currentPassword, newPassword } = req.body || {};
     if (!newPassword) return res.status(400).json({ error: 'New password is required' });
 
-    // Only check current password if a password was previously set
-    if (user.isPasswordSet) {
+    const requiresCurrentPassword = hasUserSetPassword(user);
+
+    // Local and legacy-password accounts must prove the current password.
+    // OAuth-only accounts can set their first password from an authenticated session.
+    if (requiresCurrentPassword) {
       if (!currentPassword) return res.status(400).json({ error: 'Current password is required' });
-      const match = await user.matchPassword(currentPassword);
+      const match = await verifyPasswordAndUpgrade(user, currentPassword);
       if (!match) return res.status(400).json({ error: 'Current password is incorrect' });
     }
 
-    if (typeof newPassword !== 'string' || newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    if (!isStrongEnoughPassword(newPassword)) return res.status(400).json({ error: 'New password must be at least 8 characters' });
 
     user.password = newPassword;
     user.isPasswordSet = true;
+    user.skipPasswordHash = false;
     await user.save();
     return res.json({ ok: true, message: 'Password updated' });
   } catch (e) {
