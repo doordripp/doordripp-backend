@@ -47,7 +47,9 @@ const googleStrategyVerify = async (accessToken, refreshToken, profile, done) =>
       name: profile.displayName || email.split('@')[0],
       email: emailLower,
       emailVerified: true, // Google has already verified the email
-      googleId: profile.id
+      googleId: profile.id,
+      authProvider: 'google',
+      isPasswordSet: false
     }
 
     // Extract profile photo
@@ -95,9 +97,25 @@ const googleStrategyVerify = async (accessToken, refreshToken, profile, done) =>
     } else {
       // Update existing user with Google data if not already set
       let updated = false
+      const hadLocalPassword = user.authProvider !== 'google' && !!user.password
 
       if (!user.emailVerified) {
         user.emailVerified = true
+        updated = true
+      }
+
+      if (!user.googleId) {
+        user.googleId = profile.id
+        updated = true
+      }
+
+      if (user.authProvider !== 'google') {
+        user.authProvider = 'google'
+        updated = true
+      }
+
+      if (hadLocalPassword && !user.isPasswordSet) {
+        user.isPasswordSet = true
         updated = true
       }
 

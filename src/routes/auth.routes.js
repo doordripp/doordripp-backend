@@ -238,7 +238,7 @@ router.post(
  * @access  Public
  * 
  * @body {string} token - JWT reset token from email
- * @body {string} newPassword - New password (min 6 characters)
+ * @body {string} newPassword - New password (min 8 characters)
  * 
  * @returns {200} { message } - Password reset successful
  * @returns {400} { error } - Invalid token or password
@@ -257,8 +257,8 @@ router.post(
       .notEmpty()
       .withMessage('Reset token is required'),
     body('newPassword')
-      .isLength({ min: 6 })
-      .withMessage('Password must be at least 6 characters')
+      .isLength({ min: 8 })
+      .withMessage('Password must be at least 8 characters')
       .matches(/^(?=.*[A-Z])(?=.*\d)/)
       .withMessage('Password must contain at least one uppercase letter and one number')
   ],

@@ -232,6 +232,7 @@ router.post('/delivery-partners', async (req, res, next) => {
       roles: ['delivery_partner'],
       emailVerified: true,
       termsAccepted: true,
+      isPasswordSet: true,
       deliveryPartner: {
         maxOrdersPerSlot: DEFAULT_MAX_ORDERS_PER_SLOT,
         vehicleType: vehicleType || 'Bike',

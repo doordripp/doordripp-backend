@@ -6,6 +6,11 @@ const { sendEmailOTP } = require('../utils/email');
 const PendingUser = require('../models/PendingUser');
 const otpUtil = require('../utils/otp.util');
 const mailService = require('../services/mail.service');
+const { hasUserSetPassword, verifyPasswordAndUpgrade } = require('../utils/password.util');
+
+const normalizeEmail = (email) => otpUtil.sanitizeEmail(String(email || ''));
+const normalizePhone = (phone) => String(phone || '').replace(/\D/g, '');
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
 const generateToken = (user) => {
   const payload = { id: user._id, roles: user.roles || [] };
@@ -40,15 +45,14 @@ exports.registerInitiate = async (req, res, next) => {
       return res.status(400).json({ error: 'Name must be at least 3 characters' });
     }
 
-    if (!email || !otpUtil.sanitizeEmail(email)) {
+    const sanitizedEmail = normalizeEmail(email);
+    if (!email || !isValidEmail(sanitizedEmail)) {
       return res.status(400).json({ error: 'Valid email address is required' });
     }
 
-    if (!password || password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
     }
-
-    const sanitizedEmail = otpUtil.sanitizeEmail(email);
 
     // Optional phone validation & uniqueness check
     let normalizedPhone = null;
@@ -63,15 +67,19 @@ exports.registerInitiate = async (req, res, next) => {
       normalizedPhone = digits;
       // Prevent duplicate phone if already used by a verified user
       const existingPhoneUser = await User.findOne({ phone: normalizedPhone });
-      if (existingPhoneUser && existingPhoneUser.emailVerified) {
+      if (existingPhoneUser) {
         return res.status(400).json({ error: 'Phone number already registered' });
+      }
+      const existingPendingPhone = await PendingUser.findOne({ phone: normalizedPhone, email: { $ne: sanitizedEmail } });
+      if (existingPendingPhone) {
+        return res.status(400).json({ error: 'Phone number is already pending verification' });
       }
     }
 
     // Block duplicate registrations if any user already exists (OAuth or password, verified or not)
     const existingUser = await User.findOne({ email: sanitizedEmail });
     if (existingUser) {
-      return res.status(400).json({ error: 'User already exists. Please login or use password reset.' });
+      return res.status(400).json({ error: 'User already exists. Please login or use password reset.', userExists: true });
     }
 
     // Hash password now; will reuse after OTP verification without rehashing
@@ -116,15 +124,14 @@ exports.verifyEmailRegistration = async (req, res, next) => {
   try {
     const { email, otp } = req.body || {};
 
-    if (!email || !otpUtil.sanitizeEmail(email)) {
+    const sanitizedEmail = normalizeEmail(email);
+    if (!email || !isValidEmail(sanitizedEmail)) {
       return res.status(400).json({ error: 'Valid email address is required' });
     }
 
     if (!otpUtil.isValidOTPFormat(otp)) {
       return res.status(400).json({ error: 'OTP must be a 6-digit code' });
     }
-
-    const sanitizedEmail = otpUtil.sanitizeEmail(email);
 
     const verifiedUser = await User.findOne({ email: sanitizedEmail, emailVerified: true });
     if (verifiedUser) {
@@ -159,6 +166,7 @@ exports.verifyEmailRegistration = async (req, res, next) => {
       user.password = pending.passwordHash;
       user.emailVerified = true;
       user.termsAccepted = true;
+      user.isPasswordSet = true;
       user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
       // If pending had phone/gender/dob, set them where appropriate
       if (pending.phone) {
@@ -181,6 +189,7 @@ exports.verifyEmailRegistration = async (req, res, next) => {
         phone: pending.phone || undefined,
         phoneVerified: false,
       });
+      user.isPasswordSet = true;
       user.skipPasswordHash = true; // prevent re-hashing pre-hashed password
       await user.save();
     }
@@ -205,10 +214,10 @@ exports.verifyEmailRegistration = async (req, res, next) => {
 exports.resendRegisterOtp = async (req, res, next) => {
   try {
     const { email } = req.body || {};
-    if (!email || !otpUtil.sanitizeEmail(email)) {
+    const sanitizedEmail = normalizeEmail(email);
+    if (!email || !isValidEmail(sanitizedEmail)) {
       return res.status(400).json({ error: 'Valid email address is required' });
     }
-    const sanitizedEmail = otpUtil.sanitizeEmail(email);
 
     const pending = await PendingUser.findOne({ email: sanitizedEmail });
     if (!pending) {
@@ -263,13 +272,22 @@ exports.refresh = async (req, res) => {
 exports.register = async (req, res, next) => {
   try {
     const { name, email, password, termsAccepted } = req.body;
+    const sanitizedEmail = normalizeEmail(email);
     
     if (!termsAccepted) {
       return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
     }
 
     // Check if email exists
-    const existing = await User.findOne({ email });
+    if (!isValidEmail(sanitizedEmail)) {
+      return res.status(400).json({ error: 'Valid email address is required' });
+    }
+
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    }
+
+    const existing = await User.findOne({ email: sanitizedEmail });
     if (existing) {
       return res.status(400).json({ error: 'Email already in use' });
     }
@@ -278,7 +296,7 @@ exports.register = async (req, res, next) => {
     // User is created but emailVerified remains false until OTP is verified
     const user = new User({
       name,
-      email,
+      email: sanitizedEmail,
       password,
       roles: [],
       termsAccepted: true,
@@ -292,15 +310,15 @@ exports.register = async (req, res, next) => {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Save OTP to database
-    await Otp.deleteMany({ identifier: email, type: 'email' });
-    await Otp.create({ identifier: email, type: 'email', codeHash, expiresAt });
+    await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
+    await Otp.create({ identifier: sanitizedEmail, type: 'email', codeHash, expiresAt });
 
     // Send OTP via email
-    const emailResult = await sendEmailOTP(email, code);
+    const emailResult = await sendEmailOTP(sanitizedEmail, code);
 
     res.json({ 
       message: 'Registration successful! Please check your email for verification code.',
-      email,
+      email: sanitizedEmail,
       userId: user._id,
       emailSent: emailResult.success,
       requiresVerification: true
@@ -317,15 +335,22 @@ exports.register = async (req, res, next) => {
 exports.login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const loginIdentifier = String(email || '').trim();
+    const phone = normalizePhone(loginIdentifier);
+    const emailLower = normalizeEmail(loginIdentifier);
 
-    // Find user by email
-    const user = await User.findOne({ email });
+    // Find user by email or phone. The frontend sends the field as "email" for both.
+    const user = await User.findOne(
+      phone.length >= 10 && !loginIdentifier.includes('@')
+        ? { phone }
+        : { email: emailLower }
+    );
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     // Check password
-    const match = await user.matchPassword(password);
+    const match = await verifyPasswordAndUpgrade(user, password);
     if (!match) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -359,20 +384,21 @@ exports.login = async (req, res, next) => {
 exports.verifyEmailOTP = async (req, res, next) => {
   try {
     const { email, code } = req.body;
+    const sanitizedEmail = normalizeEmail(email);
 
-    if (!email || !code) {
+    if (!email || !isValidEmail(sanitizedEmail) || !code) {
       return res.status(400).json({ error: 'Email and OTP code are required' });
     }
 
     // Find the OTP record
-    const otp = await Otp.findOne({ identifier: email, type: 'email' }).sort({ createdAt: -1 });
+    const otp = await Otp.findOne({ identifier: sanitizedEmail, type: 'email' }).sort({ createdAt: -1 });
     if (!otp) {
       return res.status(400).json({ error: 'No OTP found for this email. Please request a new one.' });
     }
 
     // Check if OTP is expired
     if (otp.expiresAt < new Date()) {
-      await Otp.deleteMany({ identifier: email, type: 'email' });
+      await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
       return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
     }
 
@@ -383,7 +409,7 @@ exports.verifyEmailOTP = async (req, res, next) => {
     }
 
     // OTP is valid - mark user as email verified
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: sanitizedEmail });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -392,7 +418,7 @@ exports.verifyEmailOTP = async (req, res, next) => {
     await user.save();
 
     // Delete used OTP
-    await Otp.deleteMany({ identifier: email, type: 'email' });
+    await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
 
     // Create token and log user in
     const { token, cookieOptions } = await exports.createTokenForUser(user);
@@ -411,13 +437,14 @@ exports.verifyEmailOTP = async (req, res, next) => {
 exports.resendEmailOTP = async (req, res, next) => {
   try {
     const { email } = req.body;
+    const sanitizedEmail = normalizeEmail(email);
 
-    if (!email) {
+    if (!email || !isValidEmail(sanitizedEmail)) {
       return res.status(400).json({ error: 'Email is required' });
     }
 
     // Check if user exists
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: sanitizedEmail });
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -433,11 +460,11 @@ exports.resendEmailOTP = async (req, res, next) => {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     // Save OTP to database
-    await Otp.deleteMany({ identifier: email, type: 'email' });
-    await Otp.create({ identifier: email, type: 'email', codeHash, expiresAt });
+    await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
+    await Otp.create({ identifier: sanitizedEmail, type: 'email', codeHash, expiresAt });
 
     // Send OTP via email
-    const emailResult = await sendEmailOTP(email, code);
+    const emailResult = await sendEmailOTP(sanitizedEmail, code);
 
     res.json({
       message: 'OTP sent successfully! Please check your email.',
@@ -513,7 +540,7 @@ exports.signInWithGoogle = async (req, res, next) => {
     }
 
     // Extract user info from payload
-    const email = payload.email;
+    const email = normalizeEmail(payload.email);
     const name = payload.name || payload.email.split('@')[0];
     const picture = payload.picture;
     const googleId = payload.sub;
@@ -535,15 +562,16 @@ exports.signInWithGoogle = async (req, res, next) => {
         avatar: picture || null,
         roles: [],
         termsAccepted: true,
-        googleId, // Store Google ID for future reference
         authProvider: 'google',
-        skipPasswordHash: true // Skip password hashing for Google users
+        googleId, // Store Google ID for future reference
+        isPasswordSet: false // Mark that they haven't explicitly set a password yet
       });
       await user.save();
       console.log(`✅ New user created from Google: ${email}`);
     } else {
       // Update existing user if needed (preserves existing data)
       let updated = false;
+      const hadLocalPassword = user.authProvider !== 'google' && !!user.password;
       
       if (!user.emailVerified) {
         user.emailVerified = true;
@@ -562,9 +590,14 @@ exports.signInWithGoogle = async (req, res, next) => {
         updated = true;
       }
       
-      // Set auth provider if not set
-      if (!user.authProvider) {
+      // Set auth provider once Google is linked
+      if (user.authProvider !== 'google') {
         user.authProvider = 'google';
+        updated = true;
+      }
+
+      if (hadLocalPassword && !user.isPasswordSet) {
+        user.isPasswordSet = true;
         updated = true;
       }
       
@@ -619,8 +652,9 @@ exports.me = async (req, res, next) => {
     }
 
     const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-    const user = await User.findById(payload.id, '-password -refreshToken');
+    const user = await User.findById(payload.id, '-refreshToken');
     if (!user) return res.json({ authenticated: false });
+    const isPasswordSet = hasUserSetPassword(user);
 
     return res.json({ 
       authenticated: true,
@@ -630,7 +664,12 @@ exports.me = async (req, res, next) => {
       roles: user.roles,
       avatar: user.avatar,
       phone: user.phone || null,
-      address: user.address || null
+      address: user.address || null,
+      googleId: user.googleId || null,
+      authProvider: user.authProvider || 'local',
+      isPasswordSet,
+      emailVerified: !!user.emailVerified,
+      phoneVerified: !!user.phoneVerified
     });
   } catch (e) {
     return res.json({ authenticated: false });

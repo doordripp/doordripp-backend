@@ -6,6 +6,9 @@ const otpUtil = require('../utils/otp.util');
 const logger = require('../utils/logger');
 const { getAuthCookieOptions } = require('../utils/authCookies');
 
+const normalizeEmail = (email) => otpUtil.sanitizeEmail(String(email || ''));
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
 /**
  * Enhanced Authentication Controller
  * 
@@ -44,7 +47,12 @@ exports.sendOTP = async (req, res, next) => {
       });
     }
 
-    const sanitizedEmail = otpUtil.sanitizeEmail(email);
+    const sanitizedEmail = normalizeEmail(email);
+    if (!isValidEmail(sanitizedEmail)) {
+      return res.status(400).json({
+        error: 'Valid email address is required'
+      });
+    }
 
     // For signup purpose, check if email already exists
     if (purpose === 'signup') {
@@ -165,7 +173,12 @@ exports.verifyOTP = async (req, res, next) => {
       });
     }
 
-    const sanitizedEmail = otpUtil.sanitizeEmail(email);
+    const sanitizedEmail = normalizeEmail(email);
+    if (!isValidEmail(sanitizedEmail)) {
+      return res.status(400).json({
+        error: 'Valid email address is required'
+      });
+    }
 
     // Find the most recent OTP for this email
     const otpRecord = await Otp.findOne({
@@ -323,8 +336,8 @@ exports.forgotPassword = async (req, res, next) => {
       { 
         id: user._id, 
         purpose: 'password-reset',
-        // Add timestamp to make each token unique
-        iat: Date.now()
+        // Add timestamp to make each token unique without overriding JWT NumericDate iat
+        resetIssuedAt: Date.now()
       },
       jwtSecret,
       { expiresIn: '1h' } // 1 hour expiration
@@ -397,9 +410,9 @@ exports.resetPassword = async (req, res, next) => {
     }
 
     // Validate password strength
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       return res.status(400).json({ 
-        error: 'Password must be at least 6 characters long' 
+        error: 'Password must be at least 8 characters long' 
       });
     }
 
@@ -442,8 +455,16 @@ exports.resetPassword = async (req, res, next) => {
       .digest('hex');
 
     // Use timing-safe comparison to prevent timing attacks
-    const storedHash = Buffer.from(user.resetPasswordToken || '', 'hex');
-    const providedHash = Buffer.from(tokenHash, 'hex');
+    let storedHash;
+    let providedHash;
+    try {
+      storedHash = Buffer.from(user.resetPasswordToken || '', 'hex');
+      providedHash = Buffer.from(tokenHash, 'hex');
+    } catch (err) {
+      return res.status(400).json({
+        error: 'Invalid or already used reset token'
+      });
+    }
     
     let isValidToken = false;
     if (storedHash.length === providedHash.length) {
@@ -457,14 +478,16 @@ exports.resetPassword = async (req, res, next) => {
     }
 
     // Check token expiration
-    if (user.resetPasswordExpires < new Date()) {
+    if (!user.resetPasswordExpires || user.resetPasswordExpires < new Date()) {
       return res.status(400).json({ 
         error: 'Reset token has expired. Please request a new one.' 
       });
     }
 
-    // Update password (will be hashed by pre-save hook)
+    // Store the raw password and let the User model own hashing consistently.
     user.password = newPassword;
+    user.skipPasswordHash = false;
+    user.isPasswordSet = true;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();

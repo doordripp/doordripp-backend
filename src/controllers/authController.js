@@ -1,8 +1,8 @@
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 const { getAuthCookieOptions } = require('../utils/authCookies');
+const { verifyPasswordAndUpgrade } = require('../utils/password.util');
 
 const generateToken = (user) => {
   const jwtSecret = process.env.JWT_SECRET;
@@ -66,7 +66,7 @@ exports.register = async (req, res, next) => {
       }
     }
 
-    const user = new User({ name, email: email ? email.toLowerCase().trim() : email, password, phone, gender, dob: dob ? new Date(dob) : null, address, termsAccepted, roles: [] });
+    const user = new User({ name, email: email ? email.toLowerCase().trim() : email, password, phone, gender, dob: dob ? new Date(dob) : null, address, termsAccepted, roles: [], isPasswordSet: true });
     await user.save();
     const { token, cookieOptions } = await exports.createTokenForUser(user);
     // set httpOnly cookie for session
@@ -89,7 +89,7 @@ exports.login = async (req, res, next) => {
     const emailLower = email ? email.toLowerCase().trim() : email;
     const user = await User.findOne({ $or: [{ email: emailLower }, { phone: email }] });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-    const match = await user.matchPassword(password);
+    const match = await verifyPasswordAndUpgrade(user, password);
     if (!match) return res.status(401).json({ error: 'Invalid credentials' });
     if (user.blocked) return res.status(403).json({ error: 'Account blocked' });
     const { token, cookieOptions } = await exports.createTokenForUser(user);
