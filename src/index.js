@@ -53,6 +53,7 @@ const deliveryRoutes = require('./routes/delivery');
 const deliveryPartnerRoutes = require('./routes/deliveryPartner');
 const voucherRoutes = require('./routes/voucher.routes');
 const managerRoutes = require('./routes/manager');
+const marketingRoutes = require('./routes/marketing');
 // Socket.io setup
 const { setupSocketIO } = require('./sockets')
 const logger = require('./utils/logger')
@@ -191,6 +192,7 @@ app.use('/api', addressRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/support', supportRoutes);
 app.use('/api/content', contentRoutes);
+app.use('/api/marketing', marketingRoutes);
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/delivery-partner', deliveryPartnerRoutes);
 app.use('/api/voucher', voucherRoutes);

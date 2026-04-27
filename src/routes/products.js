@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Product = require('../models/Product');
 const { verifyToken, requireAdmin, optionalVerifyToken, hasAnyRole } = require('../middleware/auth');
+const { attachSaleInfoToProducts } = require('../utils/promotionHelpers');
 
 // Public routes - fetch products
 router.get('/', optionalVerifyToken, async (req, res, next) => {
@@ -33,7 +34,9 @@ router.get('/', optionalVerifyToken, async (req, res, next) => {
       Product.countDocuments(filter)
     ]);
 
-    const formattedProducts = products.map(p => ({
+    const enrichedProducts = await attachSaleInfoToProducts(products.map((p) => p.toObject()));
+
+    const formattedProducts = enrichedProducts.map(p => ({
       id: p._id,
       _id: p._id,
       name: p.name,
@@ -52,7 +55,8 @@ router.get('/', optionalVerifyToken, async (req, res, next) => {
       rating: p.rating || { rating: 4.5, reviews: 0 },
       isNewArrival: p.isNewArrival || false,
       isBestSeller: p.isBestSeller || false,
-      isFeatured: p.isFeatured || false
+      isFeatured: p.isFeatured || false,
+      saleInfo: p.saleInfo || null
     }));
 
     res.json({
@@ -80,32 +84,34 @@ router.get('/:id', async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Not found' });
+    const [productWithSale] = await attachSaleInfoToProducts([product.toObject()]);
 
     // No visibility restriction on detail viewing to allow customers to browse
     // even during closed hours. We handle checkout restrictions separately.
 
     res.json({
-      id: product._id,
-      _id: product._id,
-      name: product.name,
-      slug: product.slug,
-      description: product.description,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      discount: product.discount,
-      stock: product.stock,
-      category: product.category,
-      subcategory: product.subcategory,
-      images: product.images || [],
-      image: product.images && product.images.length > 0 ? product.images[0] : null,
-      colors: product.colors || [],
-      sizes: product.sizes || [],
-      rating: product.rating || { rating: 4.5, reviews: 0 },
-      isNewArrival: product.isNewArrival || false,
-      isBestSeller: product.isBestSeller || false,
-      isFeatured: product.isFeatured || false,
-      details: product.details || {},
-      keyFeatures: product.keyFeatures || []
+      id: productWithSale._id,
+      _id: productWithSale._id,
+      name: productWithSale.name,
+      slug: productWithSale.slug,
+      description: productWithSale.description,
+      price: productWithSale.price,
+      originalPrice: productWithSale.originalPrice,
+      discount: productWithSale.discount,
+      stock: productWithSale.stock,
+      category: productWithSale.category,
+      subcategory: productWithSale.subcategory,
+      images: productWithSale.images || [],
+      image: productWithSale.images && productWithSale.images.length > 0 ? productWithSale.images[0] : null,
+      colors: productWithSale.colors || [],
+      sizes: productWithSale.sizes || [],
+      rating: productWithSale.rating || { rating: 4.5, reviews: 0 },
+      isNewArrival: productWithSale.isNewArrival || false,
+      isBestSeller: productWithSale.isBestSeller || false,
+      isFeatured: productWithSale.isFeatured || false,
+      details: productWithSale.details || {},
+      keyFeatures: productWithSale.keyFeatures || [],
+      saleInfo: productWithSale.saleInfo || null
     });
   } catch (err) {
     next(err);
