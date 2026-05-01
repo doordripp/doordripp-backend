@@ -8,6 +8,7 @@ const Order = require('../models/Order');
 const AreaManager = require('../models/AreaManager');
 const { hasAnyRole } = require('../middleware/auth');
 const { getOrderTrackUrl } = require('../utils/appUrls');
+const { buildProductInventoryPayload, normalizeSizeInventory } = require('../utils/productInventory');
 
 const CURRENT_DELIVERY_ORDER_STATUSES = ['confirmed', 'accepted', 'picked_up', 'out_for_delivery'];
 const STATUS_TO_DELIVERY_STATUS = {
@@ -18,6 +19,21 @@ const STATUS_TO_DELIVERY_STATUS = {
   delivered: 'delivered',
   failed: 'failed',
   cancelled: 'cancelled'
+};
+
+const forwardAdminError = (next, res, err, fallbackMessage = 'Internal server error') => {
+  if (typeof next === 'function') {
+    return next(err);
+  }
+
+  logger.error('Admin controller fallback error:', err);
+  if (res && !res.headersSent) {
+    return res.status(err?.status || 500).json({
+      error: err?.message || fallbackMessage
+    });
+  }
+
+  return null;
 };
 
 const normalizeProductDetails = (details) => {
@@ -42,6 +58,45 @@ const normalizeProductKeyFeatures = (keyFeatures) => {
     }
   }
   return [];
+};
+
+const formatProductResponse = (product, extra = {}) => {
+  const inventory = buildProductInventoryPayload(product);
+
+  return {
+    id: product._id,
+    _id: product._id,
+    name: product.name,
+    slug: product.slug,
+    description: product.description,
+    price: product.price,
+    originalPrice: product.originalPrice,
+    discount: product.discount,
+    costPrice: product.costPrice,
+    deliveryCost: product.deliveryCost,
+    pricingMode: product.pricingMode,
+    gstRate: product.gstRate,
+    stock: inventory.stock,
+    category: product.category,
+    subcategory: product.subcategory,
+    dressStyle: product.dressStyle,
+    images: product.images || [],
+    colors: product.colors || [],
+    sizes: inventory.sizes,
+    sizeInventory: inventory.sizeInventory,
+    availableSizes: inventory.availableSizes,
+    defaultSize: inventory.defaultSize,
+    rating: product.rating || { rating: 4.5, reviews: 0 },
+    isNewArrival: product.isNewArrival || false,
+    isBestSeller: product.isBestSeller || false,
+    isFeatured: product.isFeatured || false,
+    productSource: product.productSource || 'Manufacturer',
+    listedBy: toListedByPayload(product.listedBy),
+    details: normalizeProductDetails(product.details),
+    keyFeatures: normalizeProductKeyFeatures(product.keyFeatures),
+    status: inventory.inStock ? 'Active' : 'Out of Stock',
+    ...extra
+  };
 };
 
 const normalizeProductImages = (images) => {
@@ -198,7 +253,7 @@ exports.getDashboardStats = async (req, res, next) => {
       ordersByStatus
     });
   } catch (err) {
-    next(err);
+    return forwardAdminError(next, res, err, 'Failed to create product');
   }
 };
 
@@ -228,36 +283,7 @@ exports.listProducts = async (req, res, next) => {
       Product.countDocuments(filter)
     ]);
 
-    const formattedProducts = products.map(p => ({
-      id: p._id,
-      _id: p._id,
-      name: p.name,
-      slug: p.slug,
-      description: p.description,
-      price: p.price,
-      originalPrice: p.originalPrice,
-      discount: p.discount,
-      costPrice: p.costPrice,
-      deliveryCost: p.deliveryCost,
-      pricingMode: p.pricingMode,
-      gstRate: p.gstRate,
-      stock: p.stock,
-      category: p.category,
-      subcategory: p.subcategory,
-      dressStyle: p.dressStyle,
-      images: p.images || [],
-      colors: p.colors || [],
-      sizes: p.sizes || [],
-      rating: p.rating || { rating: 4.5, reviews: 0 },
-      isNewArrival: p.isNewArrival || false,
-      isBestSeller: p.isBestSeller || false,
-      isFeatured: p.isFeatured || false,
-      productSource: p.productSource || 'Manufacturer',
-      listedBy: toListedByPayload(p.listedBy),
-      details: normalizeProductDetails(p.details),
-      keyFeatures: normalizeProductKeyFeatures(p.keyFeatures),
-      status: p.stock > 0 ? 'Active' : 'Out of Stock'
-    }));
+    const formattedProducts = products.map((p) => formatProductResponse(p));
 
     res.json({
       products: formattedProducts,
@@ -266,7 +292,7 @@ exports.listProducts = async (req, res, next) => {
       totalPages: Math.ceil(total / parseInt(limit))
     });
   } catch (err) {
-    next(err);
+    return forwardAdminError(next, res, err, 'Failed to update product');
   }
 };
 
@@ -275,35 +301,7 @@ exports.getProduct = async (req, res, next) => {
     const product = await Product.findById(req.params.id).populate('listedBy', 'name email');
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
-    res.json({
-      id: product._id,
-      _id: product._id,
-      name: product.name,
-      slug: product.slug,
-      description: product.description,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      discount: product.discount,
-      costPrice: product.costPrice,
-      deliveryCost: product.deliveryCost,
-      pricingMode: product.pricingMode,
-      gstRate: product.gstRate,
-      stock: product.stock,
-      category: product.category,
-      subcategory: product.subcategory,
-      dressStyle: product.dressStyle,
-      images: product.images || [],
-      colors: product.colors || [],
-      sizes: product.sizes || [],
-      rating: product.rating || { rating: 4.5, reviews: 0 },
-      isNewArrival: product.isNewArrival || false,
-      isBestSeller: product.isBestSeller || false,
-      isFeatured: product.isFeatured || false,
-      productSource: product.productSource || 'Manufacturer',
-      listedBy: toListedByPayload(product.listedBy),
-      details: normalizeProductDetails(product.details),
-      keyFeatures: normalizeProductKeyFeatures(product.keyFeatures)
-    });
+    res.json(formatProductResponse(product));
   } catch (err) {
     next(err);
   }
@@ -321,13 +319,14 @@ exports.createProduct = async (req, res, next) => {
       deliveryCost,
       pricingMode,
       gstRate,
-      stock, 
+      stock,
       category, 
       subcategory,
       dressStyle,
       images,
       colors,
       sizes,
+      sizeInventory,
       rating,
       isNewArrival,
       isBestSeller,
@@ -342,6 +341,8 @@ exports.createProduct = async (req, res, next) => {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '') +
       '-' + Date.now().toString(36);
+
+    const normalizedSizeInventory = normalizeSizeInventory(sizeInventory, sizes, stock);
 
     const product = new Product({
       name,
@@ -360,7 +361,8 @@ exports.createProduct = async (req, res, next) => {
       dressStyle: dressStyle || '',
       images: normalizeProductImages(images),
       colors: colors || [],
-      sizes: sizes || [],
+      sizes: normalizedSizeInventory.map((entry) => entry.size),
+      sizeInventory: normalizedSizeInventory,
       rating: rating || { rating: 4.5, reviews: 0 },
       isNewArrival: isNewArrival || false,
       isBestSeller: isBestSeller || false,
@@ -374,36 +376,7 @@ exports.createProduct = async (req, res, next) => {
     await product.save();
     await product.populate('listedBy', 'name email');
 
-    res.status(201).json({
-      id: product._id,
-      _id: product._id,
-      name: product.name,
-      slug: product.slug,
-      description: product.description,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      discount: product.discount,
-      costPrice: product.costPrice,
-      deliveryCost: product.deliveryCost,
-      pricingMode: product.pricingMode,
-      gstRate: product.gstRate,
-      stock: product.stock,
-      category: product.category,
-      subcategory: product.subcategory,
-      dressStyle: product.dressStyle,
-      images: product.images,
-      colors: product.colors,
-      sizes: product.sizes,
-      rating: product.rating,
-      isNewArrival: product.isNewArrival,
-      isBestSeller: product.isBestSeller,
-      isFeatured: product.isFeatured,
-      productSource: product.productSource,
-      listedBy: toListedByPayload(product.listedBy),
-      details: normalizeProductDetails(product.details),
-      keyFeatures: normalizeProductKeyFeatures(product.keyFeatures),
-      status: product.stock > 0 ? 'Active' : 'Out of Stock'
-    });
+    res.status(201).json(formatProductResponse(product));
   } catch (err) {
     next(err);
   }
@@ -429,6 +402,7 @@ exports.updateProduct = async (req, res, next) => {
       images,
       colors,
       sizes,
+      sizeInventory,
       rating,
       isNewArrival,
       isBestSeller,
@@ -454,7 +428,11 @@ exports.updateProduct = async (req, res, next) => {
     if (dressStyle !== undefined) updateData.dressStyle = dressStyle;
     if (images !== undefined) updateData.images = normalizeProductImages(images);
     if (colors !== undefined) updateData.colors = colors;
-    if (sizes !== undefined) updateData.sizes = sizes;
+    if (sizes !== undefined || sizeInventory !== undefined || stock !== undefined) {
+      const normalizedSizeInventory = normalizeSizeInventory(sizeInventory, sizes, stock);
+      updateData.sizes = normalizedSizeInventory.map((entry) => entry.size);
+      updateData.sizeInventory = normalizedSizeInventory;
+    }
     if (rating !== undefined) updateData.rating = rating;
     if (isNewArrival !== undefined) updateData.isNewArrival = isNewArrival;
     if (isBestSeller !== undefined) updateData.isBestSeller = isBestSeller;
@@ -466,35 +444,7 @@ exports.updateProduct = async (req, res, next) => {
     const product = await Product.findByIdAndUpdate(id, updateData, { returnDocument: 'after' });
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
-    res.json({
-      id: product._id,
-      _id: product._id,
-      name: product.name,
-      slug: product.slug,
-      description: product.description,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      discount: product.discount,
-      costPrice: product.costPrice,
-      deliveryCost: product.deliveryCost,
-      pricingMode: product.pricingMode,
-      gstRate: product.gstRate,
-      stock: product.stock,
-      category: product.category,
-      subcategory: product.subcategory,
-      dressStyle: product.dressStyle,
-      images: product.images,
-      colors: product.colors,
-      sizes: product.sizes,
-      rating: product.rating,
-      isNewArrival: product.isNewArrival,
-      isBestSeller: product.isBestSeller,
-      isFeatured: product.isFeatured,
-      productSource: product.productSource,
-      details: normalizeProductDetails(product.details),
-      keyFeatures: normalizeProductKeyFeatures(product.keyFeatures),
-      status: product.stock > 0 ? 'Active' : 'Out of Stock'
-    });
+    res.json(formatProductResponse(product));
   } catch (err) {
     next(err);
   }

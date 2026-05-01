@@ -8,6 +8,49 @@ const DeliveryZone = require('../models/DeliveryZone');
 const AreaManager = require('../models/AreaManager');
 const voucherService = require('../services/voucher.service');
 const { getDeliveryChargeConfig, pickDeliveryOption } = require('../utils/deliveryChargeConfig');
+const { normalizeSizeInventory, getDefaultSize, normalizeSizeLabel, getTotalStock } = require('../utils/productInventory');
+
+const forwardControllerError = (next, res, err, fallbackMessage = 'Internal server error') => {
+  if (typeof next === 'function') {
+    return next(err);
+  }
+
+  console.error('Order controller fallback error:', err);
+  if (res && !res.headersSent) {
+    return res.status(err?.status || 500).json({ error: err?.message || fallbackMessage });
+  }
+
+  return null;
+};
+
+const adjustProductSizeStock = async (productId, size, quantityDelta) => {
+  const product = await Product.findById(productId);
+  if (!product) return null;
+
+  const normalizedInventory = normalizeSizeInventory(product.sizeInventory, product.sizes, product.stock);
+  const fallbackSize = getDefaultSize(normalizedInventory, product.sizes);
+  const targetSize = normalizeSizeLabel(size || fallbackSize);
+  const nextInventory = normalizedInventory.map((entry) => {
+    if (entry.size !== targetSize) return entry;
+    return {
+      ...entry,
+      stock: Math.max(0, Number(entry.stock || 0) + Number(quantityDelta || 0))
+    };
+  });
+
+  if (!nextInventory.some((entry) => entry.size === targetSize)) {
+    nextInventory.push({
+      size: targetSize,
+      stock: Math.max(0, Number(quantityDelta || 0))
+    });
+  }
+
+  product.sizeInventory = nextInventory;
+  product.sizes = nextInventory.map((entry) => entry.size);
+  product.stock = getTotalStock(nextInventory);
+  await product.save();
+  return product;
+};
 
 /**
  * Calculate distance between two coordinates (in km) using Haversine formula
@@ -250,7 +293,7 @@ exports.getRazorpayConfig = async (req, res, next) => {
       requiresLive
     });
   } catch (err) {
-    next(err);
+    return forwardControllerError(next, res, err);
   }
 };
 
@@ -263,10 +306,12 @@ exports.create = async (req, res, next) => {
       trialFee = 0,
       isTrial = false,
       trialItems = [],
-      voucherCode
+      voucherCode,
+      paymentMethod = 'online' // 'cod' or 'online'
     } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'No items' });
 
+    const isCOD = paymentMethod === 'cod';
     const parsedTrialFee = Number(trialFee);
     const safeTrialFee = Number.isFinite(parsedTrialFee) && parsedTrialFee >= 0 ? parsedTrialFee : 0;
 
@@ -292,10 +337,7 @@ exports.create = async (req, res, next) => {
 
       const product = await Product.findById(it.product);
       if (!product) return res.status(400).json({ error: 'Invalid product ' + it.product });
-
-      // Check available stock (stock - reserved)
-      const availableStock = product.stock - (product.reserved || 0);
-      if (availableStock < quantity) return res.status(400).json({ error: 'Out of stock for ' + product.name });
+      const selectedSize = normalizeSizeLabel(it.selectedSize || it.size || getDefaultSize(product.sizeInventory, product.sizes));
 
       const price = product.price;
       const gstRate = product.gstRate || 5; // Default 5% if not set
@@ -315,6 +357,7 @@ exports.create = async (req, res, next) => {
         product: product._id,
         name: product.name,
         quantity,
+        size: selectedSize,
         price, // Original inclusive unit price
         itemTotal: price * quantity, 
         productSource: product.productSource || 'Manufacturer',
@@ -360,21 +403,8 @@ exports.create = async (req, res, next) => {
       return res.status(400).json({ error: 'Payable amount must be greater than 0 after voucher discount' });
     }
 
-    // Build list of products to check and reserve
+    // Build list of products to reserve or deduct
     const reservationList = isTrial ? trialItems : orderItems;
-
-    // 1. Initial validation and stock check
-    for (const it of reservationList) {
-      const pid = it.product || it.productId || it._id;
-      const product = await Product.findById(pid);
-      if (!product) return res.status(400).json({ error: 'Invalid product in list: ' + pid });
-
-      const quantity = it.quantity || 1;
-      const availableStock = product.stock - (product.reserved || 0);
-      if (availableStock < quantity) {
-        return res.status(400).json({ error: `Out of stock for "${product.name}". Only ${availableStock} left.` });
-      }
-    }
 
     // Enrich trialItems with source if present
     const enrichedTrialItems = [];
@@ -387,12 +417,165 @@ exports.create = async (req, res, next) => {
           name: ti.name || p?.name,
           image: ti.image || (p?.images && p.images[0]) || p?.image,
           price: ti.price || p?.price,
+          size: normalizeSizeLabel(ti.size || ti.selectedSize || getDefaultSize(p?.sizeInventory, p?.sizes)),
           productSource: p?.productSource || 'Manufacturer'
         });
       }
     }
 
-    // create a Razorpay order (amount in paise)
+    const roundedTotal = Math.round(total * 100) / 100;
+
+    // --- COD vs ONLINE payment branching ---
+    if (isCOD) {
+      // COD: No Razorpay order needed. Confirm order immediately.
+      const order = await Order.create({
+        customer: req.user.id,
+        items: orderItems,
+        subtotal: Math.round(subtotal * 100) / 100,
+        cgstTotal: Math.round(totalCGST * 100) / 100,
+        sgstTotal: Math.round(totalSGST * 100) / 100,
+        igstTotal: 0,
+        totalGST: Math.round(totalGST * 100) / 100,
+        deliveryFee,
+        trialFee: safeTrialFee,
+        isTrial,
+        trialItems: enrichedTrialItems,
+        deliveryType: resolvedDeliveryType,
+        deliveryETA,
+        totalBeforeDiscount,
+        voucherDiscount,
+        voucher,
+        total: roundedTotal,
+        status: 'confirmed',
+        payment: {
+          method: 'cod',
+          status: 'cod_pending',
+          codAmount: roundedTotal
+        },
+        shippingAddress
+      });
+
+      // Deduct size-wise stock immediately for confirmed COD orders.
+      for (const it of reservationList) {
+        const pid = it.product || it.productId || it._id;
+        const quantity = it.quantity || 1;
+        const size = it.size || it.selectedSize;
+        await adjustProductSizeStock(pid, size, -quantity);
+      }
+
+      // Consume voucher usage for COD
+      if (order.voucher?.voucherId && !order.voucher?.usageApplied) {
+        await voucherService.consumeVoucherUsage({
+          voucherId: order.voucher.voucherId,
+          userId: req.user.id
+        });
+        order.voucher.usageApplied = true;
+        await order.save();
+      }
+
+      // Populate customer for notifications
+      await order.populate('customer');
+
+      // Auto-assign delivery partner (non-blocking)
+      const deliveryInfo = await autoAssignDeliveryPartner(order);
+
+      // Generate invoice (non-blocking)
+      const InvoiceService = require('../services/invoiceService');
+      InvoiceService.generateInvoice(order._id.toString())
+        .then(invoiceResult => {
+          console.log(`✅ COD Invoice generated: ${invoiceResult.invoice.invoiceNumber}`);
+          if (mailService && mailService.sendInvoiceEmail) {
+            mailService.sendInvoiceEmail({
+              customerName: order.customer.name,
+              customerEmail: order.customer.email,
+              invoiceNumber: invoiceResult.invoice.invoiceNumber,
+              pdfPath: invoiceResult.pdfPath
+            }).catch(err => console.error('Invoice email send failed:', err));
+          }
+        })
+        .catch(err => console.error('Invoice generation failed:', err));
+
+      // Send confirmation email (non-blocking)
+      if (mailService && mailService.sendOrderConfirmation) {
+        mailService.sendOrderConfirmation({
+          customerName: order.customer.name,
+          customerEmail: order.customer.email,
+          customerPhone: order.shippingAddress?.phone || order.customer.phone || 'N/A',
+          orderId: order._id.toString(),
+          orderDate: order.createdAt,
+          items: order.items.map(it => ({
+            productName: it.name,
+            name: it.name,
+            productImage: it.image || it.productImage,
+            productDescription: it.description || it.productDescription,
+            size: it.size,
+            color: it.color,
+            quantity: it.quantity,
+            price: it.price
+          })),
+          totalAmount: order.total,
+          shippingAddress: order.shippingAddress,
+          paymentMethod: 'Cash on Delivery'
+        }).catch(err => console.error('Customer email send failed:', err));
+      }
+
+      // Manager notifications (non-blocking)
+      if (deliveryInfo?.managers?.length > 0) {
+        for (const manager of deliveryInfo.managers) {
+          if (mailService && mailService.sendManagerOrderNotification) {
+            mailService.sendManagerOrderNotification({
+              managerName: manager.name,
+              managerEmail: manager.email,
+              customerName: order.customer.name,
+              customerPhone: order.shippingAddress.phone || order.customer.phone || 'N/A',
+              orderId: order._id.toString(),
+              orderDate: order.createdAt,
+              items: order.items.map(it => ({
+                name: it.name,
+                quantity: it.quantity,
+                price: it.price,
+                productImage: it.image || it.productImage || '',
+                productUrl: it.product ? `/product/${it.product.toString()}` : ''
+              })),
+              totalAmount: order.total,
+              shippingAddress: order.shippingAddress,
+              zoneName: deliveryInfo.zone?.name,
+              paymentMethod: 'Cash on Delivery'
+            }).catch(err => console.error('Manager email send failed:', err));
+          }
+        }
+      }
+
+      // Notification persistence
+      notificationService.createNewOrderNotifications({
+        order,
+        deliveryInfo,
+        customerName: order.customer.name
+      }).catch(err => console.error('Notification persistence failed:', err));
+
+      // Push notification
+      pushService.notifyNewOrder({
+        orderId: order._id.toString(),
+        customerName: order.customer.name,
+        total: order.total,
+        itemCount: order.items.length,
+        isTrial: order.isTrial || false,
+        paymentMethod: 'COD'
+      }).catch(err => console.error('Push notification send failed:', err));
+
+      return res.status(201).json({
+        order,
+        paymentMethod: 'cod',
+        pricing: {
+          discountBase: discountBaseSubtotal,
+          totalBeforeDiscount,
+          voucherDiscount,
+          payableTotal: roundedTotal
+        }
+      });
+    }
+
+    // --- ONLINE PAYMENT (Razorpay) ---
     const razorReceipt = `ord_${String(req.user.id).slice(-8)}_${Date.now()}`.slice(0, 40);
     const razorOrder = await RazorpayUtil.createOrder({
       amount: Math.round(total * 100),
@@ -417,34 +600,28 @@ exports.create = async (req, res, next) => {
       totalBeforeDiscount,
       voucherDiscount,
       voucher,
-      total: Math.round(total * 100) / 100,
+      total: roundedTotal,
       status: 'pending',
-      payment: { razorpayOrderId: razorOrder.id, status: 'pending' },
+      payment: { method: 'razorpay', razorpayOrderId: razorOrder.id, status: 'pending' },
       shippingAddress
     });
-
-    // 2. Actually reserve the stock
-    for (const it of reservationList) {
-      const pid = it.product || it.productId || it._id;
-      const quantity = it.quantity || 1;
-      await Product.findByIdAndUpdate(pid, { $inc: { reserved: quantity } });
-    }
 
     res.status(201).json({
       order,
       razorOrder,
+      paymentMethod: 'online',
       pricing: {
         discountBase: discountBaseSubtotal,
         totalBeforeDiscount,
         voucherDiscount,
-        payableTotal: total
+        payableTotal: roundedTotal
       }
     });
   } catch (err) {
     if (err?.name === 'VoucherError') {
       return res.status(err.status || 400).json({ error: err.message });
     }
-    next(err);
+    return forwardControllerError(next, res, err, 'Failed to create order');
   }
 };
 
@@ -488,11 +665,6 @@ exports.verifyPayment = async (req, res, next) => {
 
     if (!isValid) {
       console.error('❌ Invalid payment signature for order:', orderId);
-      // Release reserved stock on failed verification
-      const reservationReleaseList = order.isTrial ? order.trialItems : order.items;
-      for (const it of reservationReleaseList) {
-        await Product.findByIdAndUpdate(it.product, { $inc: { reserved: -(it.quantity || 1) } });
-      }
       // Explicitly mark order as failed
       order.status = 'failed';
       order.payment.status = 'failed';
@@ -517,26 +689,9 @@ exports.verifyPayment = async (req, res, next) => {
     await order.save();
     console.log('✅ Payment verified successfully for order:', orderId);
 
-    // Finalize stock reduction (from reserved to actual deducted)
+    // Finalize size-wise stock reduction after successful online payment.
     for (const item of order.items) {
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: { stock: -item.quantity, reserved: -item.quantity }
-      });
-    }
-
-    // For other trial items, keep them reserved while they are "out" for trial
-    // but the purchased item reservation is already handled above ^
-    if (order.isTrial) {
-      for (const ti of order.trialItems) {
-        // If NOT the purchased item, keep it in "reserved" state while with customer
-        // Wait, the Purchased Item ID is order.items[0].product
-        const isPurchased = order.items.some(it => it.product.toString() === ti.product.toString());
-        if (!isPurchased) {
-          // We already reserved it in .create(). We keep it reserved. 
-          // When the rider brings it back and marks order as "Finalized/Returned", we should unreserve.
-          // For now, doing nothing here keeps it reserved.
-        }
-      }
+      await adjustProductSizeStock(item.product, item.size, -item.quantity);
     }
     console.log('✅ Stock updated for order:', orderId);
 
@@ -579,7 +734,8 @@ exports.verifyPayment = async (req, res, next) => {
           price: it.price
         })),
         totalAmount: order.total,
-        shippingAddress: order.shippingAddress
+        shippingAddress: order.shippingAddress,
+        paymentMethod: 'Online Payment'
       }).catch(err => console.error('Customer email send failed:', err));
     }
 
@@ -608,7 +764,8 @@ exports.verifyPayment = async (req, res, next) => {
             })),
             totalAmount: order.total,
             shippingAddress: order.shippingAddress,
-            zoneName: deliveryInfo.zone?.name
+            zoneName: deliveryInfo.zone?.name,
+            paymentMethod: 'Online Payment'
           }).catch(err => console.error('Manager email send failed:', err));
         }
       }
@@ -638,7 +795,7 @@ exports.verifyPayment = async (req, res, next) => {
     if (err?.name === 'VoucherError') {
       return res.status(err.status || 400).json({ error: err.message });
     }
-    next(err);
+    return forwardControllerError(next, res, err, 'Failed to verify payment');
   }
 };
 
@@ -656,21 +813,11 @@ exports.markPaymentFailed = async (req, res, next) => {
       order.status = 'failed';
       order.payment.status = 'failed';
 
-      // Release reserved products
-      const reservationReleaseList = order.isTrial ? (order.trialItems || []) : (order.items || []);
-      for (const it of reservationReleaseList) {
-        if (it.product) {
-          await Product.findByIdAndUpdate(it.product, {
-            $inc: { reserved: -(it.quantity || 1) }
-          });
-        }
-      }
-
       await order.save();
     }
     res.json({ success: true, message: 'Order payment marked as failed', order });
   } catch (err) {
-    next(err);
+    return forwardControllerError(next, res, err);
   }
 };
 
@@ -688,7 +835,7 @@ exports.get = async (req, res, next) => {
 
     res.json(order);
   } catch (err) {
-    next(err);
+    return forwardControllerError(next, res, err);
   }
 };
 
@@ -727,7 +874,7 @@ exports.list = async (req, res, next) => {
 
     res.json({ orders, pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) } })
   } catch (err) {
-    next(err);
+    return forwardControllerError(next, res, err);
   }
 };
 
@@ -760,7 +907,7 @@ exports.updateStatus = async (req, res, next) => {
 
     res.json({ message: 'Order status updated', order });
   } catch (err) {
-    next(err);
+    return forwardControllerError(next, res, err);
   }
 };
 
@@ -785,16 +932,9 @@ exports.cancel = async (req, res, next) => {
       return res.status(400).json({ error: `Cannot cancel order with status: ${order.status}` });
     }
 
-    // Release reserved stock
     for (const it of order.items) {
-      if (order.status === 'pending') {
-        // For pending: release reserved only
-        await Product.findByIdAndUpdate(it.product, { $inc: { reserved: -it.quantity } });
-      } else if (order.status === 'confirmed') {
-        // For confirmed: restore stock and release reserved
-        await Product.findByIdAndUpdate(it.product, {
-          $inc: { stock: it.quantity, reserved: -it.quantity }
-        });
+      if (order.status === 'confirmed') {
+        await adjustProductSizeStock(it.product, it.size, it.quantity);
       }
     }
 
@@ -803,7 +943,40 @@ exports.cancel = async (req, res, next) => {
 
     res.json({ message: 'Order cancelled successfully', order });
   } catch (err) {
-    next(err);
+    return forwardControllerError(next, res, err);
+  }
+};
+
+/**
+ * Mark COD payment as collected (admin/manager only)
+ */
+exports.markCodCollected = async (req, res, next) => {
+  try {
+    const roles = req.user.roles || [];
+    const isAdminOrManager = roles.includes('admin') || roles.includes('manager');
+    if (!isAdminOrManager) {
+      return res.status(403).json({ error: 'Admin or manager access required' });
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    if (order.payment?.method !== 'cod') {
+      return res.status(400).json({ error: 'This order is not a Cash on Delivery order' });
+    }
+
+    if (order.payment?.status === 'cod_collected') {
+      return res.json({ message: 'COD payment already marked as collected', order });
+    }
+
+    order.payment.status = 'cod_collected';
+    order.payment.transactionId = `COD_${Date.now()}`;
+    await order.save();
+
+    console.log(`✅ COD payment collected for order ${order._id}`);
+    res.json({ message: 'COD payment marked as collected', order });
+  } catch (err) {
+    return forwardControllerError(next, res, err);
   }
 };
 

@@ -222,9 +222,15 @@
             <span class="value">{{orderDate}}</span>
           </div>
         </div>
-        <div class="order-info">
-          <span class="label">Total Items:</span>
-          <span class="value">{{itemCount}} item(s)</span>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
+          <div class="order-info">
+            <span class="label">Total Items:</span>
+            <span class="value">{{itemCount}} item(s)</span>
+          </div>
+          <div class="order-info">
+            <span class="label">Payment Method:</span>
+            <span class="value">{{paymentMethod}}</span>
+          </div>
         </div>
       </div>
 

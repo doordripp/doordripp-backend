@@ -60,7 +60,8 @@ exports.getMyOrders = async (req, res, next) => {
       deliveryType: order.deliveryType,
       deliveryETA: order.deliveryETA,
       isTrial: order.isTrial,
-      trialItems: order.trialItems
+      trialItems: order.trialItems,
+      payment: order.payment
     }));
 
     res.json({

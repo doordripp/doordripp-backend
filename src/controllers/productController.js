@@ -1,4 +1,5 @@
 const Product = require('../models/Product')
+const { buildProductInventoryPayload } = require('../utils/productInventory')
 
 exports.list = async (req, res, next) => {
   try {
@@ -132,6 +133,7 @@ exports.getRelatedProducts = async (req, res, next) => {
       const productId = product._id.toString()
       if (!seenIds.has(productId) && uniqueProducts.length < limit) {
         seenIds.add(productId)
+        const inventory = buildProductInventoryPayload(product)
         uniqueProducts.push({
           _id: product._id,
           id: product._id,
@@ -146,9 +148,13 @@ exports.getRelatedProducts = async (req, res, next) => {
           images: product.images || [],
           image: product.images && product.images.length > 0 ? product.images[0] : null,
           colors: product.colors || [],
-          sizes: product.sizes || [],
+          sizes: inventory.sizes,
+          sizeInventory: inventory.sizeInventory,
+          availableSizes: inventory.availableSizes,
+          defaultSize: inventory.defaultSize,
           rating: product.rating || { rating: 4.5, reviews: 0 },
-          stock: product.stock || 0
+          stock: inventory.stock,
+          inStock: inventory.inStock
         })
       }
     }
@@ -195,7 +201,9 @@ exports.getRecommendations = async (req, res, next) => {
       .sort({ createdAt: -1, rating: -1 })
       .limit(parseInt(limit))
     
-    const formattedProducts = products.map(product => ({
+    const formattedProducts = products.map(product => {
+      const inventory = buildProductInventoryPayload(product)
+      return ({
       _id: product._id,
       id: product._id,
       name: product.name,
@@ -209,10 +217,14 @@ exports.getRecommendations = async (req, res, next) => {
       images: product.images || [],
       image: product.images && product.images.length > 0 ? product.images[0] : null,
       colors: product.colors || [],
-      sizes: product.sizes || [],
+      sizes: inventory.sizes,
+      sizeInventory: inventory.sizeInventory,
+      availableSizes: inventory.availableSizes,
+      defaultSize: inventory.defaultSize,
       rating: product.rating || { rating: 4.5, reviews: 0 },
-      stock: product.stock || 0
-    }))
+      stock: inventory.stock,
+      inStock: inventory.inStock
+    })})
     
     res.json({
       success: true,

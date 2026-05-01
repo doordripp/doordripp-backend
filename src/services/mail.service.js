@@ -341,7 +341,8 @@ class MailService {
       trackingUrl: getOrderUrl(orderData.orderId),
       currentYear: new Date().getFullYear(),
       supportEmail: process.env.SUPPORT_EMAIL || 'support@doordripp.com',
-      clientUrl: getClientUrl()
+      clientUrl: getClientUrl(),
+      paymentMethod: orderData.paymentMethod || 'Online Payment'
     });
 
     return this.sendEmail({
@@ -393,7 +394,8 @@ class MailService {
       items: this.formatOrderItems(orderData.items),
       zoneName: orderData.zoneName || 'Your Zone',
       trackingUrl: getAdminOrdersUrl(orderData.orderId),
-      currentYear: new Date().getFullYear()
+      currentYear: new Date().getFullYear(),
+      paymentMethod: orderData.paymentMethod || 'Online Payment'
     });
 
     return this.sendEmail({

@@ -186,7 +186,8 @@ exports.createTrialOrder = async (req, res) => {
         name: product.name,
         price: product.price,
         image: product.images && product.images[0] ? product.images[0] : null,
-        quantity: item.quantity || 1
+        quantity: item.quantity || 1,
+        size: item.size || 'M'
       };
     });
 
