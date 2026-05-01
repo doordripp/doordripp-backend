@@ -14,5 +14,6 @@ router.post('/:id/cancel', verifyToken, orderController.cancel);
 // Admin endpoints
 router.get('/', verifyToken, orderController.list);
 router.patch('/:id/status', verifyToken, orderController.updateStatus);
+router.patch('/:id/cod-collected', verifyToken, orderController.markCodCollected);
 
 module.exports = router;

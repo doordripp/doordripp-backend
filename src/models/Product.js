@@ -1,4 +1,10 @@
 const mongoose = require('mongoose')
+const { normalizeSizeInventory, getTotalStock } = require('../utils/productInventory')
+
+const SizeInventorySchema = new mongoose.Schema({
+  size: { type: String, required: true, trim: true },
+  stock: { type: Number, default: 0, min: 0 }
+}, { _id: false })
 
 const ProductSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -17,6 +23,7 @@ const ProductSchema = new mongoose.Schema({
   subcategory: { type: String },
   colors: { type: [String], default: [] },
   sizes: { type: [String], default: [] },
+  sizeInventory: { type: [SizeInventorySchema], default: [] },
   rating: {
     rating: { type: Number, default: 4.5 },
     reviews: { type: Number, default: 0 }
@@ -63,5 +70,12 @@ const ProductSchema = new mongoose.Schema({
     index: true
   }
 }, { timestamps: true })
+
+ProductSchema.pre('validate', function syncSizeInventory() {
+  const normalizedInventory = normalizeSizeInventory(this.sizeInventory, this.sizes, this.stock)
+  this.sizeInventory = normalizedInventory
+  this.sizes = normalizedInventory.map((entry) => entry.size)
+  this.stock = getTotalStock(normalizedInventory)
+})
 
 module.exports = mongoose.models.Product || mongoose.model('Product', ProductSchema)

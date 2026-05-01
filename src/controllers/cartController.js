@@ -2,6 +2,10 @@ const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
 const { ALL_PRODUCTS = [] } = require('../data/frontendProducts');
+const {
+  validateProductAvailability,
+  buildCartStockSnapshot
+} = require('../utils/stockValidation');
 
 const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -63,12 +67,6 @@ exports.addItem = async (req, res, next) => {
     const product = await Product.findById(resolvedProductId);
     if (!product) return res.status(404).json({ error: 'Product not found' });
 
-    // Visibility check for Retailer products
-    const { shouldShowRetailerProducts } = require('../utils/visibility');
-    if (product.productSource === 'Retailer' && !shouldShowRetailerProducts()) {
-      return res.status(403).json({ error: 'This product is currently not available for purchase.' });
-    }
-
     const requestedQty = Math.max(1, parseInt(quantity) || 1);
 
     let cart = await Cart.findOne({ user: userId });
@@ -83,8 +81,10 @@ exports.addItem = async (req, res, next) => {
     );
 
     const existingQty = existing ? existing.quantity : 0;
-    if (product.stock <= 0 || existingQty + requestedQty > product.stock) {
-      return res.status(400).json({ error: 'Out of stock' });
+    const availability = validateProductAvailability(product, existingQty + requestedQty, { size });
+    if (!availability.ok) {
+      const statusCode = availability.reason === 'retailer_unavailable' ? 403 : 400;
+      return res.status(statusCode).json({ error: availability.message || 'Out of stock' });
     }
 
     if (existing) {
@@ -127,8 +127,12 @@ exports.updateQuantity = async (req, res, next) => {
       cart.items = cart.items.filter(i => i !== existing);
     } else {
       const product = await Product.findById(resolvedProductId);
-      if (product && quantity > product.stock) {
-        return res.status(400).json({ error: 'Out of stock' });
+      if (product) {
+        const availability = validateProductAvailability(product, quantity, { size });
+        if (!availability.ok) {
+          const statusCode = availability.reason === 'retailer_unavailable' ? 403 : 400;
+          return res.status(statusCode).json({ error: availability.message || 'Out of stock' });
+        }
       }
       existing.quantity = quantity;
     }
@@ -221,63 +225,14 @@ exports.clearCart = async (req, res, next) => {
 exports.checkout = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    const { shippingAddress } = req.body;
     const cart = await Cart.findOne({ user: userId }).populate('items.product');
     if (!cart || !cart.items.length) return res.status(400).json({ error: 'Cart is empty' });
 
-    let total = 0;
-    const orderItems = [];
-    for (const it of cart.items) {
-      const product = it.product;
-      if (!product) continue;
-
-      // Visibility check for Retailer products
-      const { shouldShowRetailerProducts } = require('../utils/visibility');
-      if (product.productSource === 'Retailer' && !shouldShowRetailerProducts()) {
-        return res.status(400).json({ error: `${product.name} is currently not available for purchase outside business hours (8 AM - 10 PM). Please remove it from your cart or check out during business hours.` });
-      }
-
-      const availableStock = product.stock - (product.reserved || 0);
-      if (availableStock < it.quantity) {
-        return res.status(400).json({ error: `Out of stock for ${product.name}` });
-      }
-      total += product.price * it.quantity;
-      orderItems.push({
-        product: product._id,
-        name: product.name,
-        quantity: it.quantity,
-        price: product.price,
-        size: it.size,
-        color: it.color
-      });
-    }
-
-    const RazorpayUtil = require('../utils/razorpay');
-    const razorReceipt = `cart_${String(userId).slice(-8)}_${Date.now()}`.slice(0, 40);
-    const razorOrder = await RazorpayUtil.createOrder({
-      amount: Math.round(total * 100),
-      currency: 'INR',
-      receipt: razorReceipt
+    res.json({
+      success: true,
+      message: 'Cart details captured successfully',
+      items: buildCartStockSnapshot(cart.items).items
     });
-
-    const Order = require('../models/Order');
-    const order = await Order.create({
-      customer: userId,
-      items: orderItems,
-      total,
-      status: 'pending',
-      payment: razorOrder ? { razorpayOrderId: razorOrder.id } : {},
-      shippingAddress
-    });
-
-    for (const it of cart.items) {
-      await Product.findByIdAndUpdate(it.product._id, { $inc: { reserved: it.quantity } });
-    }
-
-    cart.items = [];
-    await cart.save();
-
-    res.status(201).json({ order, razorOrder });
   } catch (err) {
     next(err);
   }

@@ -36,6 +36,10 @@ const TrialItemSchema = new mongoose.Schema({
   image: { 
     type: String 
   },
+  size: {
+    type: String,
+    default: 'M'
+  },
   quantity: { 
     type: Number, 
     default: 1 

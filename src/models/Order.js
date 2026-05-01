@@ -4,6 +4,7 @@ const OrderItemSchema = new mongoose.Schema({
   product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
   name: { type: String, required: true },
   quantity: { type: Number, required: true },
+  size: { type: String, default: 'M' },
   price: { type: Number, required: true },
   image: { type: String },
   // GST Details per item
@@ -33,6 +34,7 @@ const OrderSchema = new mongoose.Schema({
     name: { type: String },
     image: { type: String },
     price: { type: Number },
+    size: { type: String, default: 'M' },
     productSource: { type: String, enum: ['Retailer', 'Manufacturer'], default: 'Manufacturer' }
   }],
   deliveryType: {
@@ -91,10 +93,11 @@ const OrderSchema = new mongoose.Schema({
   },
 
   payment: {
-    method: { type: String },
+    method: { type: String, enum: ['razorpay', 'cod', 'online'], default: 'razorpay' },
     transactionId: { type: String },
     razorpayOrderId: { type: String },
-    status: { type: String, default: 'pending' }
+    status: { type: String, enum: ['pending', 'success', 'failed', 'cod_pending', 'cod_collected'], default: 'pending' },
+    codAmount: { type: Number, default: 0 }
   },
   shippingAddress: {
     name: { type: String },

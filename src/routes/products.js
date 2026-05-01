@@ -3,6 +3,7 @@ const router = express.Router();
 const Product = require('../models/Product');
 const { verifyToken, requireAdmin, optionalVerifyToken, hasAnyRole } = require('../middleware/auth');
 const { attachSaleInfoToProducts } = require('../utils/promotionHelpers');
+const { buildProductInventoryPayload } = require('../utils/productInventory');
 
 // Public routes - fetch products
 router.get('/', optionalVerifyToken, async (req, res, next) => {
@@ -36,28 +37,35 @@ router.get('/', optionalVerifyToken, async (req, res, next) => {
 
     const enrichedProducts = await attachSaleInfoToProducts(products.map((p) => p.toObject()));
 
-    const formattedProducts = enrichedProducts.map(p => ({
-      id: p._id,
-      _id: p._id,
-      name: p.name,
-      slug: p.slug,
-      description: p.description,
-      price: p.price,
-      originalPrice: p.originalPrice,
-      discount: p.discount,
-      stock: p.stock,
-      category: p.category,
-      subcategory: p.subcategory,
-      images: p.images || [],
-      image: p.images && p.images.length > 0 ? p.images[0] : null,
-      colors: p.colors || [],
-      sizes: p.sizes || [],
-      rating: p.rating || { rating: 4.5, reviews: 0 },
-      isNewArrival: p.isNewArrival || false,
-      isBestSeller: p.isBestSeller || false,
-      isFeatured: p.isFeatured || false,
-      saleInfo: p.saleInfo || null
-    }));
+    const formattedProducts = enrichedProducts.map(p => {
+      const inventory = buildProductInventoryPayload(p);
+      return {
+        id: p._id,
+        _id: p._id,
+        name: p.name,
+        slug: p.slug,
+        description: p.description,
+        price: p.price,
+        originalPrice: p.originalPrice,
+        discount: p.discount,
+        stock: inventory.stock,
+        category: p.category,
+        subcategory: p.subcategory,
+        images: p.images || [],
+        image: p.images && p.images.length > 0 ? p.images[0] : null,
+        colors: p.colors || [],
+        sizes: inventory.sizes,
+        sizeInventory: inventory.sizeInventory,
+        availableSizes: inventory.availableSizes,
+        defaultSize: inventory.defaultSize,
+        inStock: inventory.inStock,
+        rating: p.rating || { rating: 4.5, reviews: 0 },
+        isNewArrival: p.isNewArrival || false,
+        isBestSeller: p.isBestSeller || false,
+        isFeatured: p.isFeatured || false,
+        saleInfo: p.saleInfo || null
+      };
+    });
 
     res.json({
       data: formattedProducts,
@@ -89,6 +97,7 @@ router.get('/:id', async (req, res, next) => {
     // No visibility restriction on detail viewing to allow customers to browse
     // even during closed hours. We handle checkout restrictions separately.
 
+    const inventory = buildProductInventoryPayload(productWithSale);
     res.json({
       id: productWithSale._id,
       _id: productWithSale._id,
@@ -98,13 +107,17 @@ router.get('/:id', async (req, res, next) => {
       price: productWithSale.price,
       originalPrice: productWithSale.originalPrice,
       discount: productWithSale.discount,
-      stock: productWithSale.stock,
+      stock: inventory.stock,
       category: productWithSale.category,
       subcategory: productWithSale.subcategory,
       images: productWithSale.images || [],
       image: productWithSale.images && productWithSale.images.length > 0 ? productWithSale.images[0] : null,
       colors: productWithSale.colors || [],
-      sizes: productWithSale.sizes || [],
+      sizes: inventory.sizes,
+      sizeInventory: inventory.sizeInventory,
+      availableSizes: inventory.availableSizes,
+      defaultSize: inventory.defaultSize,
+      inStock: inventory.inStock,
       rating: productWithSale.rating || { rating: 4.5, reviews: 0 },
       isNewArrival: productWithSale.isNewArrival || false,
       isBestSeller: productWithSale.isBestSeller || false,
