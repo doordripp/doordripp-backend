@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Trial Room Controller
  * 
  * Handles all trial room operations:
@@ -23,7 +23,7 @@ const Product = require('../models/Product');
 const TRIAL_CONSTANTS = {
   MAX_ITEMS: 3,
   MIN_ITEMS: 2,
-  TRIAL_FEE: 119
+  TRIAL_FEE: 0
 };
 
 /**

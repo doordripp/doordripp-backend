@@ -7,7 +7,7 @@
  * Business Rules:
  * - Max 3 items for trial
  * - Must purchase at least 1 item from selected items
- * - ₹200 trial fee per order
+ * - FREE trial fee per order
  * - One trial per day per user
  * 
  * @schema TrialOrder
@@ -87,7 +87,7 @@ const TrialOrderSchema = new mongoose.Schema({
   // Fixed trial fee per order
   trialFee: {
     type: Number,
-    default: 200,
+    default: 0,
     immutable: true
   },
 

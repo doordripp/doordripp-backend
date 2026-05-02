@@ -26,7 +26,7 @@ const DEFAULT_DELIVERY_OPTIONS = [
     label: 'Regular Delivery',
     sublabel: 'Economical',
     eta: '45 minutes',
-    charge: 60,
+    charge: 0,
     badge: 'ECO',
     isActive: true,
     sortOrder: 3
