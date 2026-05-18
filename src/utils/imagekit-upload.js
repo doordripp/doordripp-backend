@@ -25,9 +25,21 @@ const getImageKitInstance = () => {
   }
 
   const config = getImageKitConfig();
-  imagekit = new ImageKit(config);
-  return imagekit;
+  try {
+    imagekit = new ImageKit(config);
+    return imagekit;
+  } catch (error) {
+    logger.error('Failed to initialize ImageKit client:', {
+      message: error.message,
+      hasPublicKey: Boolean(config.publicKey),
+      hasPrivateKey: Boolean(config.privateKey),
+      hasUrlEndpoint: Boolean(config.urlEndpoint)
+    });
+    return null;
+  }
 };
+
+const isImageKitReady = () => Boolean(getImageKitInstance());
 
 if (!hasImageKitConfig()) {
   logger.warn('ImageKit credentials not configured - photo uploads will use fallback URLs');
@@ -134,5 +146,6 @@ module.exports = {
   uploadFromUrl,
   uploadFromBase64,
   deleteFile,
-  getImageKitInstance
+  getImageKitInstance,
+  isImageKitReady
 };

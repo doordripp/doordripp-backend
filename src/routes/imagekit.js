@@ -4,7 +4,7 @@ const { getImageKitInstance } = require('../utils/imagekit-upload');
 const router = express.Router();
 
 // Authentication endpoint for ImageKit uploads
-router.get('/imagekit-auth', (req, res) => {
+const sendImageKitAuth = (req, res) => {
   try {
     const imagekit = getImageKitInstance();
 
@@ -24,6 +24,10 @@ router.get('/imagekit-auth', (req, res) => {
       message: error.message 
     });
   }
-});
+};
+
+router.get('/imagekit-auth', sendImageKitAuth);
+// Compatibility alias used by older docs/clients.
+router.get('/imagekit/auth', sendImageKitAuth);
 
 module.exports = router;
