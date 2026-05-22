@@ -25,10 +25,6 @@ if (fs.existsSync(rootLocalPath)) {
 const validateEnv = require('./config/validateEnv');
 validateEnv();
 
-// Initialize ImageKit immediately after env validation
-const imagekitConfig = require('./config/imagekit');
-imagekitConfig.initializeImageKit();
-
 const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');

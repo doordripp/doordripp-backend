@@ -7,13 +7,11 @@
 const requiredEnvVars = [
   'MONGO_URI',
   'JWT_SECRET',
-  'IMAGEKIT_PUBLIC_KEY',
-  'IMAGEKIT_PRIVATE_KEY',
-  'IMAGEKIT_URL_ENDPOINT',
 ];
 
 // Optional but important vars — log a warning if missing
 const recommendedEnvVars = [
+  'IMAGEKIT_PRIVATE_KEY',
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
   'GOOGLE_CLIENT_ID_DEV',
