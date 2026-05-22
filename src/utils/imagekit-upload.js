@@ -1,49 +1,6 @@
-const ImageKit = require('imagekit');
 const axios = require('axios');
 const logger = require('./logger');
-
-let imagekit = null;
-
-const getImageKitConfig = () => ({
-  publicKey: process.env.IMAGEKIT_PUBLIC_KEY || process.env.IMAGEKIT_ID || '',
-  privateKey: process.env.IMAGEKIT_PRIVATE_KEY || process.env.IMAGEKIT_API_SECRET || '',
-  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT || process.env.IMAGEKIT_URL || ''
-});
-
-const hasImageKitConfig = () => {
-  const config = getImageKitConfig();
-  return Boolean(config.publicKey && config.privateKey && config.urlEndpoint);
-};
-
-const getImageKitInstance = () => {
-  if (imagekit) {
-    return imagekit;
-  }
-
-  if (!hasImageKitConfig()) {
-    return null;
-  }
-
-  const config = getImageKitConfig();
-  try {
-    imagekit = new ImageKit(config);
-    return imagekit;
-  } catch (error) {
-    logger.error('Failed to initialize ImageKit client:', {
-      message: error.message,
-      hasPublicKey: Boolean(config.publicKey),
-      hasPrivateKey: Boolean(config.privateKey),
-      hasUrlEndpoint: Boolean(config.urlEndpoint)
-    });
-    return null;
-  }
-};
-
-const isImageKitReady = () => Boolean(getImageKitInstance());
-
-if (!hasImageKitConfig()) {
-  logger.warn('ImageKit credentials not configured - photo uploads will use fallback URLs');
-}
+const imagekit = require('../config/imagekit');
 
 /**
  * Upload image to ImageKit from URL (e.g., Google profile photo)
@@ -54,9 +11,9 @@ if (!hasImageKitConfig()) {
  */
 async function uploadFromUrl(imageUrl, fileName, folder = 'avatars') {
   try {
-    const currentImageKit = getImageKitInstance();
+    const imagekitInstance = imagekit.getImageKitInstance();
 
-    if (!currentImageKit) {
+    if (!imagekitInstance) {
       logger.warn('ImageKit not initialized; using original image URL');
       return { url: imageUrl, source: 'external' }; // Return original URL as fallback
     }
@@ -69,7 +26,7 @@ async function uploadFromUrl(imageUrl, fileName, folder = 'avatars') {
     const buffer = Buffer.from(response.data, 'binary');
 
     // Upload to ImageKit
-    const result = await currentImageKit.upload({
+    const result = await imagekitInstance.upload({
       file: buffer,
       fileName: fileName,
       folder: folder,
@@ -101,13 +58,13 @@ async function uploadFromUrl(imageUrl, fileName, folder = 'avatars') {
  */
 async function uploadFromBase64(base64Data, fileName, folder = 'avatars') {
   try {
-    const currentImageKit = getImageKitInstance();
+    const imagekitInstance = imagekit.getImageKitInstance();
 
-    if (!currentImageKit) {
+    if (!imagekitInstance) {
       throw new Error('ImageKit not initialized - credentials may be missing');
     }
 
-    const result = await currentImageKit.upload({
+    const result = await imagekitInstance.upload({
       file: base64Data,
       fileName: fileName,
       folder: folder,
@@ -132,10 +89,10 @@ async function uploadFromBase64(base64Data, fileName, folder = 'avatars') {
  */
 async function deleteFile(fileId) {
   try {
-    const currentImageKit = getImageKitInstance();
+    const imagekitInstance = imagekit.getImageKitInstance();
 
-    if (!fileId || !currentImageKit) return;
-    await currentImageKit.deleteFile(fileId);
+    if (!fileId || !imagekitInstance) return;
+    await imagekitInstance.deleteFile(fileId);
     logger.info(`Deleted ImageKit file: ${fileId}`);
   } catch (error) {
     logger.error('ImageKit delete error:', error);
@@ -146,6 +103,6 @@ module.exports = {
   uploadFromUrl,
   uploadFromBase64,
   deleteFile,
-  getImageKitInstance,
-  isImageKitReady
+  getImageKitInstance: imagekit.getImageKitInstance,
+  isImageKitReady: imagekit.isImageKitReady
 };
