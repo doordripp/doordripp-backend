@@ -149,14 +149,6 @@ app.use('/api', apiLimiter);
 // Initialize passport (strategies are configured in `src/config/passport.js`)
 app.use(passport.initialize());
 
-// Connect to MongoDB (if configured)
-try {
-  const connectDB = require('./config/db');
-  connectDB().catch(err => logger.error('DB connect error', err));
-} catch (e) {
-  logger.warn('No DB connector found:', e.message || e);
-}
-
 // Routes
 app.use('/api/auth', authRoutes);
 
@@ -261,4 +253,14 @@ function startServer(port, attempts = 0) {
   });
 }
 
-startServer(PORT);
+async function bootstrap() {
+  try {
+    await require('./config/db')();
+    startServer(PORT);
+  } catch (err) {
+    logger.error('Failed to initialize backend before start:', err);
+    process.exit(1);
+  }
+}
+
+bootstrap();
