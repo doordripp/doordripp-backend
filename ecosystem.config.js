@@ -44,7 +44,9 @@ module.exports = {
       max_memory_restart: '256M',
       env_production: {
         NODE_ENV: 'production',
-        DEPLOY_WEBHOOK_PORT: toEnvValue('DEPLOY_WEBHOOK_PORT', '3001')
+        DEPLOY_WEBHOOK_PORT: toEnvValue('DEPLOY_WEBHOOK_PORT', '3001'),
+        GITHUB_WEBHOOK_SECRET: toEnvValue('GITHUB_WEBHOOK_SECRET', ''),
+        MONGO_URI: toEnvValue('MONGO_URI', '')
       }
     }
   ]

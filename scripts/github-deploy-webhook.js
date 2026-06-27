@@ -6,6 +6,9 @@ const { exec } = require('child_process');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 
+// ---------------------------------------------------------------------------
+// Environment loading (dotenv cascade)
+// ---------------------------------------------------------------------------
 const appRoot = path.join(__dirname, '..');
 
 const loadEnvFile = (fileName) => {
@@ -20,33 +23,41 @@ loadEnvFile(process.env.NODE_ENV === 'production' ? '.env.production' : '.env.de
 loadEnvFile('.env.local');
 loadEnvFile(process.env.NODE_ENV === 'production' ? '.env.production.local' : '.env.development.local');
 
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
 const DEPLOY_WEBHOOK_PORT = Number(process.env.DEPLOY_WEBHOOK_PORT || 3001);
 const GITHUB_WEBHOOK_SECRET = String(process.env.GITHUB_WEBHOOK_SECRET || '').trim();
 const MONGO_URI = process.env.MONGO_URI;
-
-mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB connected for deployment logs'))
-  .catch((err) => console.error('MongoDB connection error:', err));
-
-const DeploymentLog = require('../src/models/DeploymentLog');
 
 const FRONTEND_REPO_FULL_NAME = process.env.DEPLOY_FRONTEND_REPO_FULL_NAME || 'doordripp/doordripp-frontend';
 const BACKEND_REPO_FULL_NAME = process.env.DEPLOY_BACKEND_REPO_FULL_NAME || 'doordripp/doordripp-backend';
 const FRONTEND_BRANCH = process.env.DEPLOY_FRONTEND_BRANCH || 'main';
 const BACKEND_BRANCH = process.env.DEPLOY_BACKEND_BRANCH || 'main';
-const FRONTEND_REPO_PATH = process.env.DEPLOY_FRONTEND_REPO_PATH || '/var/www/doordripp-frontend';
-const BACKEND_REPO_PATH = process.env.DEPLOY_BACKEND_REPO_PATH || '/var/www/doordripp-backend';
+const FRONTEND_REPO_PATH = process.env.DEPLOY_FRONTEND_REPO_PATH || '/root/doordripp-frontend';
+const BACKEND_REPO_PATH = process.env.DEPLOY_BACKEND_REPO_PATH || '/root/doordripp-backend';
+const FRONTEND_WEB_ROOT = process.env.DEPLOY_FRONTEND_WEB_ROOT || '/var/www/doordripp';
 
+// ---------------------------------------------------------------------------
+// Deploy commands
+// ---------------------------------------------------------------------------
 const frontendDeployCommand = [
   `cd "${FRONTEND_REPO_PATH}"`,
-  `git pull --ff-only origin ${FRONTEND_BRANCH}`,
+  `git fetch origin ${FRONTEND_BRANCH}`,
+  `git reset --hard origin/${FRONTEND_BRANCH}`,
+  'git clean -fd',
   'npm ci',
-  'npm run build'
+  'npm run build',
+  `rm -rf ${FRONTEND_WEB_ROOT}/*`,
+  `cp -r dist/* ${FRONTEND_WEB_ROOT}/`,
+  'systemctl reload nginx'
 ].join(' && ');
 
 const backendDeployCommand = [
   `cd "${BACKEND_REPO_PATH}"`,
-  `git pull --ff-only origin ${BACKEND_BRANCH}`,
+  `git fetch origin ${BACKEND_BRANCH}`,
+  `git reset --hard origin/${BACKEND_BRANCH}`,
+  'git clean -fd',
   'npm ci',
   'pm2 startOrReload ecosystem.config.js --only doordripp-backend --env production'
 ].join(' && ');
@@ -64,6 +75,18 @@ const deployTargets = {
   }
 };
 
+// ---------------------------------------------------------------------------
+// MongoDB connection (Mongoose 9 – no deprecated options)
+// ---------------------------------------------------------------------------
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('MongoDB connected for deployment logs'))
+  .catch((err) => console.error('MongoDB connection error:', err));
+
+const DeploymentLog = require('../src/models/DeploymentLog');
+
+// ---------------------------------------------------------------------------
+// HMAC signature verification
+// ---------------------------------------------------------------------------
 const safeCompareSignature = (providedSignature, body) => {
   if (!providedSignature || !GITHUB_WEBHOOK_SECRET) return false;
 
@@ -79,15 +102,17 @@ const safeCompareSignature = (providedSignature, body) => {
   return crypto.timingSafeEqual(providedBuffer, expectedBuffer);
 };
 
+// ---------------------------------------------------------------------------
+// Deploy runner (background – response already sent to GitHub)
+// ---------------------------------------------------------------------------
 const runDeploy = async (target, payload) => {
   console.log(`Starting ${target.label} deploy...`);
 
-  // Extract commit info if available
   const commitHash = payload?.head_commit?.id || '';
   const commitAuthor = payload?.head_commit?.author?.name || payload?.pusher?.name || 'Unknown';
   const commitMessage = payload?.head_commit?.message || '';
 
-  // Create pending log
+  // Create pending log entry
   let logEntry;
   try {
     logEntry = await DeploymentLog.create({
@@ -131,13 +156,14 @@ const runDeploy = async (target, payload) => {
   });
 };
 
-http.createServer((req, res) => {
+// ---------------------------------------------------------------------------
+// HTTP server
+// ---------------------------------------------------------------------------
+const server = http.createServer((req, res) => {
+  // Health-check endpoint
   if (req.method === 'GET') {
     res.setHeader('Content-Type', 'application/json');
-    res.end(JSON.stringify({
-      ok: true,
-      service: 'doordripp-deploy-webhook'
-    }));
+    res.end(JSON.stringify({ ok: true, service: 'doordripp-deploy-webhook' }));
     return;
   }
 
@@ -194,10 +220,31 @@ http.createServer((req, res) => {
       return;
     }
 
+    // Respond immediately, then run deploy in the background
     console.log(`Webhook verified for ${target.label} (${repoName}) on ${payload.ref}`);
     runDeploy(target, payload);
     res.end('Deploy triggered');
   });
-}).listen(DEPLOY_WEBHOOK_PORT, () => {
-  console.log(`GitHub deploy webhook listening on port ${DEPLOY_WEBHOOK_PORT}`);
 });
+
+server.listen(DEPLOY_WEBHOOK_PORT, () => {
+  console.log(`[${new Date().toISOString()}] GitHub deploy webhook started on port ${DEPLOY_WEBHOOK_PORT}`);
+});
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown
+// ---------------------------------------------------------------------------
+const shutdown = async (signal) => {
+  console.log(`\n${signal} received – shutting down...`);
+  server.close(() => console.log('HTTP server closed'));
+  try {
+    await mongoose.connection.close();
+    console.log('MongoDB connection closed');
+  } catch (err) {
+    console.error('Error closing MongoDB connection:', err);
+  }
+  process.exit(0);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
