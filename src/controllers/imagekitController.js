@@ -131,7 +131,37 @@ const getImageKitHealth = (req, res) => {
   }
 };
 
+/**
+ * Get ImageKit public configuration for the frontend
+ * GET /api/imagekit-config
+ */
+const getImageKitConfigEndpoint = (req, res) => {
+  try {
+    const config = imagekit.getImageKitConfig();
+    const isReady = imagekit.isImageKitReady();
+    
+    // We only expose publicKey and urlEndpoint, NEVER privateKey
+    res.status(200).json({
+      success: true,
+      isConfigured: isReady && !!config.publicKey && !!config.urlEndpoint,
+      publicKey: config.publicKey,
+      urlEndpoint: config.urlEndpoint,
+      timestamp: new Date().toISOString()
+    });
+  } catch (err) {
+    logger.error('[ImageKit Config] Error getting config:', {
+      message: err.message
+    });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get ImageKit configuration',
+      error: err.message
+    });
+  }
+};
+
 module.exports = {
   getImageKitAuth,
-  getImageKitHealth
+  getImageKitHealth,
+  getImageKitConfigEndpoint
 };
