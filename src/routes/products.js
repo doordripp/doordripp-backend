@@ -35,7 +35,7 @@ router.get('/', optionalVerifyToken, async (req, res, next) => {
       Product.countDocuments(filter)
     ]);
 
-    const enrichedProducts = await attachSaleInfoToProducts(products.map((p) => p.toObject()));
+    const enrichedProducts = await attachSaleInfoToProducts(products.map((p) => p.toObject({ flattenMaps: true })));
 
     const formattedProducts = enrichedProducts.map(p => {
       const inventory = buildProductInventoryPayload(p);
@@ -92,7 +92,7 @@ router.get('/:id', async (req, res, next) => {
   try {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ error: 'Not found' });
-    const [productWithSale] = await attachSaleInfoToProducts([product.toObject()]);
+    const [productWithSale] = await attachSaleInfoToProducts([product.toObject({ flattenMaps: true })]);
 
     // No visibility restriction on detail viewing to allow customers to browse
     // even during closed hours. We handle checkout restrictions separately.
@@ -162,7 +162,7 @@ router.post('/', verifyToken, requireAdmin, async (req, res, next) => {
     });
 
     await product.save();
-    res.status(201).json({ ...product.toObject(), id: product._id });
+    res.status(201).json({ ...product.toObject({ flattenMaps: true }), id: product._id });
   } catch (err) {
     next(err);
   }
@@ -181,7 +181,7 @@ router.put('/:id', verifyToken, requireAdmin, async (req, res, next) => {
 
     const product = await Product.findByIdAndUpdate(req.params.id, updateData, { returnDocument: 'after' });
     if (!product) return res.status(404).json({ error: 'Not found' });
-    res.json({ ...product.toObject(), id: product._id });
+    res.json({ ...product.toObject({ flattenMaps: true }), id: product._id });
   } catch (err) {
     next(err);
   }
