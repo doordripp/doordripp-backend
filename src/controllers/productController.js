@@ -1,42 +1,118 @@
 const Product = require('../models/Product')
+const { attachSaleInfoToProducts } = require('../utils/promotionHelpers')
 const { buildProductInventoryPayload } = require('../utils/productInventory')
 
 exports.list = async (req, res, next) => {
   try {
-    const { search, category, sort } = req.query
-    const filter = {}
-    if (category && category !== 'All') filter.category = category
-    if (search) filter.$or = [
-      { name: new RegExp(search, 'i') },
-      { description: new RegExp(search, 'i') }
-    ]
+    const { search, category, sort, page = 1, limit = 50 } = req.query;
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const { getVisibilityFilter } = require('../utils/visibility')
-    Object.assign(filter, getVisibilityFilter())
+    const filter = {};
+    if (search) {
+      filter.$or = [
+        { name: new RegExp(search, 'i') },
+        { description: new RegExp(search, 'i') }
+      ];
+    }
+    if (category && category !== 'All') {
+      filter.category = new RegExp(`^${category}$`, 'i');
+    }
 
-    let query = Product.find(filter).limit(500)
+    const { getVisibilityFilter } = require('../utils/visibility');
+    Object.assign(filter, getVisibilityFilter());
 
-    if (sort === 'price-low') query = query.sort({ price: 1 })
-    else if (sort === 'price-high') query = query.sort({ price: -1 })
-    else if (sort === 'name') query = query.sort({ name: 1 })
-    else query = query.sort({ createdAt: -1 })
+    let sortOption = { createdAt: -1 };
+    if (sort === 'price-low') sortOption = { price: 1 };
+    else if (sort === 'price-high') sortOption = { price: -1 };
+    else if (sort === 'name') sortOption = { name: 1 };
 
-    const products = await query.exec()
-    res.json(products)
+    const [products, total] = await Promise.all([
+      Product.find(filter).skip(skip).limit(parseInt(limit)).sort(sortOption),
+      Product.countDocuments(filter)
+    ]);
+
+    const enrichedProducts = await attachSaleInfoToProducts(products.map((p) => p.toObject({ flattenMaps: true })));
+
+    const formattedProducts = enrichedProducts.map(p => {
+      const inventory = buildProductInventoryPayload(p);
+      return {
+        id: p._id,
+        _id: p._id,
+        name: p.name,
+        slug: p.slug,
+        description: p.description,
+        price: p.price,
+        originalPrice: p.originalPrice,
+        discount: p.discount,
+        stock: inventory.stock,
+        category: p.category,
+        subcategory: p.subcategory,
+        images: p.images || [],
+        image: p.images && p.images.length > 0 ? p.images[0] : null,
+        colors: p.colors || [],
+        sizes: inventory.sizes,
+        sizeInventory: inventory.sizeInventory,
+        availableSizes: inventory.availableSizes,
+        defaultSize: inventory.defaultSize,
+        inStock: inventory.inStock,
+        rating: p.rating || { rating: 4.5, reviews: 0 },
+        isNewArrival: p.isNewArrival || false,
+        isBestSeller: p.isBestSeller || false,
+        isFeatured: p.isFeatured || false,
+        saleInfo: p.saleInfo || null
+      };
+    });
+
+    res.json({
+      data: formattedProducts,
+      total,
+      page: parseInt(page),
+      totalPages: Math.ceil(total / parseInt(limit))
+    });
   } catch (err) {
-    next(err)
+    next(err);
   }
-}
+};
 
 exports.get = async (req, res, next) => {
   try {
-    const product = await Product.findById(req.params.id)
-    if (!product) return res.status(404).json({ error: 'Not found' })
-    res.json(product)
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ error: 'Not found' });
+    const [productWithSale] = await attachSaleInfoToProducts([product.toObject({ flattenMaps: true })]);
+
+    const inventory = buildProductInventoryPayload(productWithSale);
+    res.json({
+      id: productWithSale._id,
+      _id: productWithSale._id,
+      name: productWithSale.name,
+      slug: productWithSale.slug,
+      description: productWithSale.description,
+      price: productWithSale.price,
+      originalPrice: productWithSale.originalPrice,
+      discount: productWithSale.discount,
+      stock: inventory.stock,
+      category: productWithSale.category,
+      subcategory: productWithSale.subcategory,
+      images: productWithSale.images || [],
+      image: productWithSale.images && productWithSale.images.length > 0 ? productWithSale.images[0] : null,
+      colors: productWithSale.colors || [],
+      sizes: inventory.sizes,
+      sizeInventory: inventory.sizeInventory,
+      availableSizes: inventory.availableSizes,
+      defaultSize: inventory.defaultSize,
+      inStock: inventory.inStock,
+      rating: productWithSale.rating || { rating: 4.5, reviews: 0 },
+      isNewArrival: productWithSale.isNewArrival || false,
+      isBestSeller: productWithSale.isBestSeller || false,
+      isFeatured: productWithSale.isFeatured || false,
+      details: productWithSale.details || {},
+      keyFeatures: productWithSale.keyFeatures || [],
+      saleInfo: productWithSale.saleInfo || null
+    });
   } catch (err) {
-    next(err)
+    next(err);
   }
-}
+};
 
 // Get related products with smart recommendation algorithm
 exports.getRelatedProducts = async (req, res, next) => {

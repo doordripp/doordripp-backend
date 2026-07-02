@@ -1,6 +1,6 @@
 const express = require('express')
 const rateLimit = require('express-rate-limit')
-const voucherController = require('../controllers/voucher.controller')
+const voucherController = require('../controllers/voucherController')
 const { verifyToken } = require('../middleware/auth')
 
 const router = express.Router()

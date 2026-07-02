@@ -40,3 +40,7 @@ dist/
 *.swp
 *.swo
 *~
+src/public/uploads/*
+invoices/*
+!src/public/uploads/.gitkeep
+!invoices/.gitkeep

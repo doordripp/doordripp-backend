@@ -1,6 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const adminController = require('../controllers/mongoAdminController');
+const adminDashboardController = require('../controllers/adminDashboardController');
+const adminProductController = require('../controllers/adminProductController');
+const adminOrderController = require('../controllers/adminOrderController');
+const adminUserController = require('../controllers/adminUserController');
+const adminReportController = require('../controllers/adminReportController');
+const adminManagerController = require('../controllers/adminManagerController');
 const adminDeliveryController = require('../controllers/adminDeliveryController');
 const adminDeliveryChargeController = require('../controllers/adminDeliveryChargeController');
 const analyticsController = require('../controllers/analyticsController');
@@ -18,47 +23,47 @@ const adminOrManager = requireAnyRole('admin', 'manager');
 const adminManagerOrDP = requireAnyRole('admin', 'manager', 'delivery_partner');
 
 // Dashboard — accessible by admin & manager (same global data)
-router.get('/dashboard/stats', adminOrManager, adminController.getDashboardStats);
+router.get('/dashboard/stats', adminOrManager, adminDashboardController.getDashboardStats);
 
 // Products — accessible by admin & manager
-router.get('/products', adminOrManager, adminController.listProducts);
-router.get('/products/:id', adminOrManager, adminController.getProduct);
-router.post('/products', adminOrManager, adminController.createProduct);
-router.put('/products/:id', adminOrManager, adminController.updateProduct);
-router.delete('/products/:id', requireAdmin, adminController.deleteProduct);
+router.get('/products', adminOrManager, adminProductController.listProducts);
+router.get('/products/:id', adminOrManager, adminProductController.getProduct);
+router.post('/products', adminOrManager, adminProductController.createProduct);
+router.put('/products/:id', adminOrManager, adminProductController.updateProduct);
+router.delete('/products/:id', requireAdmin, adminProductController.deleteProduct);
 
 // Orders — accessible by admin, manager & delivery_partner
-router.get('/orders', adminManagerOrDP, adminController.listOrders);
-router.get('/orders/:id', adminManagerOrDP, adminController.getOrder);
-router.get('/orders/:id/bill', requireAdminOrManager, adminController.getOrderBill);
-router.put('/orders/:id/status', adminManagerOrDP, adminController.updateOrderStatus);
-router.post('/orders/:id/accept', requireAnyRole('delivery_partner'), adminController.acceptDelivery);
+router.get('/orders', adminManagerOrDP, adminOrderController.listOrders);
+router.get('/orders/:id', adminManagerOrDP, adminOrderController.getOrder);
+router.get('/orders/:id/bill', requireAdminOrManager, adminOrderController.getOrderBill);
+router.put('/orders/:id/status', adminManagerOrDP, adminOrderController.updateOrderStatus);
+router.post('/orders/:id/accept', requireAnyRole('delivery_partner'), adminOrderController.acceptDelivery);
 
 // Order Assignment — admin & manager
-router.post('/orders/:id/assign', adminOrManager, adminController.assignDeliveryPartner);
-router.post('/orders/:id/unassign', adminOrManager, adminController.unassignDeliveryPartner);
+router.post('/orders/:id/assign', adminOrManager, adminOrderController.assignDeliveryPartner);
+router.post('/orders/:id/unassign', adminOrManager, adminOrderController.unassignDeliveryPartner);
 
 // Delivery Analytics — admin & manager
 router.get('/delivery-analytics', adminOrManager, analyticsController.getDeliveryAnalytics);
 router.get('/partner/:partnerId/stats', adminOrManager, analyticsController.getPartnerStats);
 
 // Users — listing accessible by admin & manager; role changes admin only
-router.get('/users', adminOrManager, adminController.getAllUsers);
-router.get('/users/:userId', adminOrManager, adminController.getUserDetails);
-router.put('/users/:userId', requireAdmin, adminController.updateUser);
-router.delete('/users/:userId', requireAdmin, adminController.deleteUser);
-router.put('/users/:userId/role', requireAdmin, adminController.changeUserRole);
-router.post('/users/:userId/ban', requireAdmin, adminController.banUser);
-router.post('/users/:userId/unban', requireAdmin, adminController.unbanUser);
+router.get('/users', adminOrManager, adminUserController.getAllUsers);
+router.get('/users/:userId', adminOrManager, adminUserController.getUserDetails);
+router.put('/users/:userId', requireAdmin, adminUserController.updateUser);
+router.delete('/users/:userId', requireAdmin, adminUserController.deleteUser);
+router.put('/users/:userId/role', requireAdmin, adminUserController.changeUserRole);
+router.post('/users/:userId/ban', requireAdmin, adminUserController.banUser);
+router.post('/users/:userId/unban', requireAdmin, adminUserController.unbanUser);
 
 // Area Manager Assignment — admin only
-router.post('/area-managers', requireAdmin, adminController.assignManagerToArea);
-router.delete('/area-managers/:assignmentId', requireAdmin, adminController.removeManagerFromArea);
-router.get('/area-managers', adminOrManager, adminController.getAreaManagerAssignments);
+router.post('/area-managers', requireAdmin, adminManagerController.assignManagerToArea);
+router.delete('/area-managers/:assignmentId', requireAdmin, adminManagerController.removeManagerFromArea);
+router.get('/area-managers', adminOrManager, adminManagerController.getAreaManagerAssignments);
 
 // Reports — admin & manager
-router.get('/reports/best-sellers', adminOrManager, adminController.getBestSellers);
-router.get('/reports/stats', adminOrManager, adminController.getReportStats);
+router.get('/reports/best-sellers', adminOrManager, adminReportController.getBestSellers);
+router.get('/reports/stats', adminOrManager, adminReportController.getReportStats);
 
 // System Logs — admin only
 router.get('/system-logs', requireAdmin, require('../controllers/systemLogsController').getSystemLogs);
