@@ -7,7 +7,7 @@ const {
   buildCartStockSnapshot
 } = require('../utils/stockValidation');
 
-const escapeRegex = (value = '') => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRegex = require('../utils/escapeRegex');
 
 const LEGACY_PRODUCT_NAME_BY_ID = ALL_PRODUCTS.reduce((acc, product) => {
   if (product?.id && product?.name) acc[product.id] = product.name;

@@ -44,6 +44,7 @@ const morgan = require('morgan');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
 // Passport (OAuth strategies)
 const passport = require('./config/passport');
 
@@ -189,6 +190,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
+app.use(mongoSanitize());
 app.use(cookieParser());
 app.use(morgan('dev'));
 

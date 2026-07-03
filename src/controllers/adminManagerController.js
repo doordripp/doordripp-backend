@@ -4,6 +4,7 @@ const path = require('path');
 const logger = require('../utils/logger');
 const User = require('../models/User');
 const Product = require('../models/Product');
+const escapeRegex = require('../utils/escapeRegex');
 const Order = require('../models/Order');
 const AreaManager = require('../models/AreaManager');
 const { hasAnyRole } = require('../middleware/auth');
@@ -397,9 +398,9 @@ exports.getAllDeliveryPartners = async (req, res, next) => {
 
     if (search) {
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { phone: { $regex: search, $options: 'i' } }
+        { name: { $regex: escapeRegex(search), $options: 'i' } },
+        { email: { $regex: escapeRegex(search), $options: 'i' } },
+        { phone: { $regex: escapeRegex(search), $options: 'i' } }
       ];
     }
 

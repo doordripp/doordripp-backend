@@ -4,6 +4,7 @@ const path = require('path');
 const logger = require('../utils/logger');
 const User = require('../models/User');
 const Product = require('../models/Product');
+const escapeRegex = require('../utils/escapeRegex');
 const Order = require('../models/Order');
 const AreaManager = require('../models/AreaManager');
 const { hasAnyRole } = require('../middleware/auth');
@@ -225,8 +226,8 @@ exports.listProducts = async (req, res, next) => {
     const filter = {};
     if (search) {
       filter.$or = [
-        { name: new RegExp(search, 'i') },
-        { description: new RegExp(search, 'i') }
+        { name: new RegExp(escapeRegex(search), 'i') },
+        { description: new RegExp(escapeRegex(search), 'i') }
       ];
     }
     if (category && category !== 'All') {

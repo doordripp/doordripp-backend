@@ -1,4 +1,5 @@
 const Voucher = require('../models/Voucher');
+const escapeRegex = require('../utils/escapeRegex');
 
 const parseOptionalNumber = (value) => {
   if (value === null || value === undefined || value === '') return null;
@@ -23,7 +24,7 @@ exports.listVouchers = async (req, res, next) => {
     const filter = {};
 
     if (search && String(search).trim()) {
-      filter.code = { $regex: String(search).trim().toUpperCase(), $options: 'i' };
+      filter.code = { $regex: escapeRegex(String(search).trim().toUpperCase()), $options: 'i' };
     }
 
     if (isActive === 'true' || isActive === 'false') {

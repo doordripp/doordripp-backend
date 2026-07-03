@@ -1,4 +1,5 @@
 const Product = require('../models/Product')
+const escapeRegex = require('../utils/escapeRegex')
 const { attachSaleInfoToProducts } = require('../utils/promotionHelpers')
 const { buildProductInventoryPayload } = require('../utils/productInventory')
 
@@ -10,12 +11,12 @@ exports.list = async (req, res, next) => {
     const filter = {};
     if (search) {
       filter.$or = [
-        { name: new RegExp(search, 'i') },
-        { description: new RegExp(search, 'i') }
+        { name: new RegExp(escapeRegex(search), 'i') },
+        { description: new RegExp(escapeRegex(search), 'i') }
       ];
     }
     if (category && category !== 'All') {
-      filter.category = new RegExp(`^${category}$`, 'i');
+      filter.category = new RegExp(`^${escapeRegex(category)}$`, 'i');
     }
 
     const { getVisibilityFilter } = require('../utils/visibility');
@@ -178,7 +179,7 @@ exports.getRelatedProducts = async (req, res, next) => {
       
       if (keywords.length > 0) {
         const { getVisibilityFilter } = require('../utils/visibility')
-        const keywordRegex = keywords.map(keyword => new RegExp(keyword, 'i'))
+        const keywordRegex = keywords.map(keyword => new RegExp(escapeRegex(keyword), 'i'))
         const descMatch = await Product.find({
           _id: { $ne: id },
           $or: keywordRegex.map(regex => ({ description: regex })),
