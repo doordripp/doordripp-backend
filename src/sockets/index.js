@@ -31,7 +31,18 @@ function setupSocketIO(httpServer, corsOptions) {
 
   // Middleware: Authenticate socket connection
   io.use((socket, next) => {
-    const token = socket.handshake.auth.token
+    let token = socket.handshake.auth.token
+
+    // Fallback to cookie if auth token is missing
+    if (!token && socket.handshake.headers.cookie) {
+      try {
+        const cookie = require('cookie')
+        const cookies = cookie.parse(socket.handshake.headers.cookie)
+        token = cookies.token
+      } catch (err) {
+        logger.error('[Socket] Failed to parse cookies', err)
+      }
+    }
 
     if (!token) {
       // Allow unauthenticated connections, but mark them

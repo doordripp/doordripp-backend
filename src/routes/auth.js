@@ -114,7 +114,18 @@ const hasGoogleOAuthDev = Boolean(process.env.GOOGLE_CLIENT_ID_DEV && process.en
 
 const handleOAuthCallback = (strategyName) => async (req, res, next) => {
   passport.authenticate(strategyName, { session: false }, async (err, user) => {
-    const frontendUrl = getFrontendUrlForRequest(req);
+    let frontendUrl = getFrontendUrlForRequest(req);
+    if (req.query.state) {
+      try {
+        const decodedState = Buffer.from(req.query.state, 'base64').toString('utf8');
+        const normalized = normalizeOrigin(decodedState);
+        if (allowedFrontendUrls.includes(normalized)) {
+          frontendUrl = normalized;
+        }
+      } catch (e) {
+        logger.warn('Failed to decode OAuth state parameter');
+      }
+    }
     if (err) {
       logger.error('Google OAuth error:', err);
     }
@@ -276,9 +287,12 @@ if (hasGoogleOAuthProd) {
 // Google OAuth routes - only enable if Google creds are configured
 if (hasGoogleOAuthProd) {
   router.get('/google', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
+    const frontendUrl = getFrontendUrlForRequest(req);
+    const state = Buffer.from(frontendUrl).toString('base64');
     // Initiates OAuth flow
     passport.authenticate('google', {
       scope: ['profile', 'email'],
+      state: state
     })(req, res, next);
   });
 
@@ -301,8 +315,18 @@ if (hasGoogleOAuthProd) {
 // Dedicated Google OAuth DEV routes using independent credentials and callback URI
 if (hasGoogleOAuthDev) {
   router.get('/google-auth-dev', skipIfDisabled(googleOAuthLimiter), (req, res, next) => {
+    let frontendUrl = getFrontendUrlForRequest(req);
+    // This route is exclusively for local development. If the frontend URL
+    // resolved to a production domain (e.g. Referer was lost during the
+    // cross-origin redirect), fall back to the first localhost URL in the
+    // allowlist so the post-OAuth redirect stays on localhost.
+    if (!frontendUrl.includes('localhost')) {
+      frontendUrl = allowedFrontendUrls.find(u => u.includes('localhost')) || 'http://localhost:5173';
+    }
+    const state = Buffer.from(frontendUrl).toString('base64');
     passport.authenticate('google-auth-dev', {
       scope: ['profile', 'email'],
+      state: state
     })(req, res, next);
   });
 

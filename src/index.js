@@ -2,9 +2,19 @@ const path = require('path');
 const dotenv = require('dotenv');
 const fs = require('fs');
 
-// Load base .env first to get any base variables and optionally NODE_ENV
+// Capture any NODE_ENV set explicitly via the shell/process manager BEFORE
+// loading dotenv files so that the base .env cannot override it.
+const explicitNodeEnv = process.env.NODE_ENV;
+
+// Load base .env (shared defaults / secrets)
 const envDir = path.join(__dirname, '..');
 dotenv.config({ path: path.join(envDir, '.env') });
+
+// If NODE_ENV was set explicitly before dotenv loaded, honour it.
+// Otherwise fall back to whatever .env set (or default to 'development').
+if (explicitNodeEnv) {
+  process.env.NODE_ENV = explicitNodeEnv;
+}
 
 // Determine environment-specific file
 const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
@@ -33,6 +43,7 @@ const express = require('express');
 const morgan = require('morgan');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
 // Passport (OAuth strategies)
 const passport = require('./config/passport');
 
@@ -125,6 +136,51 @@ app.options('*', cors(corsOptions));
 
 // Apply CORS to all routes
 app.use(cors(corsOptions));
+
+// Configure Helmet for security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: [
+        "'self'", 
+        "'unsafe-inline'", 
+        "'unsafe-eval'", 
+        "https://checkout.razorpay.com", 
+        "https://maps.googleapis.com", 
+        "https://cdn.onesignal.com"
+      ],
+      styleSrc: [
+        "'self'", 
+        "'unsafe-inline'", 
+        "https://fonts.googleapis.com"
+      ],
+      imgSrc: [
+        "'self'", 
+        "data:", 
+        "blob:", 
+        "https://ik.imagekit.io", 
+        "https://lh3.googleusercontent.com", 
+        "https://*.tile.openstreetmap.org", 
+        "https://via.placeholder.com", 
+        "https://placeholder.com"
+      ],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      connectSrc: [
+        "'self'", 
+        "https://checkout.razorpay.com", 
+        "https://router.project-osrm.org", 
+        "https://maps.googleapis.com", 
+        "https://cdn.onesignal.com", 
+        "https://onesignal.com"
+      ],
+      frameSrc: ["'self'", "https://checkout.razorpay.com"],
+      workerSrc: ["'self'", "blob:"],
+    },
+  },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginOpenerPolicy: { policy: "unsafe-none" },
+}));
 
 // Permissions-Policy header fix for Razorpay
 app.use((req, res, next) => {

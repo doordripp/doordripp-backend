@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js",
+    "dev": "cross-env NODE_ENV=development nodemon src/index.js",
     "seed": "node scripts/seed-mongo.js",
     "create-admin": "node scripts/create-admin.js",
     "lint": "eslint . --ext .js",
@@ -27,6 +27,7 @@
     "axios": "^1.13.2",
     "bcryptjs": "^2.4.3",
     "chart.js": "^4.5.1",
+    "cookie": "^2.0.1",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
@@ -35,6 +36,7 @@
     "express-session": "^1.18.2",
     "express-validator": "^7.0.1",
     "google-auth-library": "^10.5.0",
+    "helmet": "^8.2.0",
     "imagekit": "^6.0.0",
     "jsonwebtoken": "^9.0.2",
     "leaflet": "^1.9.4",
@@ -55,6 +57,7 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "eslint": "^8.47.0",
     "nodemon": "^3.1.11",
     "prettier": "^3.5.0"
