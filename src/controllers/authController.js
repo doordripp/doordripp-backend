@@ -36,7 +36,7 @@ exports.createTokenForUser = async (user) => {
   const secure = process.env.COOKIE_SECURE === 'true' || isProdLike;
   const cookieOptions = {
     httpOnly: true,
-    sameSite: secure ? 'none' : 'lax',
+    sameSite: 'strict',
     secure,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     domain: process.env.COOKIE_DOMAIN || undefined,
