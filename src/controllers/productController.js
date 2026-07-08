@@ -60,6 +60,7 @@ exports.list = async (req, res, next) => {
         isNewArrival: p.isNewArrival || false,
         isBestSeller: p.isBestSeller || false,
         isFeatured: p.isFeatured || false,
+        details: p.details || {},
         saleInfo: p.saleInfo || null
       };
     });
