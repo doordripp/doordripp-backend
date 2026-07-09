@@ -621,6 +621,9 @@ exports.create = async (req, res, next) => {
     if (err?.name === 'VoucherError') {
       return res.status(err.status || 400).json({ error: err.message });
     }
+    if (err?.error?.description) {
+      err.message = err.error.description;
+    }
     return forwardControllerError(next, res, err, 'Failed to create order');
   }
 };
@@ -794,6 +797,9 @@ exports.verifyPayment = async (req, res, next) => {
   } catch (err) {
     if (err?.name === 'VoucherError') {
       return res.status(err.status || 400).json({ error: err.message });
+    }
+    if (err?.error?.description) {
+      err.message = err.error.description;
     }
     return forwardControllerError(next, res, err, 'Failed to verify payment');
   }
