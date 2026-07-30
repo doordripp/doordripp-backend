@@ -494,15 +494,15 @@ exports.signInWithGoogle = async (req, res, next) => {
 
     if (!idToken) {
       return res.status(400).json({ error: 'idToken is required' });
-    }
-
     const { OAuth2Client } = require('google-auth-library');
     const client = new OAuth2Client();
     
     // Define ALL accepted client IDs (both website and app)
     const ACCEPTED_CLIENT_IDS = [
-      process.env.GOOGLE_CLIENT_ID,  // Your existing website client ID
-      '72023349261-71l2pk4f8vptk9vgpll8iutjql0qj9ia.apps.googleusercontent.com',  // Flutter app client ID
+      process.env.GOOGLE_CLIENT_ID,        // Primary Web Client ID
+      process.env.GOOGLE_APP_CLIENT_ID_1,  // Flutter App Client ID 1
+      process.env.GOOGLE_APP_CLIENT_ID_2,  // Flutter App Client ID 2
+      '72023349261-71l2pk4f8vptk9vgpll8iutjql0qj9ia.apps.googleusercontent.com',
       '1000596440300-qpmt33mqedhlgsk435dov0o2g95hn8h9.apps.googleusercontent.com'
     ].filter(Boolean); // Remove any undefined/null values
 
