@@ -494,6 +494,8 @@ exports.signInWithGoogle = async (req, res, next) => {
 
     if (!idToken) {
       return res.status(400).json({ error: 'idToken is required' });
+    }
+
     const { OAuth2Client } = require('google-auth-library');
     const client = new OAuth2Client();
     
