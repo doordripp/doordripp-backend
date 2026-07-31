@@ -1,4 +1,4 @@
-﻿const Review = require('../models/Review')
+const Review = require('../models/Review')
 const Product = require('../models/Product')
 const Order = require('../models/Order')
 const mongoose = require('mongoose')
@@ -23,10 +23,10 @@ function sanitizeReviewImages(images) {
   return cleaned
 }
 
-// Get reviews for a product with filtering and sorting
+// Get reviews for a product (or all reviews) with filtering and sorting
 exports.getProductReviews = async (req, res, next) => {
   try {
-    const { productId } = req.params
+    const targetProductId = req.params.productId || req.params.id || req.query.productId || req.query.product
     const { 
       page = 1, 
       limit = 10, 
@@ -36,9 +36,12 @@ exports.getProductReviews = async (req, res, next) => {
     } = req.query
 
     const filter = {
-      product: productId,
       isApproved: true,
       isDeleted: false
+    }
+
+    if (targetProductId) {
+      filter.product = targetProductId
     }
 
     // Filter by rating if specified
@@ -74,6 +77,7 @@ exports.getProductReviews = async (req, res, next) => {
 
     const reviews = await Review.find(filter)
       .populate('user', 'name avatar')
+      .populate('product', 'name images price slug')
       .populate('order', 'id orderDate')
       .sort(sortOptions)
       .limit(parseInt(limit))
@@ -82,14 +86,16 @@ exports.getProductReviews = async (req, res, next) => {
     const totalReviews = await Review.countDocuments(filter)
 
     // Get rating distribution
+    const matchStage = {
+      isApproved: true,
+      isDeleted: false
+    }
+    if (targetProductId && mongoose.Types.ObjectId.isValid(targetProductId)) {
+      matchStage.product = new mongoose.Types.ObjectId(targetProductId)
+    }
+
     const ratingStats = await Review.aggregate([
-      { 
-        $match: { 
-          product: new mongoose.Types.ObjectId(productId),
-          isApproved: true,
-          isDeleted: false 
-        } 
-      },
+      { $match: matchStage },
       {
         $group: {
           _id: '$rating',
@@ -102,13 +108,15 @@ exports.getProductReviews = async (req, res, next) => {
       1: 0, 2: 0, 3: 0, 4: 0, 5: 0
     }
     ratingStats.forEach(stat => {
-      ratingDistribution[stat._id] = stat.count
+      if (stat._id >= 1 && stat._id <= 5) {
+        ratingDistribution[stat._id] = stat.count
+      }
     })
 
     const totalRatingReviews = Object.values(ratingDistribution).reduce((a, b) => a + b, 0)
     const averageRating = totalRatingReviews > 0 
-      ? Object.entries(ratingDistribution).reduce((acc, [rating, count]) => {
-          return acc + (parseInt(rating) * count)
+      ? Object.entries(ratingDistribution).reduce((acc, [ratingVal, count]) => {
+          return acc + (parseInt(ratingVal) * count)
         }, 0) / totalRatingReviews 
       : 0
 
@@ -135,13 +143,19 @@ exports.getProductReviews = async (req, res, next) => {
 // Create a new review
 exports.createReview = async (req, res, next) => {
   try {
-    const { productId } = req.params
+    const targetProductId = req.params.productId || req.params.id || req.body.productId || req.body.product
     const { rating, title, comment, images } = req.body
     const userId = req.user.id
 
-    logger.info('Review submission data:', { rating, title, comment, imagesCount: Array.isArray(images) ? images.length : 0, userId, productId })
+    logger.info('Review submission data:', { rating, title, comment, imagesCount: Array.isArray(images) ? images.length : 0, userId, productId: targetProductId })
 
     // Validate required fields
+    if (!targetProductId) {
+      return res.status(400).json({
+        error: 'Product ID is required'
+      })
+    }
+
     if (!rating) {
       return res.status(400).json({ 
         error: 'Rating is required' 
@@ -171,7 +185,7 @@ exports.createReview = async (req, res, next) => {
     // Check if user has purchased this product
     const userOrder = await Order.findOne({
       user: userId,
-      'items.product': productId,
+      'items.product': targetProductId,
       status: { $in: ['confirmed', 'shipped', 'delivered'] }
     })
 
@@ -182,7 +196,7 @@ exports.createReview = async (req, res, next) => {
     }
 
     const reviewData = {
-      product: productId,
+      product: targetProductId,
       user: userId,
       rating: parseInt(rating),
       comment: comment,
@@ -201,7 +215,7 @@ exports.createReview = async (req, res, next) => {
     await review.save()
 
     // Update product rating
-    await updateProductRating(productId)
+    await updateProductRating(targetProductId)
 
     // Populate user info for response
     await review.populate('user', 'name email')
@@ -404,14 +418,76 @@ exports.removeVote = async (req, res, next) => {
   }
 }
 
+// Get single review by ID
+exports.getReviewById = async (req, res, next) => {
+  try {
+    const { reviewId } = req.params
+    const review = await Review.findOne({
+      _id: reviewId,
+      isApproved: true,
+      isDeleted: false
+    })
+      .populate('user', 'name avatar')
+      .populate('product', 'name images price slug category subcategory')
+      .populate('order', 'id orderDate')
+
+    if (!review) {
+      return res.status(404).json({ error: 'Review not found' })
+    }
+
+    res.json({ review })
+  } catch (err) {
+    next(err)
+  }
+}
+
+// Get all reviews submitted by the logged-in user
+exports.getMyReviews = async (req, res, next) => {
+  try {
+    const userId = req.user.id
+    const { page = 1, limit = 20 } = req.query
+
+    const filter = {
+      user: userId,
+      isDeleted: false
+    }
+
+    const reviews = await Review.find(filter)
+      .populate('product', 'name images price slug category subcategory')
+      .populate('order', 'id orderDate')
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip((parseInt(page) - 1) * parseInt(limit))
+
+    const totalReviews = await Review.countDocuments(filter)
+
+    res.json({
+      reviews,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(totalReviews / parseInt(limit)),
+        totalReviews,
+        hasNext: parseInt(page) * parseInt(limit) < totalReviews,
+        hasPrev: parseInt(page) > 1
+      }
+    })
+  } catch (err) {
+    next(err)
+  }
+}
+
 // Get user's review for a specific product
 exports.getUserReview = async (req, res, next) => {
   try {
-    const { productId } = req.params
+    const targetProductId = req.params.productId || req.params.id || req.query.productId || req.query.product
     const userId = req.user.id
 
+    if (!targetProductId) {
+      return res.status(400).json({ error: 'Product ID is required' })
+    }
+
     const review = await Review.findOne({
-      product: productId,
+      product: targetProductId,
       user: userId,
       isDeleted: false
     }).populate('user', 'name avatar')
