@@ -16,7 +16,16 @@ exports.list = async (req, res, next) => {
       ];
     }
     if (category && category !== 'All') {
-      filter.category = new RegExp(`^${escapeRegex(category)}$`, 'i');
+      const catLower = category.toLowerCase();
+      if (catLower === 'men') {
+        filter.category = { $regex: /^(men|both|unisex|both \(men & women\))$/i };
+      } else if (catLower === 'women') {
+        filter.category = { $regex: /^(women|both|unisex|both \(men & women\))$/i };
+      } else if (catLower === 'both' || catLower.includes('both')) {
+        filter.category = { $regex: /^(both|unisex|both \(men & women\))$/i };
+      } else {
+        filter.category = new RegExp(`^${escapeRegex(category)}$`, 'i');
+      }
     }
 
     const { getVisibilityFilter } = require('../utils/visibility');
