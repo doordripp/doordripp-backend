@@ -577,11 +577,38 @@ exports.create = async (req, res, next) => {
 
     // --- ONLINE PAYMENT (Razorpay) ---
     const razorReceipt = `ord_${String(req.user.id).slice(-8)}_${Date.now()}`.slice(0, 40);
-    const razorOrder = await RazorpayUtil.createOrder({
-      amount: Math.round(total * 100),
-      currency: 'INR',
-      receipt: razorReceipt
-    });
+    let razorOrder;
+    try {
+      razorOrder = await RazorpayUtil.createOrder({
+        amount: Math.round(total * 100),
+        currency: 'INR',
+        receipt: razorReceipt
+      });
+    } catch (razorError) {
+      console.error('❌ Razorpay order creation failed:', {
+        message: razorError?.message,
+        statusCode: razorError?.statusCode || razorError?.status,
+        description: razorError?.error?.description,
+        code: razorError?.error?.code,
+        details: razorError?.error || razorError
+      });
+
+      const isAuthError =
+        (razorError?.message && razorError.message.toLowerCase().includes('authentication failed')) ||
+        (razorError?.error?.description && razorError.error.description.toLowerCase().includes('authentication failed')) ||
+        razorError?.statusCode === 401;
+
+      if (isAuthError) {
+        console.error('CRITICAL: Payment gateway authentication failed. Verify RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET in server environment variables.');
+        return res.status(502).json({
+          error: 'Payment gateway authentication failed. Please verify server environment keys in GCP Cloud Run.'
+        });
+      }
+
+      return res.status(502).json({
+        error: razorError?.error?.description || razorError?.message || 'Payment gateway connection error'
+      });
+    }
 
     const order = await Order.create({
       customer: req.user.id,
