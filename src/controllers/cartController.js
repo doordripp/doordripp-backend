@@ -43,10 +43,11 @@ const resolveProductId = async (rawProductId) => {
 exports.getCart = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    let cart = await Cart.findOne({ user: userId }).populate('items.product');
-    if (!cart) {
-      cart = await Cart.create({ user: userId, items: [] });
-    }
+    let cart = await Cart.findOneAndUpdate(
+      { user: userId },
+      { $setOnInsert: { user: userId, items: [] } },
+      { new: true, upsert: true }
+    ).populate('items.product');
     res.json(cart);
   } catch (err) {
     next(err);
@@ -69,13 +70,14 @@ exports.addItem = async (req, res, next) => {
 
     const requestedQty = Math.max(1, parseInt(quantity) || 1);
 
-    let cart = await Cart.findOne({ user: userId });
-    if (!cart) {
-      cart = await Cart.create({ user: userId, items: [] });
-    }
+    let cart = await Cart.findOneAndUpdate(
+      { user: userId },
+      { $setOnInsert: { user: userId, items: [] } },
+      { new: true, upsert: true }
+    );
 
     const existing = cart.items.find(i =>
-      i.product.toString() === resolvedProductId &&
+      i.product && i.product.toString() === resolvedProductId &&
       i.size === size &&
       i.color === color
     );
@@ -87,15 +89,22 @@ exports.addItem = async (req, res, next) => {
       return res.status(statusCode).json({ error: availability.message || 'Out of stock' });
     }
 
+    let updatedCart;
     if (existing) {
-      existing.quantity += requestedQty;
+      updatedCart = await Cart.findOneAndUpdate(
+        { user: userId, 'items._id': existing._id },
+        { $inc: { 'items.$.quantity': requestedQty } },
+        { new: true }
+      ).populate('items.product');
     } else {
-      cart.items.push({ product: resolvedProductId, quantity: requestedQty, size, color });
+      updatedCart = await Cart.findOneAndUpdate(
+        { user: userId },
+        { $push: { items: { product: resolvedProductId, quantity: requestedQty, size, color } } },
+        { new: true, upsert: true }
+      ).populate('items.product');
     }
 
-    await cart.save();
-    const updated = await Cart.findOne({ user: userId }).populate('items.product');
-    res.json(updated);
+    res.json(updatedCart);
   } catch (err) {
     next(err);
   }
@@ -112,38 +121,43 @@ exports.updateQuantity = async (req, res, next) => {
     const resolvedProductId = await resolveProductId(productId);
     if (!resolvedProductId) return res.status(404).json({ error: 'Product not found' });
 
-    let cart = await Cart.findOne({ user: userId });
-    if (!cart) return res.status(404).json({ error: 'Cart not found' });
-
-    const existing = cart.items.find(i =>
-      i.product.toString() === resolvedProductId &&
-      i.size === size &&
-      i.color === color
-    );
-
-    if (!existing) return res.status(404).json({ error: 'Item not in cart' });
-
     if (quantity <= 0) {
-      cart.items = cart.items.filter(i => i !== existing);
-    } else {
-      const product = await Product.findById(resolvedProductId);
-      if (product) {
-        const availability = validateProductAvailability(product, quantity, { size });
-        if (!availability.ok) {
-          const statusCode = availability.reason === 'retailer_unavailable' ? 403 : 400;
-          return res.status(statusCode).json({ error: availability.message || 'Out of stock' });
-        }
-      }
-      existing.quantity = quantity;
+      const updated = await Cart.findOneAndUpdate(
+        { user: userId },
+        { $pull: { items: { product: resolvedProductId, size, color } } },
+        { new: true }
+      ).populate('items.product');
+      return res.json(updated || { user: userId, items: [] });
     }
 
-    await cart.save();
-    const updated = await Cart.findOne({ user: userId }).populate('items.product');
+    const product = await Product.findById(resolvedProductId);
+    if (product) {
+      const availability = validateProductAvailability(product, quantity, { size });
+      if (!availability.ok) {
+        const statusCode = availability.reason === 'retailer_unavailable' ? 403 : 400;
+        return res.status(statusCode).json({ error: availability.message || 'Out of stock' });
+      }
+    }
+
+    let updated = await Cart.findOneAndUpdate(
+      { user: userId, 'items.product': resolvedProductId, 'items.size': size, 'items.color': color },
+      { $set: { 'items.$.quantity': quantity } },
+      { new: true }
+    ).populate('items.product');
+
+    if (!updated) {
+      updated = await Cart.findOneAndUpdate(
+        { user: userId },
+        { $push: { items: { product: resolvedProductId, quantity, size, color } } },
+        { new: true, upsert: true }
+      ).populate('items.product');
+    }
+
     res.json(updated);
   } catch (err) {
     next(err);
   }
-}
+};
 
 exports.removeItem = async (req, res, next) => {
   try {
@@ -154,16 +168,13 @@ exports.removeItem = async (req, res, next) => {
     const resolvedProductId = await resolveProductId(productId);
     if (!resolvedProductId) return res.status(404).json({ error: 'Product not found' });
 
-    const cart = await Cart.findOne({ user: userId });
-    if (!cart) return res.status(404).json({ error: 'Cart not found' });
+    const updated = await Cart.findOneAndUpdate(
+      { user: userId },
+      { $pull: { items: { product: resolvedProductId, size, color } } },
+      { new: true }
+    ).populate('items.product');
 
-    cart.items = cart.items.filter(i =>
-      !(i.product.toString() === resolvedProductId && i.size === size && i.color === color)
-    );
-    await cart.save();
-
-    const updated = await Cart.findOne({ user: userId }).populate('items.product');
-    res.json(updated);
+    res.json(updated || { user: userId, items: [] });
   } catch (err) {
     next(err);
   }
@@ -174,14 +185,6 @@ exports.syncCart = async (req, res, next) => {
     const userId = req.user.id;
     const { items = [] } = req.body; // Array of { id, quantity, selectedSize, selectedColor }
 
-    let cart = await Cart.findOne({ user: userId });
-    if (!cart) {
-      cart = await Cart.create({ user: userId, items: [] });
-    }
-
-    // Replace current cart items with sync content or merge? 
-    // Usually on login, we might want to merge, but simple replacement is easier to manage if frontend holds the truth.
-    // Let's go with replacement for consistency.
     const syncedItems = await Promise.all(items.map(async (item) => {
       const rawId = item?.id || item?.productId;
       const resolvedProductId = await resolveProductId(rawId);
@@ -198,29 +201,31 @@ exports.syncCart = async (req, res, next) => {
 
     const newItems = syncedItems.filter(Boolean);
 
-    cart.items = newItems;
-    await cart.save();
+    const updated = await Cart.findOneAndUpdate(
+      { user: userId },
+      { $set: { items: newItems } },
+      { new: true, upsert: true }
+    ).populate('items.product');
 
-    const updated = await Cart.findOne({ user: userId }).populate('items.product');
     res.json(updated);
   } catch (err) {
     next(err);
   }
-}
+};
 
 exports.clearCart = async (req, res, next) => {
   try {
     const userId = req.user.id;
-    let cart = await Cart.findOne({ user: userId });
-    if (cart) {
-      cart.items = [];
-      await cart.save();
-    }
+    await Cart.findOneAndUpdate(
+      { user: userId },
+      { $set: { items: [] } },
+      { upsert: true }
+    );
     res.json({ success: true, items: [] });
   } catch (err) {
     next(err);
   }
-}
+};
 
 exports.checkout = async (req, res, next) => {
   try {
