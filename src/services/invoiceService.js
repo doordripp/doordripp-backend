@@ -32,10 +32,11 @@ class InvoiceService {
       }
 
       // 3. Validate order status
-      // Invoice should be generated only for paid/delivered orders
+      // Invoice should be generated for paid/delivered orders, or COD pending orders
       const allowedStatuses = ['delivered', 'shipped'];
       const paymentSuccess = ['paid', 'success'].includes(order.payment?.status);
-      if (!paymentSuccess && !allowedStatuses.includes(order.status)) {
+      const isCodPending = order.payment?.status === 'cod_pending';
+      if (!paymentSuccess && !isCodPending && !allowedStatuses.includes(order.status)) {
         throw new Error(`Cannot generate invoice for order with status: ${order.status}, payment: ${order.payment?.status}`);
       }
 
@@ -109,7 +110,7 @@ class InvoiceService {
         
         // Payment details
         paymentMode: order.payment?.method || 'cod',
-        paymentStatus: order.payment?.status === 'paid' ? 'paid' : 'cod',
+        paymentStatus: order.payment?.status === 'paid' ? 'paid' : (order.payment?.status === 'cod_pending' ? 'pending' : 'cod'),
         
         status: 'generated'
       };
