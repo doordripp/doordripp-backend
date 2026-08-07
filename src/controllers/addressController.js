@@ -613,8 +613,11 @@ async function geocodeLatLng(lat, lng) {
   }
 
   const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${apiKey}`;
+  const referer = process.env.FRONTEND_URL || 'https://doordripp.com/';
   
-  const response = await axios.get(url);
+  const response = await axios.get(url, {
+    headers: { 'Referer': referer }
+  });
   
   if (response.data.status !== 'OK' || !response.data.results.length) {
     throw new Error('Unable to geocode coordinates');
@@ -662,8 +665,11 @@ async function reverseGeocodeAddress(address) {
   }
 
   const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
+  const referer = process.env.FRONTEND_URL || 'https://doordripp.com/';
   
-  const response = await axios.get(url);
+  const response = await axios.get(url, {
+    headers: { 'Referer': referer }
+  });
   
   if (response.data.status !== 'OK' || !response.data.results.length) {
     throw new Error('Unable to geocode address');
