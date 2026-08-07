@@ -149,6 +149,8 @@ app.use(helmet({
         "'unsafe-eval'", 
         "https://checkout.razorpay.com", 
         "https://maps.googleapis.com", 
+        "https://maps.gstatic.com",
+        "https://*.gstatic.com",
         "https://cdn.onesignal.com"
       ],
       styleSrc: [
@@ -163,6 +165,12 @@ app.use(helmet({
         "https://ik.imagekit.io", 
         "https://lh3.googleusercontent.com", 
         "https://*.tile.openstreetmap.org", 
+        "https://maps.googleapis.com",
+        "https://maps.gstatic.com",
+        "https://*.gstatic.com",
+        "https://*.googleapis.com",
+        "https://*.google.com",
+        "https://*.ggpht.com",
         "https://via.placeholder.com", 
         "https://placeholder.com"
       ],
@@ -172,10 +180,13 @@ app.use(helmet({
         "https://checkout.razorpay.com", 
         "https://router.project-osrm.org", 
         "https://maps.googleapis.com", 
+        "https://*.googleapis.com",
+        "https://maps.gstatic.com",
+        "https://*.gstatic.com",
         "https://cdn.onesignal.com", 
         "https://onesignal.com"
       ],
-      frameSrc: ["'self'", "https://checkout.razorpay.com"],
+      frameSrc: ["'self'", "https://checkout.razorpay.com", "https://*.google.com"],
       workerSrc: ["'self'", "blob:"],
     },
   },
