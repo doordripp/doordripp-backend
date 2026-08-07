@@ -23,6 +23,7 @@ steps:
       - '--image=us-central1-docker.pkg.dev/$PROJECT_ID/doordripp/doordripp-backend:$COMMIT_SHA'
       - '--region=us-central1'
       - '--platform=managed'
+      - '--allow-unauthenticated'
 
 options:
   logging: CLOUD_LOGGING_ONLY
