@@ -3,9 +3,32 @@ const escapeRegex = require('../utils/escapeRegex')
 const { attachSaleInfoToProducts } = require('../utils/promotionHelpers')
 const { buildProductInventoryPayload } = require('../utils/productInventory')
 
+const { getPrecomputedHomePayload, refreshHomeProductsPrecomputation } = require('../services/homePrecomputeService')
+
+function clearHomeCache() {
+  refreshHomeProductsPrecomputation().catch(() => {})
+}
+exports.clearHomeCache = clearHomeCache;
+
+exports.getHomeProducts = async (req, res, next) => {
+  try {
+    const precomputed = getPrecomputedHomePayload()
+    if (precomputed && !req.query.refresh) {
+      res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=1800')
+      return res.json(precomputed)
+    }
+
+    const payload = await refreshHomeProductsPrecomputation()
+    res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=1800')
+    res.json(payload)
+  } catch (err) {
+    next(err)
+  }
+}
+
 exports.list = async (req, res, next) => {
   try {
-    const { search, category, sort, page = 1, limit = 50 } = req.query;
+    const { search, category, subcategory, sort, page = 1, limit = 50, isNewArrival, isBestSeller, isFeatured } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const filter = {};
@@ -15,6 +38,11 @@ exports.list = async (req, res, next) => {
         { description: new RegExp(escapeRegex(search), 'i') }
       ];
     }
+    if (isNewArrival === 'true' || isNewArrival === true) filter.isNewArrival = true;
+    if (isBestSeller === 'true' || isBestSeller === true) filter.isBestSeller = true;
+    if (isFeatured === 'true' || isFeatured === true) filter.isFeatured = true;
+    if (subcategory) filter.subcategory = new RegExp(`^${escapeRegex(subcategory)}$`, 'i');
+
     if (category && category !== 'All') {
       const catLower = category.toLowerCase();
       if (catLower === 'men') {
@@ -37,11 +65,11 @@ exports.list = async (req, res, next) => {
     else if (sort === 'name') sortOption = { name: 1 };
 
     const [products, total] = await Promise.all([
-      Product.find(filter).skip(skip).limit(parseInt(limit)).sort(sortOption),
+      Product.find(filter).skip(skip).limit(parseInt(limit)).sort(sortOption).lean(),
       Product.countDocuments(filter)
     ]);
 
-    const enrichedProducts = await attachSaleInfoToProducts(products.map((p) => p.toObject({ flattenMaps: true })));
+    const enrichedProducts = await attachSaleInfoToProducts(products);
 
     const formattedProducts = enrichedProducts.map(p => {
       const inventory = buildProductInventoryPayload(p);
@@ -332,6 +360,7 @@ exports.create = async (req, res, next) => {
     if (existing) return res.status(400).json({ error: 'Slug already exists' })
     const product = new Product(payload)
     await product.save()
+    clearHomeCache()
     res.status(201).json(product)
   } catch (err) {
     next(err)
@@ -341,6 +370,7 @@ exports.create = async (req, res, next) => {
 exports.update = async (req, res, next) => {
   try {
     const updated = await Product.findByIdAndUpdate(req.params.id, req.body, { returnDocument: 'after' })
+    clearHomeCache()
     res.json(updated)
   } catch (err) {
     next(err)
@@ -350,6 +380,7 @@ exports.update = async (req, res, next) => {
 exports.remove = async (req, res, next) => {
   try {
     await Product.findByIdAndDelete(req.params.id)
+    clearHomeCache()
     res.json({ ok: true })
   } catch (err) {
     next(err)

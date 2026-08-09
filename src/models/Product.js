@@ -71,6 +71,11 @@ const ProductSchema = new mongoose.Schema({
   }
 }, { timestamps: true })
 
+ProductSchema.index({ status: 1, isNewArrival: -1, createdAt: -1 })
+ProductSchema.index({ status: 1, isBestSeller: -1, createdAt: -1 })
+ProductSchema.index({ status: 1, isFeatured: -1, createdAt: -1 })
+ProductSchema.index({ status: 1, category: 1, createdAt: -1 })
+
 ProductSchema.pre('validate', function syncSizeInventory() {
   const normalizedInventory = normalizeSizeInventory(this.sizeInventory, this.sizes, this.stock)
   this.sizeInventory = normalizedInventory

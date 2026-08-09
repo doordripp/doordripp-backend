@@ -7,6 +7,9 @@ const { optionalVerifyToken } = require('../middleware/auth');
 // Public routes - fetch products
 router.get('/', optionalVerifyToken, productController.list);
 
+// Get unified home screen products payload (new arrivals, best sellers, featured, accessories)
+router.get('/home', productController.getHomeProducts);
+
 // Get smart recommendations (for cart, homepage, etc.) - Must be BEFORE /:id route
 router.get('/recommendations/smart', productController.getRecommendations);
 

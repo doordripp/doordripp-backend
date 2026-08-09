@@ -325,6 +325,8 @@ function startServer(port, attempts = 0) {
 async function bootstrap() {
   try {
     await require('./config/db')();
+    const { initHomePrecomputation } = require('./services/homePrecomputeService');
+    initHomePrecomputation();
     startServer(PORT);
   } catch (err) {
     logger.error('Failed to initialize backend before start:', err);
