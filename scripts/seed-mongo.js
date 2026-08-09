@@ -3,7 +3,7 @@ const mongoose = require('mongoose')
 const bcrypt = require('bcryptjs')
 const User = require('../src/models/User')
 const Product = require('../src/models/Product')
-const { ALL_PRODUCTS } = require('../src/data/frontendProducts')
+const ALL_PRODUCTS = []
 
 async function connectDB() {
   const uri = process.env.MONGO_URI

@@ -1,18 +1,8 @@
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
-const { ALL_PRODUCTS = [] } = require('../data/frontendProducts');
-const {
-  validateProductAvailability,
-  buildCartStockSnapshot
-} = require('../utils/stockValidation');
-
 const escapeRegex = require('../utils/escapeRegex');
-
-const LEGACY_PRODUCT_NAME_BY_ID = ALL_PRODUCTS.reduce((acc, product) => {
-  if (product?.id && product?.name) acc[product.id] = product.name;
-  return acc;
-}, {});
+const LEGACY_PRODUCT_NAME_BY_ID = {};
 
 const resolveProductId = async (rawProductId) => {
   if (!rawProductId) return null;
