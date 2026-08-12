@@ -37,6 +37,9 @@ const ProductSchema = new mongoose.Schema({
   // Key Features (bullet points)
   keyFeatures: { type: [String], default: [] },
 
+  // Admin-curated search tags for improved discoverability
+  searchTags: { type: [String], default: [] },
+
   // Dynamic Specifications
   details: {
     type: Map,
@@ -75,6 +78,23 @@ ProductSchema.index({ status: 1, isNewArrival: -1, createdAt: -1 })
 ProductSchema.index({ status: 1, isBestSeller: -1, createdAt: -1 })
 ProductSchema.index({ status: 1, isFeatured: -1, createdAt: -1 })
 ProductSchema.index({ status: 1, category: 1, createdAt: -1 })
+
+// Compound text index for full-text search with field weights
+ProductSchema.index(
+  {
+    name: 'text',
+    category: 'text',
+    subcategory: 'text',
+    keyFeatures: 'text',
+    description: 'text',
+    searchTags: 'text'
+  },
+  {
+    weights: { name: 10, category: 5, subcategory: 5, keyFeatures: 3, description: 1, searchTags: 4 },
+    name: 'product_search_index',
+    default_language: 'english'
+  }
+)
 
 ProductSchema.pre('validate', function syncSizeInventory() {
   const normalizedInventory = normalizeSizeInventory(this.sizeInventory, this.sizes, this.stock)

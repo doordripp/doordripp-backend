@@ -2,6 +2,7 @@ const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 const mongoose = require('mongoose');
 const escapeRegex = require('../utils/escapeRegex');
+const { validateProductAvailability } = require('../utils/stockValidation');
 const LEGACY_PRODUCT_NAME_BY_ID = {};
 
 const resolveProductId = async (rawProductId) => {

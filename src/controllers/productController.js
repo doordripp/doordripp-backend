@@ -32,11 +32,20 @@ exports.list = async (req, res, next) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const filter = {};
+    // Delegate to search service for intelligent search
     if (search) {
-      filter.$or = [
-        { name: new RegExp(escapeRegex(search), 'i') },
-        { description: new RegExp(escapeRegex(search), 'i') }
-      ];
+      const searchService = require('../services/searchService')
+      const searchResults = await searchService.search(search, {
+        category: category || 'All',
+        subcategory,
+        sort,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        isNewArrival,
+        isBestSeller,
+        isFeatured
+      })
+      return res.json(searchResults)
     }
     if (isNewArrival === 'true' || isNewArrival === true) filter.isNewArrival = true;
     if (isBestSeller === 'true' || isBestSeller === true) filter.isBestSeller = true;

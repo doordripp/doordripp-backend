@@ -224,11 +224,22 @@ exports.listProducts = async (req, res, next) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const filter = {};
+    // Delegate to search service for intelligent search
     if (search) {
-      filter.$or = [
-        { name: new RegExp(escapeRegex(search), 'i') },
-        { description: new RegExp(escapeRegex(search), 'i') }
-      ];
+      const searchService = require('../services/searchService')
+      const searchResults = await searchService.search(search, {
+        category: category || 'All',
+        sort: 'newest',
+        page: parseInt(page),
+        limit: parseInt(limit)
+      })
+      // Reformat to match admin response shape
+      return res.json({
+        products: searchResults.data || [],
+        total: searchResults.total,
+        page: searchResults.page,
+        totalPages: searchResults.totalPages
+      })
     }
     if (category && category !== 'All') {
       const catLower = category.toLowerCase();

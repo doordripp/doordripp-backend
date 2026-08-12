@@ -70,6 +70,7 @@ const deliveryPartnerRoutes = require('./routes/deliveryPartner');
 const voucherRoutes = require('./routes/voucher.routes');
 const managerRoutes = require('./routes/manager');
 const marketingRoutes = require('./routes/marketing');
+const searchRoutes = require('./routes/search');
 // Socket.io setup
 const { setupSocketIO } = require('./sockets')
 const logger = require('./utils/logger')
@@ -243,6 +244,7 @@ app.get('/login/oauth2/code/google-auth-dev', (req, res) => {
 });
 
 app.use('/api/products', productRoutes);
+app.use('/api/search', searchRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/frontend/products', frontendProductRoutes);
