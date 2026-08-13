@@ -1,27 +1,26 @@
 /**
- * Logger utility for development and production
- * Only logs to console in development mode
+ * Logger utility for development and production.
+ * Provides structured timestamps and levels for log aggregation systems.
  */
 
 const isDevelopment = process.env.NODE_ENV !== 'production';
-const isProduction = process.env.NODE_ENV === 'production';
 
 const logger = {
   /**
-   * Log info messages (development only)
+   * Log info messages (operational logs in both dev & production)
    */
   info: (...args) => {
-    if (isDevelopment) {
-      console.log('[INFO]', ...args);
-    }
+    const timestamp = new Date().toISOString();
+    console.log(`[INFO ${timestamp}]`, ...args);
   },
 
   /**
-   * Log debug messages (development only)
+   * Log debug messages (enabled when DEBUG=true or in dev)
    */
   debug: (...args) => {
-    if (isDevelopment && process.env.DEBUG === 'true') {
-      console.log('[DEBUG]', ...args);
+    if (isDevelopment || process.env.DEBUG === 'true') {
+      const timestamp = new Date().toISOString();
+      console.log(`[DEBUG ${timestamp}]`, ...args);
     }
   },
 
@@ -31,41 +30,43 @@ const logger = {
   warn: (message, details = null) => {
     const timestamp = new Date().toISOString();
     console.warn(`[WARN ${timestamp}]`, message);
-    if (isDevelopment && details) {
-      console.warn(details);
+    if (details) {
+      if (details instanceof Error) {
+        console.warn(details.message);
+      } else {
+        console.warn(details);
+      }
     }
   },
 
   /**
    * Log errors (both development and production)
-   * Sanitizes sensitive data in production
    */
   error: (message, error = null) => {
     const timestamp = new Date().toISOString();
     console.error(`[ERROR ${timestamp}]`, message);
     
     if (error) {
-      if (isDevelopment) {
-        console.error(error);
-        if (error.stack) console.error(error.stack);
+      if (error.stack) {
+        console.error(error.stack);
       } else {
-        // In production, only log message, not full error details
-        console.error(`[ERROR ${timestamp}]`, error.message || String(error));
+        console.error(String(error));
       }
     }
   },
 
   /**
-   * Log socket events (development only)
+   * Log socket events
    */
   socket: (...args) => {
-    if (isDevelopment) {
-      console.log('[SOCKET]', ...args);
+    if (isDevelopment || process.env.DEBUG === 'true') {
+      const timestamp = new Date().toISOString();
+      console.log(`[SOCKET ${timestamp}]`, ...args);
     }
   },
 
   /**
-   * Log API requests (development only)
+   * Log API requests
    */
   request: (...args) => {
     if (isDevelopment) {
@@ -74,12 +75,12 @@ const logger = {
   },
 
   /**
-   * Log security events (always, but sanitized in production)
+   * Log security events (always recorded)
    */
   security: (event, details = null) => {
     const timestamp = new Date().toISOString();
     console.error(`[SECURITY ${timestamp}]`, event);
-    if (isDevelopment && details) {
+    if (details) {
       console.error(details);
     }
   },

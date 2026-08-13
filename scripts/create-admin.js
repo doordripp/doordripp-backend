@@ -24,18 +24,12 @@ const UserSchema = new mongoose.Schema({
   termsAccepted: { type: Boolean, default: true }
 }, { timestamps: true });
 
+const connectDB = require('../src/config/db');
+
 async function createAdmin() {
   try {
     console.log('🚀 Connecting to MongoDB...\n');
-    
-    const uri = process.env.MONGO_URI;
-    if (!uri) {
-      console.error('❌ MONGO_URI not set in .env file');
-      process.exit(1);
-    }
-
-    await mongoose.connect(uri);
-    console.log('✅ Connected to MongoDB\n');
+    await connectDB();
 
     const User = mongoose.model('User', UserSchema);
 

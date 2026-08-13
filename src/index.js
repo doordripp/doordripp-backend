@@ -40,6 +40,7 @@ const imagekitConfig = require('./config/imagekit');
 imagekitConfig.initializeImageKit();
 
 const express = require('express');
+const compression = require('compression');
 const morgan = require('morgan');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -201,7 +202,11 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+// Response Compression for optimized network payload transfers
+app.use(compression());
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(mongoSanitize());
 app.use(cookieParser());
 app.use(morgan('dev'));
@@ -291,15 +296,54 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Server error' });
 });
 
+const { disconnectDB } = require('./config/db');
+
+let activeServer = null;
+
+function handleGracefulShutdown(signal) {
+  logger.info(`Received ${signal}. Starting graceful shutdown...`);
+
+  if (activeServer) {
+    activeServer.close(async () => {
+      logger.info('HTTP server closed.');
+      await disconnectDB();
+      logger.info('Graceful shutdown completed successfully.');
+      process.exit(0);
+    });
+
+    // Force exit if connections don't close within 10 seconds
+    setTimeout(() => {
+      logger.error('Could not close connections in time, forcing shut down.');
+      process.exit(1);
+    }, 10000);
+  } else {
+    process.exit(0);
+  }
+}
+
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise);
+  logger.error('Reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught Exception thrown:', err);
+  handleGracefulShutdown('uncaughtException');
+});
+
 function startServer(port, attempts = 0) {
   const maxAttempts = 5;
   const server = app.listen(port);
+  activeServer = server;
 
   // Initialize Socket.io with CORS options
-  const io = setupSocketIO(server, corsOptions)
+  const io = setupSocketIO(server, corsOptions);
 
   // Attach io to app so controllers can emit events
-  app.set('io', io)
+  app.set('io', io);
 
   server.on('listening', () => {
     logger.info(`Doordripp Node backend listening on port ${port}`);
@@ -326,7 +370,8 @@ function startServer(port, attempts = 0) {
 
 async function bootstrap() {
   try {
-    await require('./config/db')();
+    const connectDB = require('./config/db');
+    await connectDB();
     const { initHomePrecomputation } = require('./services/homePrecomputeService');
     initHomePrecomputation();
     startServer(PORT);
@@ -337,4 +382,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-// test commit for CI/CD check
