@@ -191,11 +191,11 @@ exports.createTrialOrder = async (req, res) => {
       };
     });
 
-    // 6. Calculate totals
-    const itemsTotal = formattedTrialItems.reduce(
-      (sum, item) => sum + (item.price * item.quantity),
-      0
-    );
+    // 6. Calculate totals strictly for the purchased item (Trial & Buy pays for selected item only)
+    const purchasedProduct = products.find(p => p._id.toString() === purchasedItemId.toString());
+    const purchasedTrialItem = trialItems.find(item => item.productId.toString() === purchasedItemId.toString());
+    const purchasedQty = purchasedTrialItem?.quantity || 1;
+    const itemsTotal = (purchasedProduct ? purchasedProduct.price : 0) * purchasedQty;
 
     const finalTotal = itemsTotal + TRIAL_CONSTANTS.TRIAL_FEE;
 
@@ -328,6 +328,7 @@ exports.getTrialHistory = async (req, res) => {
         .populate('userId', 'name email phone')
         .populate('trialItems.product', 'name price image images')
         .populate('purchasedItemId', 'name price image images')
+        .populate('linkedOrderId')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),

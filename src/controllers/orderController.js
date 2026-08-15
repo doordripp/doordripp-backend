@@ -473,6 +473,38 @@ exports.create = async (req, res, next) => {
         await order.save();
       }
 
+      // If this is a Trial & Buy order, create/sync the TrialOrder record with status converted_to_order
+      if (isTrial && Array.isArray(enrichedTrialItems) && enrichedTrialItems.length > 0) {
+        try {
+          const TrialOrder = require('../models/TrialOrder');
+          const purchasedProd = order.items[0];
+          const purchasedPrice = (purchasedProd?.price || 0) * (purchasedProd?.quantity || 1);
+
+          const formattedTrialItems = enrichedTrialItems.map(ti => ({
+            product: ti.product || ti.productId || ti._id,
+            name: ti.name,
+            price: ti.price,
+            image: ti.image,
+            size: ti.size || 'M',
+            quantity: ti.quantity || 1
+          }));
+
+          await TrialOrder.create({
+            userId: req.user.id,
+            trialItems: formattedTrialItems,
+            purchasedItemId: purchasedProd?.product || purchasedProd?._id,
+            itemsTotal: Math.round(purchasedPrice * 100) / 100,
+            trialFee: safeTrialFee,
+            finalTotal: Math.round((purchasedPrice + safeTrialFee) * 100) / 100,
+            status: 'converted_to_order',
+            linkedOrderId: order._id,
+            convertedAt: new Date()
+          });
+        } catch (tErr) {
+          console.error('Error creating TrialOrder record for COD order:', tErr);
+        }
+      }
+
       // Populate customer for notifications
       await order.populate('customer');
 
@@ -811,14 +843,46 @@ exports.verifyPayment = async (req, res, next) => {
       customerName: order.customer.name
     }).catch(err => console.error('Notification persistence failed:', err));
 
-    // Send push notification to all admins/managers (non-blocking)
-    pushService.notifyNewOrder({
-      orderId: order._id.toString(),
-      customerName: order.customer.name,
-      total: order.total,
-      itemCount: order.items.length,
-      isTrial: order.isTrial || false
-    }).catch(err => console.error('Push notification send failed:', err));
+    // If this is a Trial & Buy order, create/sync the TrialOrder record with status converted_to_order
+    if (order.isTrial && Array.isArray(order.trialItems) && order.trialItems.length > 0) {
+      try {
+        const TrialOrder = require('../models/TrialOrder');
+        const purchasedProd = order.items[0];
+        const purchasedPrice = (purchasedProd?.price || 0) * (purchasedProd?.quantity || 1);
+
+        const formattedTrialItems = order.trialItems.map(ti => ({
+          product: ti.product || ti.productId || ti._id,
+          name: ti.name,
+          price: ti.price,
+          image: ti.image,
+          size: ti.size || 'M',
+          quantity: ti.quantity || 1
+        }));
+
+        let trialOrder = await TrialOrder.findOne({ linkedOrderId: order._id });
+        if (!trialOrder) {
+          await TrialOrder.create({
+            userId: order.customer?._id || order.customer,
+            trialItems: formattedTrialItems,
+            purchasedItemId: purchasedProd?.product || purchasedProd?._id,
+            itemsTotal: Math.round(purchasedPrice * 100) / 100,
+            trialFee: order.trialFee || 0,
+            finalTotal: Math.round((purchasedPrice + (order.trialFee || 0)) * 100) / 100,
+            status: 'converted_to_order',
+            linkedOrderId: order._id,
+            convertedAt: new Date()
+          });
+        } else {
+          trialOrder.status = 'converted_to_order';
+          trialOrder.itemsTotal = Math.round(purchasedPrice * 100) / 100;
+          trialOrder.finalTotal = Math.round((purchasedPrice + (order.trialFee || 0)) * 100) / 100;
+          trialOrder.convertedAt = new Date();
+          await trialOrder.save();
+        }
+      } catch (tErr) {
+        console.error('Error syncing TrialOrder on payment verification:', tErr);
+      }
+    }
 
     res.json({ message: 'Payment verified successfully', order });
   } catch (err) {
