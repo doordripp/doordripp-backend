@@ -10,7 +10,7 @@ module.exports = {
   SYNONYMS: {
     // ─── T-Shirts & Tops ───
     'tee': 't-shirt', 'tees': 't-shirt', 'tshirt': 't-shirt', 'tshirts': 't-shirt',
-    't shirts': 't-shirt', 'polo': 't-shirt', 'henley': 't-shirt',
+    't shirt': 't-shirt', 't shirts': 't-shirt', 'polo': 't-shirt', 'henley': 't-shirt',
     'top': 'tops', 'blouse': 'tops', 'camisole': 'tops', 'cami': 'tops',
     'tank top': 'tops', 'tanktop': 'tops', 'crop top': 'tops', 'croptop': 'tops',
     'tunic': 'tops', 'peplum': 'tops',
@@ -168,20 +168,24 @@ module.exports = {
     prefixLength: 2
   },
   SCORING_WEIGHTS: {
-    textScoreMultiplier: 10,
-    exactNameBonus: 50,
-    prefixNameBonus: 30,
-    nameContainsBonus: 20,
-    nameWordMatchBonus: 25,
-    categoryBonus: 15,
-    subcategoryBonus: 10,
-    keyFeatureBonus: 5,
-    bestSellerBoost: 8,
-    featuredBoost: 5,
-    ratingMultiplier: 2,
-    fuzzyPenalty: 0.7,
-    synonymPenalty: 0.9,
-    descriptionOnlyPenalty: 0.4
+    textScoreMultiplier: 5,
+    exactNameBonus: 100,
+    prefixNameBonus: 60,
+    nameContainsBonus: 30,
+    nameWordMatchBonus: 45,
+    categoryBonus: 40,
+    subcategoryBonus: 35,
+    subcategoryExactBonus: 50,
+    searchTagsBonus: 30,
+    keyFeatureBonus: 8,
+    tokenCoverageMultiplier: 15,
+    bestSellerBoost: 3,
+    featuredBoost: 2,
+    ratingMultiplier: 1,
+    fuzzyPenalty: 0.5,
+    synonymPenalty: 0.85,
+    descriptionOnlyPenalty: 0.1,
+    minRelevanceThreshold: 5
   },
   AUTOCOMPLETE_CONFIG: {
     maxSuggestions: 8,

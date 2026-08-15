@@ -141,8 +141,6 @@ class SearchService {
     }
 
     // Synonym specific text search (if not already fully covered by expandedTokens in $text)
-    // The previous textSearchQuery includes expanded tokens, so it might be sufficient.
-    // However, as per requirements: If synonymsUsed is true, run synonym text search as another separate query.
     if (synonymsUsed && expandedTokens.length > tokens.length) {
        const synonymTextQuery = expandedTokens.filter(t => !stemmedTokens.includes(t)).join(' ');
        if (synonymTextQuery.trim().length > 0) {
@@ -178,20 +176,28 @@ class SearchService {
     // Score candidates
     const scoredCandidates = this.scoreCandidates(uniqueCandidates, queryContext);
 
+    // Filter out candidates below the minimum relevance threshold
+    // AND hard-exclude description-only matches (products where the query
+    // only matched in the description field, not in name/category/subcategory/tags)
+    const { minRelevanceThreshold } = config.SCORING_WEIGHTS;
+    const relevantCandidates = scoredCandidates.filter(c => 
+      c._relevanceScore >= minRelevanceThreshold && !c._descriptionOnly
+    );
+
     // Apply sorting
     if (sort === 'price-low') {
-      scoredCandidates.sort((a, b) => a.price - b.price);
+      relevantCandidates.sort((a, b) => a.price - b.price);
     } else if (sort === 'price-high') {
-      scoredCandidates.sort((a, b) => b.price - a.price);
+      relevantCandidates.sort((a, b) => b.price - a.price);
     } else if (sort === 'name') {
-      scoredCandidates.sort((a, b) => a.name.localeCompare(b.name));
+      relevantCandidates.sort((a, b) => a.name.localeCompare(b.name));
     } else {
       // Sort by relevance score
-      scoredCandidates.sort((a, b) => b._relevanceScore - a._relevanceScore);
+      relevantCandidates.sort((a, b) => b._relevanceScore - a._relevanceScore);
     }
 
-    const totalCount = scoredCandidates.length;
-    const paginatedCandidates = scoredCandidates.slice(skip, skip + limit);
+    const totalCount = relevantCandidates.length;
+    const paginatedCandidates = relevantCandidates.slice(skip, skip + limit);
 
     const formattedProducts = await this._formatProducts(paginatedCandidates);
 
@@ -236,11 +242,11 @@ class SearchService {
         // Check if any query token matches a WHOLE WORD in the name
         // e.g. "bag" matches "Leather Bag" but not "Baghdad"
         const nameWords = nameLower.split(/[\s\-_\/]+/);
-        const hasWordMatch = queryContext.tokens.some(t => nameWords.includes(t));
-        if (hasWordMatch) {
+        const matchedNameTokens = queryContext.expandedTokens.filter(t => nameWords.includes(t));
+        if (matchedNameTokens.length > 0) {
           score += SCORING_WEIGHTS.nameWordMatchBonus;
           nameMatched = true;
-        } else if (queryContext.tokens.some(t => nameLower.includes(t))) {
+        } else if (queryContext.expandedTokens.some(t => nameLower.includes(t))) {
           // Substring match: query appears somewhere in name
           score += SCORING_WEIGHTS.nameContainsBonus;
           nameMatched = true;
@@ -250,33 +256,64 @@ class SearchService {
       // Category/subcategory match bonuses
       const categoryLower = (candidate.category || '').toLowerCase();
       const subcategoryLower = (candidate.subcategory || '').toLowerCase();
-      const categoryMatched = queryContext.tokens.some(t => categoryLower.includes(t));
-      const subcategoryMatched = queryContext.tokens.some(t => subcategoryLower.includes(t));
+
+      // Exact subcategory match: check if any expanded token matches the subcategory exactly
+      // (case-insensitive). e.g. "bags" expanded to ["bag", "bags"] should match subcategory "Bags"
+      const subcategoryWords = subcategoryLower.split(/[\s\-_\/]+/);
+      const subcategoryExactMatch = queryContext.expandedTokens.some(t => 
+        subcategoryLower === t || subcategoryWords.includes(t)
+      );
+      const subcategoryMatched = subcategoryExactMatch || queryContext.expandedTokens.some(t => subcategoryLower.includes(t));
+      
+      // Category matching: check tokens against category field
+      const categoryWords = categoryLower.split(/[\s\-_\/]+/);
+      const categoryMatched = queryContext.expandedTokens.some(t => 
+        categoryLower === t || categoryWords.includes(t) || categoryLower.includes(t)
+      );
+
+      if (subcategoryExactMatch) {
+        score += SCORING_WEIGHTS.subcategoryExactBonus;
+      } else if (subcategoryMatched) {
+        score += SCORING_WEIGHTS.subcategoryBonus;
+      }
       if (categoryMatched) score += SCORING_WEIGHTS.categoryBonus;
-      if (subcategoryMatched) score += SCORING_WEIGHTS.subcategoryBonus;
 
       // Key features match
       const features = (candidate.keyFeatures || []).join(' ').toLowerCase();
-      const featuresMatched = queryContext.tokens.some(t => features.includes(t));
+      const featuresMatched = queryContext.expandedTokens.some(t => features.includes(t));
       if (featuresMatched) score += SCORING_WEIGHTS.keyFeatureBonus;
 
-      // Search tags match (explicit admin-curated tags)
+      // Search tags match (explicit admin-curated tags) — dedicated weight
       const tags = (candidate.searchTags || []).join(' ').toLowerCase();
-      if (queryContext.tokens.some(t => tags.includes(t))) score += SCORING_WEIGHTS.nameContainsBonus;
+      const tagsMatched = queryContext.expandedTokens.some(t => tags.includes(t));
+      if (tagsMatched) score += SCORING_WEIGHTS.searchTagsBonus;
 
-      // Description-only penalty: if the match is ONLY in the description
-      // and NOT in name, category, subcategory, or keyFeatures, heavily penalize
-      // This prevents "gift bag included" in a perfume description from outranking actual bags
-      if (!nameMatched && !categoryMatched && !subcategoryMatched && !featuresMatched) {
-        score *= SCORING_WEIGHTS.descriptionOnlyPenalty;
+      // Token coverage bonus: reward products that match MORE of the query tokens
+      // For multi-word queries like "leather bag", a product matching both "leather" AND "bag"
+      // should score much higher than one matching only "bag"
+      if (queryContext.tokens.length > 1) {
+        const allSearchableText = `${nameLower} ${categoryLower} ${subcategoryLower} ${features} ${tags}`;
+        const matchedTokenCount = queryContext.tokens.filter(t => allSearchableText.includes(t)).length;
+        const coverageRatio = matchedTokenCount / queryContext.tokens.length;
+        score += coverageRatio * queryContext.tokens.length * SCORING_WEIGHTS.tokenCoverageMultiplier;
       }
 
-      // Popularity signals (applied AFTER relevance, as tiebreakers)
-      if (candidate.isBestSeller) score += SCORING_WEIGHTS.bestSellerBoost;
-      if (candidate.isFeatured) score += SCORING_WEIGHTS.featuredBoost;
+      // Popularity signals — disabled for now to keep results strictly relevance-based
+      // if (candidate.isBestSeller) score += SCORING_WEIGHTS.bestSellerBoost;
+      // if (candidate.isFeatured) score += SCORING_WEIGHTS.featuredBoost;
       
-      const rating = candidate.rating?.rating || 0;
-      score += (rating / 5) * SCORING_WEIGHTS.ratingMultiplier;
+      // const rating = candidate.rating?.rating || 0;
+      // score += (rating / 5) * SCORING_WEIGHTS.ratingMultiplier;
+
+      // STRICT: If the match is ONLY in the description and NOT in name, category,
+      // subcategory, keyFeatures, or searchTags — hard exclude the product.
+      // This prevents "gift bag included" in a perfume description from appearing
+      // when searching "bags". No penalty — just exclusion.
+      const hasPrimaryMatch = nameMatched || categoryMatched || subcategoryMatched || featuresMatched || tagsMatched;
+      if (!hasPrimaryMatch) {
+        candidate._descriptionOnly = true;
+        score *= SCORING_WEIGHTS.descriptionOnlyPenalty;
+      }
 
       // Match type penalties
       if (candidate._matchType === 'fuzzy') score *= SCORING_WEIGHTS.fuzzyPenalty;

@@ -11,10 +11,35 @@ function normalizeQuery(query) {
     .trim();
 }
 
+/**
+ * Pre-process the normalized query to replace known multi-word synonym phrases
+ * BEFORE tokenization. This handles cases like "t shirt" → "t-shirt",
+ * "body spray" → "perfumes", etc. that would be broken by splitting on spaces.
+ */
+function applyMultiWordSynonyms(normalizedQuery) {
+  let result = normalizedQuery;
+  // Sort multi-word keys by length (longest first) to match greedily
+  const multiWordKeys = Object.keys(config.SYNONYMS)
+    .filter(k => k.includes(' '))
+    .sort((a, b) => b.length - a.length);
+  
+  for (const phrase of multiWordKeys) {
+    if (result.includes(phrase)) {
+      // Replace the phrase with its canonical synonym
+      result = result.replace(new RegExp(escapeRegex(phrase), 'g'), config.SYNONYMS[phrase]);
+    }
+  }
+  return result;
+}
+
 function tokenizeQuery(query) {
   const normalized = normalizeQuery(query);
   if (!normalized) return [];
-  return normalized
+
+  // Apply multi-word synonyms BEFORE splitting into tokens
+  const preprocessed = applyMultiWordSynonyms(normalized);
+
+  return preprocessed
     .split(' ')
     .filter(token => token.length >= 2 && !config.STOP_WORDS.has(token));
 }
@@ -36,6 +61,7 @@ function expandSynonyms(tokens) {
   let synonymsUsed = false;
 
   for (const token of tokens) {
+    // Check direct synonym match
     if (config.SYNONYMS[token]) {
       expandedTokens.add(config.SYNONYMS[token]);
       synonymsUsed = true;
@@ -70,12 +96,30 @@ function generateFuzzyPattern(token) {
   return pattern;
 }
 
+/**
+ * Build the MongoDB $text search query string.
+ * Wraps hyphenated terms in quotes to force phrase matching
+ * (prevents "t-shirt" from being tokenized as "t" + "shirt").
+ */
+function buildTextSearchString(expandedTokens) {
+  return expandedTokens.map(token => {
+    // If the token contains a hyphen, wrap in quotes for exact phrase matching
+    if (token.includes('-')) {
+      return `"${token}"`;
+    }
+    return token;
+  }).join(' ');
+}
+
 function buildSearchQuery(rawQuery) {
   const normalizedQuery = normalizeQuery(rawQuery);
   const tokens = tokenizeQuery(rawQuery);
   const stemmedTokens = stemTokens(tokens);
   
-  const { expandedTokens, synonymsUsed } = expandSynonyms(stemmedTokens);
+  // Expand synonyms from BOTH original tokens and stemmed tokens
+  // to catch cases where the original form maps to a synonym
+  const allTokensForSynonyms = [...new Set([...stemmedTokens, ...tokens])];
+  const { expandedTokens, synonymsUsed } = expandSynonyms(allTokensForSynonyms);
   
   const fuzzyPatterns = tokens
     .map(generateFuzzyPattern)
@@ -88,7 +132,7 @@ function buildSearchQuery(rawQuery) {
     expandedTokens,
     synonymsUsed,
     fuzzyPatterns,
-    textSearchQuery: expandedTokens.join(' ')
+    textSearchQuery: buildTextSearchString(expandedTokens)
   };
 }
 
@@ -99,5 +143,7 @@ module.exports = {
   stemTokens,
   expandSynonyms,
   generateFuzzyPattern,
-  buildSearchQuery
+  buildSearchQuery,
+  applyMultiWordSynonyms,
+  buildTextSearchString
 };
