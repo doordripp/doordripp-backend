@@ -1,5 +1,6 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const mongoose = require('mongoose');
 const RazorpayUtil = require('../utils/razorpay');
 const mailService = require('../services/mail.service');
 const pushService = require('../services/pushNotification.service');
@@ -335,7 +336,14 @@ exports.create = async (req, res, next) => {
         return res.status(400).json({ error: 'Invalid quantity for product ' + it.product });
       }
 
-      const product = await Product.findById(it.product);
+      const pIdStr = String(it.product || it.productId || it.id || '').trim();
+      let product = null;
+      if (mongoose.Types.ObjectId.isValid(pIdStr)) {
+        product = await Product.findById(pIdStr);
+      }
+      if (!product) {
+        product = await Product.findOne({ slug: pIdStr });
+      }
       if (!product) return res.status(400).json({ error: 'Invalid product ' + it.product });
       const selectedSize = normalizeSizeLabel(it.selectedSize || it.size || getDefaultSize(product.sizeInventory, product.sizes));
 
@@ -410,10 +418,16 @@ exports.create = async (req, res, next) => {
     const enrichedTrialItems = [];
     if (isTrial && Array.isArray(trialItems)) {
       for (const ti of trialItems) {
-        const pid = ti.product || ti.productId || ti._id;
-        const p = await Product.findById(pid);
+        const pidStr = String(ti.product || ti.productId || ti._id || '').trim();
+        let p = null;
+        if (mongoose.Types.ObjectId.isValid(pidStr)) {
+          p = await Product.findById(pidStr);
+        }
+        if (!p) {
+          p = await Product.findOne({ slug: pidStr });
+        }
         enrichedTrialItems.push({
-          product: pid,
+          product: p ? p._id : pidStr,
           name: ti.name || p?.name,
           image: ti.image || (p?.images && p.images[0]) || p?.image,
           price: ti.price || p?.price,

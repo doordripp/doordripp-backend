@@ -12,6 +12,7 @@
  * @module controllers/trialRoomController
  */
 
+const mongoose = require('mongoose');
 const TrialOrder = require('../models/TrialOrder');
 const logger = require('../utils/logger');
 const User = require('../models/User');
@@ -22,7 +23,7 @@ const Product = require('../models/Product');
  */
 const TRIAL_CONSTANTS = {
   MAX_ITEMS: 3,
-  MIN_ITEMS: 2,
+  MIN_ITEMS: 1,
   TRIAL_FEE: 0
 };
 
@@ -166,11 +167,18 @@ exports.createTrialOrder = async (req, res) => {
     //   });
     // }
 
-    // 4. Verify all products exist and get current prices
-    const productIds = trialItems.map(item => item.productId);
-    const products = await Product.find({ _id: { $in: productIds } });
+    // 4. Verify all products exist and get current prices (supporting ObjectId or slug)
+    const rawProductIds = trialItems.map(item => String(item.productId || '').trim()).filter(Boolean);
+    const validObjectIds = rawProductIds.filter(id => mongoose.Types.ObjectId.isValid(id));
+    const stringSlugs = rawProductIds.filter(id => !mongoose.Types.ObjectId.isValid(id));
 
-    if (products.length !== productIds.length) {
+    const orClauses = [];
+    if (validObjectIds.length > 0) orClauses.push({ _id: { $in: validObjectIds } });
+    if (stringSlugs.length > 0) orClauses.push({ slug: { $in: stringSlugs } });
+
+    const products = orClauses.length > 0 ? await Product.find({ $or: orClauses }) : [];
+
+    if (products.length !== trialItems.length) {
       return res.status(400).json({
         success: false,
         message: 'One or more products not found',
@@ -180,20 +188,25 @@ exports.createTrialOrder = async (req, res) => {
 
     // 5. Create formatted trial items with database prices
     const formattedTrialItems = trialItems.map(item => {
-      const product = products.find(p => p._id.toString() === item.productId.toString());
+      const pIdStr = String(item.productId || '').trim();
+      const product = products.find(p => p._id.toString() === pIdStr || p.slug === pIdStr);
       return {
         product: product._id,
         name: product.name,
         price: product.price,
-        image: product.images && product.images[0] ? product.images[0] : null,
+        image: product.images && product.images[0] ? (product.images[0].url || product.images[0]) : null,
         quantity: item.quantity || 1,
         size: item.size || 'M'
       };
     });
 
     // 6. Calculate totals strictly for the purchased item (Trial & Buy pays for selected item only)
-    const purchasedProduct = products.find(p => p._id.toString() === purchasedItemId.toString());
-    const purchasedTrialItem = trialItems.find(item => item.productId.toString() === purchasedItemId.toString());
+    const purchasedIdStr = String(purchasedItemId || '').trim();
+    const purchasedProduct = products.find(p => p._id.toString() === purchasedIdStr || p.slug === purchasedIdStr);
+    const purchasedTrialItem = trialItems.find(item => {
+      const pIdStr = String(item.productId || '').trim();
+      return pIdStr === purchasedIdStr || (purchasedProduct && pIdStr === purchasedProduct._id.toString());
+    });
     const purchasedQty = purchasedTrialItem?.quantity || 1;
     const itemsTotal = (purchasedProduct ? purchasedProduct.price : 0) * purchasedQty;
 
@@ -204,7 +217,7 @@ exports.createTrialOrder = async (req, res) => {
     const trialOrder = new TrialOrder({
       userId,
       trialItems: formattedTrialItems,
-      purchasedItemId,
+      purchasedItemId: purchasedProduct ? purchasedProduct._id : purchasedItemId,
       itemsTotal: Math.round(itemsTotal * 100) / 100, // Round to 2 decimals
       trialFee: TRIAL_CONSTANTS.TRIAL_FEE,
       finalTotal: Math.round(finalTotal * 100) / 100,

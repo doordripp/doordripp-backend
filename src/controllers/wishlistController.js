@@ -1,5 +1,17 @@
+const mongoose = require('mongoose')
 const Wishlist = require('../models/Wishlist')
 const Product = require('../models/Product')
+
+const resolveProductId = async (rawId) => {
+  if (!rawId) return null
+  const candidate = String(rawId).trim()
+  if (mongoose.Types.ObjectId.isValid(candidate)) {
+    const exists = await Product.exists({ _id: candidate })
+    return exists ? candidate : null
+  }
+  const bySlug = await Product.findOne({ slug: candidate }).select('_id').lean()
+  return bySlug?._id ? String(bySlug._id) : null
+}
 
 // Get user's wishlist
 exports.getWishlist = async (req, res, next) => {
@@ -52,8 +64,13 @@ exports.addToWishlist = async (req, res, next) => {
       return res.status(400).json({ error: 'Product ID required' })
     }
 
-    // Verify product exists
-    const product = await Product.findById(productId)
+    // Verify product exists by ObjectId or slug
+    const resolvedProductId = await resolveProductId(productId)
+    if (!resolvedProductId) {
+      return res.status(404).json({ error: 'Product not found' })
+    }
+
+    const product = await Product.findById(resolvedProductId)
     if (!product) {
       return res.status(404).json({ error: 'Product not found' })
     }
@@ -70,7 +87,7 @@ exports.addToWishlist = async (req, res, next) => {
 
     // Check if product already in wishlist
     const existingItem = wishlist.items.find(
-      item => item.product.toString() === productId
+      item => item.product.toString() === resolvedProductId
     )
 
     if (existingItem) {
@@ -79,7 +96,7 @@ exports.addToWishlist = async (req, res, next) => {
 
     // Add to wishlist
     wishlist.items.push({
-      product: productId,
+      product: resolvedProductId,
       name: product.name,
       image: product.images?.[0],
       price: product.price,
@@ -113,6 +130,8 @@ exports.removeFromWishlist = async (req, res, next) => {
       return res.status(400).json({ error: 'Product ID required' })
     }
 
+    const resolvedProductId = await resolveProductId(productId) || productId
+
     const wishlist = await Wishlist.findOne({ user: req.user.id })
 
     if (!wishlist) {
@@ -121,7 +140,7 @@ exports.removeFromWishlist = async (req, res, next) => {
 
     // Remove item
     wishlist.items = wishlist.items.filter(
-      item => item.product.toString() !== productId
+      item => item.product && item.product.toString() !== resolvedProductId.toString()
     )
 
     await wishlist.save()
@@ -141,6 +160,14 @@ exports.isInWishlist = async (req, res, next) => {
     }
 
     const { productId } = req.params
+    if (!productId) {
+      return res.json({ isInWishlist: false })
+    }
+
+    const resolvedProductId = await resolveProductId(productId)
+    if (!resolvedProductId) {
+      return res.json({ isInWishlist: false })
+    }
 
     const wishlist = await Wishlist.findOne({ user: req.user.id })
 
@@ -149,7 +176,7 @@ exports.isInWishlist = async (req, res, next) => {
     }
 
     const isInWishlist = wishlist.items.some(
-      item => item.product.toString() === productId
+      item => item.product && item.product.toString() === resolvedProductId.toString()
     )
 
     res.json({ isInWishlist })

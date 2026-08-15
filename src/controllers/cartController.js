@@ -37,7 +37,7 @@ exports.getCart = async (req, res, next) => {
     let cart = await Cart.findOneAndUpdate(
       { user: userId },
       { $setOnInsert: { user: userId, items: [] } },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     ).populate('items.product');
     res.json(cart);
   } catch (err) {
@@ -64,7 +64,7 @@ exports.addItem = async (req, res, next) => {
     let cart = await Cart.findOneAndUpdate(
       { user: userId },
       { $setOnInsert: { user: userId, items: [] } },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     );
 
     const existing = cart.items.find(i =>
@@ -85,13 +85,13 @@ exports.addItem = async (req, res, next) => {
       updatedCart = await Cart.findOneAndUpdate(
         { user: userId, 'items._id': existing._id },
         { $inc: { 'items.$.quantity': requestedQty } },
-        { new: true }
+        { returnDocument: 'after' }
       ).populate('items.product');
     } else {
       updatedCart = await Cart.findOneAndUpdate(
         { user: userId },
         { $push: { items: { product: resolvedProductId, quantity: requestedQty, size, color } } },
-        { new: true, upsert: true }
+        { returnDocument: 'after', upsert: true }
       ).populate('items.product');
     }
 
@@ -116,7 +116,7 @@ exports.updateQuantity = async (req, res, next) => {
       const updated = await Cart.findOneAndUpdate(
         { user: userId },
         { $pull: { items: { product: resolvedProductId, size, color } } },
-        { new: true }
+        { returnDocument: 'after' }
       ).populate('items.product');
       return res.json(updated || { user: userId, items: [] });
     }
@@ -140,7 +140,7 @@ exports.updateQuantity = async (req, res, next) => {
       updated = await Cart.findOneAndUpdate(
         { user: userId },
         { $push: { items: { product: resolvedProductId, quantity, size, color } } },
-        { new: true, upsert: true }
+        { returnDocument: 'after', upsert: true }
       ).populate('items.product');
     }
 
@@ -195,7 +195,7 @@ exports.syncCart = async (req, res, next) => {
     const updated = await Cart.findOneAndUpdate(
       { user: userId },
       { $set: { items: newItems } },
-      { new: true, upsert: true }
+      { returnDocument: 'after', upsert: true }
     ).populate('items.product');
 
     res.json(updated);

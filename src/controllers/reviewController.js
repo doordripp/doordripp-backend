@@ -23,10 +23,22 @@ function sanitizeReviewImages(images) {
   return cleaned
 }
 
+const resolveProductId = async (rawId) => {
+  if (!rawId) return null
+  const candidate = String(rawId).trim()
+  if (mongoose.Types.ObjectId.isValid(candidate)) {
+    const exists = await Product.exists({ _id: candidate })
+    return exists ? candidate : null
+  }
+  const bySlug = await Product.findOne({ slug: candidate }).select('_id').lean()
+  return bySlug?._id ? String(bySlug._id) : null
+}
+
 // Get reviews for a product (or all reviews) with filtering and sorting
 exports.getProductReviews = async (req, res, next) => {
   try {
-    const targetProductId = req.params.productId || req.params.id || req.query.productId || req.query.product
+    const targetProductIdRaw = req.params.productId || req.params.id || req.query.productId || req.query.product
+    const targetProductId = targetProductIdRaw ? await resolveProductId(targetProductIdRaw) : null
     const { 
       page = 1, 
       limit = 10, 
@@ -143,7 +155,8 @@ exports.getProductReviews = async (req, res, next) => {
 // Create a new review
 exports.createReview = async (req, res, next) => {
   try {
-    const targetProductId = req.params.productId || req.params.id || req.body.productId || req.body.product
+    const targetProductIdRaw = req.params.productId || req.params.id || req.body.productId || req.body.product
+    const targetProductId = targetProductIdRaw ? await resolveProductId(targetProductIdRaw) : null
     const { rating, title, comment, images } = req.body
     const userId = req.user.id
 
@@ -152,7 +165,7 @@ exports.createReview = async (req, res, next) => {
     // Validate required fields
     if (!targetProductId) {
       return res.status(400).json({
-        error: 'Product ID is required'
+        error: 'Product not found or invalid product ID'
       })
     }
 
@@ -479,11 +492,12 @@ exports.getMyReviews = async (req, res, next) => {
 // Get user's review for a specific product
 exports.getUserReview = async (req, res, next) => {
   try {
-    const targetProductId = req.params.productId || req.params.id || req.query.productId || req.query.product
+    const targetProductIdRaw = req.params.productId || req.params.id || req.query.productId || req.query.product
+    const targetProductId = targetProductIdRaw ? await resolveProductId(targetProductIdRaw) : null
     const userId = req.user.id
 
     if (!targetProductId) {
-      return res.status(400).json({ error: 'Product ID is required' })
+      return res.status(400).json({ error: 'Product not found or invalid product ID' })
     }
 
     const review = await Review.findOne({

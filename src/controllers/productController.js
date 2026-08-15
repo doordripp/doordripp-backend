@@ -1,9 +1,14 @@
+const mongoose = require('mongoose')
 const Product = require('../models/Product')
 const escapeRegex = require('../utils/escapeRegex')
 const { attachSaleInfoToProducts } = require('../utils/promotionHelpers')
 const { buildProductInventoryPayload } = require('../utils/productInventory')
 
-const { getPrecomputedHomePayload, refreshHomeProductsPrecomputation } = require('../services/homePrecomputeService')
+const { 
+  getPrecomputedHomePayload, 
+  refreshHomeProductsPrecomputation, 
+  getSectionTop8Ids 
+} = require('../services/homePrecomputeService')
 
 function clearHomeCache() {
   refreshHomeProductsPrecomputation().catch(() => {})
@@ -43,12 +48,21 @@ exports.list = async (req, res, next) => {
       limit = 50, 
       isNewArrival, 
       isBestSeller, 
-      isFeatured 
+      isFeatured,
+      collection 
     } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, parseInt(limit, 10) || 50);
+    const skip = (pageNum - 1) * limitNum;
 
     const filter = {};
     const targetCategory = category || gender;
+
+    // Normalizing collection flags
+    const normCollection = String(collection || '').toLowerCase().trim();
+    const isNewArrivalFlag = isNewArrival === 'true' || isNewArrival === true || normCollection === 'new-arrivals' || normCollection === 'newarrivals';
+    const isBestSellerFlag = isBestSeller === 'true' || isBestSeller === true || normCollection === 'best-sellers' || normCollection === 'bestsellers' || normCollection === 'top-selling';
+    const isFeaturedFlag = isFeatured === 'true' || isFeatured === true || normCollection === 'featured' || normCollection === 'featured-products' || normCollection === 'popular-products';
 
     // Delegate to search service for intelligent search
     if (search) {
@@ -57,18 +71,18 @@ exports.list = async (req, res, next) => {
         category: targetCategory || 'All',
         subcategory: subcategory || subcategories,
         sort,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        isNewArrival,
-        isBestSeller,
-        isFeatured
+        page: pageNum,
+        limit: limitNum,
+        isNewArrival: isNewArrivalFlag,
+        isBestSeller: isBestSellerFlag,
+        isFeatured: isFeaturedFlag
       })
       return res.json(searchResults)
     }
 
-    if (isNewArrival === 'true' || isNewArrival === true) filter.isNewArrival = true;
-    if (isBestSeller === 'true' || isBestSeller === true) filter.isBestSeller = true;
-    if (isFeatured === 'true' || isFeatured === true) filter.isFeatured = true;
+    if (isNewArrivalFlag) filter.isNewArrival = true;
+    if (isBestSellerFlag) filter.isBestSeller = true;
+    if (isFeaturedFlag) filter.isFeatured = true;
 
     // Multi-subcategory support
     const rawSubcats = subcategories || subcategory;
@@ -130,10 +144,61 @@ exports.list = async (req, res, next) => {
     else if (sort === 'name') sortOption = { name: 1 };
     else if (sort === 'rating') sortOption = { 'rating.rating': -1, createdAt: -1 };
 
-    const [products, total] = await Promise.all([
-      Product.find(filter).skip(skip).limit(parseInt(limit)).sort(sortOption).lean(),
-      Product.countDocuments(filter)
-    ]);
+    // Determine if this is a default collection/category view where we prioritize the top 8 Home UI items
+    const isDefaultSort = !sort || sort === 'newest';
+    const hasCustomFilter = Boolean(rawSubcats || (minP !== undefined && !isNaN(minP)) || (maxP !== undefined && !isNaN(maxP)) || sizes);
+    
+    let sectionName = null;
+    if (isNewArrivalFlag) sectionName = 'new-arrivals';
+    else if (isBestSellerFlag) sectionName = 'best-sellers';
+    else if (isFeaturedFlag) sectionName = 'featured';
+    else if (targetCategory && targetCategory.toLowerCase() === 'accessories') sectionName = 'accessories';
+
+    const top8Ids = (isDefaultSort && !hasCustomFilter && sectionName) ? getSectionTop8Ids(sectionName) : [];
+
+    let products = [];
+    let total = 0;
+
+    if (top8Ids.length > 0) {
+      total = await Product.countDocuments(filter);
+
+      if (pageNum === 1) {
+        // Fetch top 8 items matching filter
+        const top8Raw = await Product.find({ ...filter, _id: { $in: top8Ids } }).lean();
+        // Preserve top 8 ordering
+        const top8Map = new Map(top8Raw.map(p => [String(p._id), p]));
+        const orderedTop8 = top8Ids.map(id => top8Map.get(String(id))).filter(Boolean);
+
+        const foundTop8Ids = new Set(orderedTop8.map(p => String(p._id)));
+        const remainingNeeded = limitNum - orderedTop8.length;
+
+        let remainingProducts = [];
+        if (remainingNeeded > 0) {
+          remainingProducts = await Product.find({ ...filter, _id: { $nin: Array.from(foundTop8Ids) } })
+            .sort({ createdAt: -1 })
+            .limit(remainingNeeded)
+            .lean();
+        }
+
+        products = [...orderedTop8, ...remainingProducts];
+      } else {
+        // For page > 1, offset by top8 count
+        const skipOffset = (pageNum - 1) * limitNum - top8Ids.length;
+        products = await Product.find({ ...filter, _id: { $nin: top8Ids } })
+          .sort({ createdAt: -1 })
+          .skip(Math.max(0, skipOffset))
+          .limit(limitNum)
+          .lean();
+      }
+    } else {
+      // Standard database query (for custom sort/search/filter or generic catalogue)
+      const [rawProducts, rawTotal] = await Promise.all([
+        Product.find(filter).skip(skip).limit(limitNum).sort(sortOption).lean(),
+        Product.countDocuments(filter)
+      ]);
+      products = rawProducts;
+      total = rawTotal;
+    }
 
     const enrichedProducts = await attachSaleInfoToProducts(products);
 
@@ -171,8 +236,8 @@ exports.list = async (req, res, next) => {
     res.json({
       data: formattedProducts,
       total,
-      page: parseInt(page),
-      totalPages: Math.ceil(total / parseInt(limit))
+      page: pageNum,
+      totalPages: Math.ceil(total / limitNum)
     });
   } catch (err) {
     next(err);
@@ -181,7 +246,14 @@ exports.list = async (req, res, next) => {
 
 exports.get = async (req, res, next) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const identifier = req.params.id;
+    let product = null;
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+      product = await Product.findById(identifier);
+    }
+    if (!product) {
+      product = await Product.findOne({ slug: identifier });
+    }
     if (!product) return res.status(404).json({ error: 'Not found' });
     const [productWithSale] = await attachSaleInfoToProducts([product.toObject({ flattenMaps: true })]);
 
@@ -222,14 +294,21 @@ exports.get = async (req, res, next) => {
 // Get related products with smart recommendation algorithm
 exports.getRelatedProducts = async (req, res, next) => {
   try {
-    const { id } = req.params
+    const { id: identifier } = req.params
     const { limit = 8 } = req.query
     
-    // Get the current product
-    const currentProduct = await Product.findById(id)
+    // Get the current product by ID or slug
+    let currentProduct = null;
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+      currentProduct = await Product.findById(identifier);
+    }
+    if (!currentProduct) {
+      currentProduct = await Product.findOne({ slug: identifier });
+    }
     if (!currentProduct) {
       return res.status(404).json({ error: 'Product not found' })
     }
+    const id = currentProduct._id;
 
     // Build recommendation query with multiple criteria
     const recommendations = []
@@ -274,12 +353,11 @@ exports.getRelatedProducts = async (req, res, next) => {
     
     // 4. Description keyword matching
     if (recommendations.length < limit && currentProduct.description) {
-      // Extract keywords from current product description
       const keywords = currentProduct.description
         .toLowerCase()
         .split(/\s+/)
-        .filter(word => word.length > 3) // Filter meaningful words
-        .slice(0, 5) // Top 5 keywords
+        .filter(word => word.length > 3)
+        .slice(0, 5)
       
       if (keywords.length > 0) {
         const { getVisibilityFilter } = require('../utils/visibility')
@@ -300,7 +378,7 @@ exports.getRelatedProducts = async (req, res, next) => {
         _id: { $ne: id },
         ...getVisibilityFilter()
       })
-      .sort({ createdAt: -1 }) // Most recent first
+      .sort({ createdAt: -1 })
       .limit(limit - recommendations.length)
       
       recommendations.push(...fallback)
@@ -308,7 +386,7 @@ exports.getRelatedProducts = async (req, res, next) => {
     
     // Remove duplicates and limit results
     const uniqueProducts = []
-    const seenIds = new Set([id]) // Exclude current product
+    const seenIds = new Set([id])
     
     for (const product of recommendations) {
       const productId = product._id.toString()
@@ -353,7 +431,6 @@ exports.getRelatedProducts = async (req, res, next) => {
     })
     
   } catch (err) {
-    logger.error('Related products error:', err)
     next(err)
   }
 }
@@ -361,13 +438,13 @@ exports.getRelatedProducts = async (req, res, next) => {
 // Get smart recommendations for cart/general use
 exports.getRecommendations = async (req, res, next) => {
   try {
+    const { excludeIds, categories, subcategories, limit = 10 } = req.query
     const { getVisibilityFilter } = require('../utils/visibility')
     const filter = { 
       _id: { $nin: excludeIds ? excludeIds.split(',') : [] },
       ...getVisibilityFilter()
     }
     
-    // If categories provided, use them for targeted recommendations
     if (categories) {
       const categoryList = categories.split(',')
       filter.category = { $in: categoryList }
@@ -380,32 +457,33 @@ exports.getRecommendations = async (req, res, next) => {
     
     const products = await Product.find(filter)
       .sort({ createdAt: -1, rating: -1 })
-      .limit(parseInt(limit))
+      .limit(parseInt(limit, 10) || 10)
     
     const formattedProducts = products.map(product => {
       const inventory = buildProductInventoryPayload(product)
       return ({
-      _id: product._id,
-      id: product._id,
-      name: product.name,
-      slug: product.slug,
-      description: product.description,
-      price: product.price,
-      originalPrice: product.originalPrice,
-      discount: product.discount,
-      category: product.category,
-      subcategory: product.subcategory,
-      images: product.images || [],
-      image: product.images && product.images.length > 0 ? product.images[0] : null,
-      colors: product.colors || [],
-      sizes: inventory.sizes,
-      sizeInventory: inventory.sizeInventory,
-      availableSizes: inventory.availableSizes,
-      defaultSize: inventory.defaultSize,
-      rating: product.rating || { rating: 4.5, reviews: 0 },
-      stock: inventory.stock,
-      inStock: inventory.inStock
-    })})
+        _id: product._id,
+        id: product._id,
+        name: product.name,
+        slug: product.slug,
+        description: product.description,
+        price: product.price,
+        originalPrice: product.originalPrice,
+        discount: product.discount,
+        category: product.category,
+        subcategory: product.subcategory,
+        images: product.images || [],
+        image: product.images && product.images.length > 0 ? product.images[0] : null,
+        colors: product.colors || [],
+        sizes: inventory.sizes,
+        sizeInventory: inventory.sizeInventory,
+        availableSizes: inventory.availableSizes,
+        defaultSize: inventory.defaultSize,
+        rating: product.rating || { rating: 4.5, reviews: 0 },
+        stock: inventory.stock,
+        inStock: inventory.inStock
+      })
+    })
     
     res.json({
       success: true,
@@ -414,7 +492,6 @@ exports.getRecommendations = async (req, res, next) => {
     })
     
   } catch (err) {
-    logger.error('Recommendations error:', err)
     next(err)
   }
 }
