@@ -65,6 +65,12 @@ module.exports = {
     'salwar': 'salwar kameez', 'salwar kameez': 'salwar kameez', 'churidar': 'salwar kameez',
     'anarkali': 'salwar kameez', 'palazzo': 'pants',
 
+    // ─── Undergarments & Innerwear ───
+    'bra': 'bra', 'bras': 'bra', 'bralette': 'bra', 'bralettes': 'bra',
+    'sports bra': 'bra', 'padded bra': 'bra', 't-shirt bra': 'bra', 'brassiere': 'bra',
+    'underwear': 'undergarments', 'undergarment': 'undergarments', 'innerwear': 'undergarments',
+    'panty': 'undergarments', 'panties': 'undergarments', 'brief': 'undergarments', 'briefs': 'undergarments',
+
     // ─── Bags ───
     'bag': 'bags', 'handbag': 'bags', 'purse': 'bags', 'tote': 'bags',
     'clutch': 'bags', 'sling bag': 'bags', 'sling': 'bags',
@@ -159,7 +165,8 @@ module.exports = {
     'boots': 'boot', 'heels': 'heel', 'loafers': 'loafer',
     'bags': 'bag', 'shorts': 'short', 'suits': 'suit',
     'shirts': 'shirt', 'tops': 'top', 'pendants': 'pendant',
-    'bracelets': 'bracelet', 'sneakers': 'sneaker'
+    'bracelets': 'bracelet', 'sneakers': 'sneaker',
+    'bras': 'bra', 'bralettes': 'bra', 'bralette': 'bra', 'bra': 'bra'
   },
   STOP_WORDS: new Set(['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'it', 'this', 'that', 'are', 'was', 'be', 'has', 'had', 'not', 'from']),
   FUZZY_CONFIG: {

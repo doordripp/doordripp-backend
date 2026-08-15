@@ -61,10 +61,23 @@ function expandSynonyms(tokens) {
   let synonymsUsed = false;
 
   for (const token of tokens) {
-    // Check direct synonym match
+    // 1. Check direct synonym match
     if (config.SYNONYMS[token]) {
-      expandedTokens.add(config.SYNONYMS[token]);
+      const syn = config.SYNONYMS[token];
+      if (Array.isArray(syn)) {
+        syn.forEach(s => expandedTokens.add(s));
+      } else {
+        expandedTokens.add(syn);
+      }
       synonymsUsed = true;
+    }
+    // 2. Also find related words that map to this token or share its canonical form
+    const canonical = config.SYNONYMS[token] || token;
+    for (const [k, v] of Object.entries(config.SYNONYMS)) {
+      if ((v === canonical || v === token) && !k.includes(' ')) {
+        expandedTokens.add(k);
+        synonymsUsed = true;
+      }
     }
   }
 

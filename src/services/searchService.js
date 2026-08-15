@@ -85,8 +85,12 @@ class SearchService {
 
     // 2. Facet Results (Secondary)
     const escapedQuery = escapeRegex(normalizedQuery);
+    const isQueryShort = normalizedQuery.length <= 3;
     const tokenOrConditions = expandedTokens.map(token => {
-      const tokenRegex = new RegExp(escapeRegex(token), 'i');
+      const isShort = token.length <= 3;
+      const tokenRegex = isShort
+        ? new RegExp(`(^|[^a-zA-Z0-9])${escapeRegex(token)}([^a-zA-Z0-9]|$)`, 'i')
+        : new RegExp(escapeRegex(token), 'i');
       return {
         $or: [
           { name: tokenRegex },
@@ -98,6 +102,10 @@ class SearchService {
       };
     });
 
+    const prefixNameRegex = isQueryShort
+      ? new RegExp(`^${escapedQuery}([^a-zA-Z0-9]|$)`, 'i')
+      : new RegExp(`^${escapedQuery}`, 'i');
+
     const [facetResults] = await Product.aggregate([
       { $match: baseFilter },
       {
@@ -108,7 +116,7 @@ class SearchService {
             { $limit: 10 }
           ],
           prefixName: [
-            { $match: { name: { $regex: new RegExp(`^${escapedQuery}`, 'i') } } },
+            { $match: { name: { $regex: prefixNameRegex } } },
             { $addFields: { _matchType: 'prefix', _searchScore: 1 } },
             { $limit: 20 }
           ],
@@ -230,24 +238,34 @@ class SearchService {
 
       // Name match bonuses (highest to lowest priority, only one applies)
       let nameMatched = false;
-      if (nameLower === queryLower) {
-        // Exact name match: product name IS the query
+      const nameWords = nameLower.split(/[\s\-_\/]+/);
+      const isExactName = nameLower === queryLower;
+      const matchedWholeWordTokens = queryContext.expandedTokens.filter(t => nameWords.includes(t));
+      const startsWithExactWord = nameWords.length > 0 && queryContext.expandedTokens.includes(nameWords[0]);
+      const startsWithQuery = nameLower.startsWith(queryLower);
+
+      if (isExactName) {
+        // 1. Exact name match: product name IS the query
         score += SCORING_WEIGHTS.exactNameBonus;
         nameMatched = true;
-      } else if (nameLower.startsWith(queryLower)) {
-        // Prefix match: name starts with query
+      } else if (matchedWholeWordTokens.length > 0) {
+        // 2. Whole word match in name (e.g. "bra" matches "Sports Bra" or "Padded Bra")
+        if (startsWithExactWord) {
+          // Name starts with the exact whole query word (e.g. "Bra Top")
+          score += SCORING_WEIGHTS.prefixNameBonus + 15;
+        } else {
+          // Name contains the whole query word anywhere
+          score += SCORING_WEIGHTS.nameWordMatchBonus + 20;
+        }
+        nameMatched = true;
+      } else if (startsWithQuery && queryLower.length > 3) {
+        // 3. Prefix match for queries longer than 3 chars (e.g. "perfum" -> "perfume")
         score += SCORING_WEIGHTS.prefixNameBonus;
         nameMatched = true;
       } else {
-        // Check if any query token matches a WHOLE WORD in the name
-        // e.g. "bag" matches "Leather Bag" but not "Baghdad"
-        const nameWords = nameLower.split(/[\s\-_\/]+/);
-        const matchedNameTokens = queryContext.expandedTokens.filter(t => nameWords.includes(t));
-        if (matchedNameTokens.length > 0) {
-          score += SCORING_WEIGHTS.nameWordMatchBonus;
-          nameMatched = true;
-        } else if (queryContext.expandedTokens.some(t => nameLower.includes(t))) {
-          // Substring match: query appears somewhere in name
+        // 4. Substring match (only for query tokens > 3 chars to prevent short tokens like 'bra' matching 'bracelet')
+        const validTokens = queryContext.expandedTokens.filter(t => t.length > 3);
+        if (validTokens.some(t => nameLower.includes(t))) {
           score += SCORING_WEIGHTS.nameContainsBonus;
           nameMatched = true;
         }

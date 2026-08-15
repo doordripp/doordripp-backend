@@ -28,16 +28,34 @@ exports.getHomeProducts = async (req, res, next) => {
 
 exports.list = async (req, res, next) => {
   try {
-    const { search, category, subcategory, sort, page = 1, limit = 50, isNewArrival, isBestSeller, isFeatured } = req.query;
+    const { 
+      search, 
+      category, 
+      gender,
+      subcategory, 
+      subcategories,
+      minPrice,
+      maxPrice,
+      priceRange,
+      sizes,
+      sort, 
+      page = 1, 
+      limit = 50, 
+      isNewArrival, 
+      isBestSeller, 
+      isFeatured 
+    } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const filter = {};
+    const targetCategory = category || gender;
+
     // Delegate to search service for intelligent search
     if (search) {
       const searchService = require('../services/searchService')
       const searchResults = await searchService.search(search, {
-        category: category || 'All',
-        subcategory,
+        category: targetCategory || 'All',
+        subcategory: subcategory || subcategories,
         sort,
         page: parseInt(page),
         limit: parseInt(limit),
@@ -47,13 +65,27 @@ exports.list = async (req, res, next) => {
       })
       return res.json(searchResults)
     }
+
     if (isNewArrival === 'true' || isNewArrival === true) filter.isNewArrival = true;
     if (isBestSeller === 'true' || isBestSeller === true) filter.isBestSeller = true;
     if (isFeatured === 'true' || isFeatured === true) filter.isFeatured = true;
-    if (subcategory) filter.subcategory = new RegExp(`^${escapeRegex(subcategory)}$`, 'i');
 
-    if (category && category !== 'All') {
-      const catLower = category.toLowerCase();
+    // Multi-subcategory support
+    const rawSubcats = subcategories || subcategory;
+    if (rawSubcats) {
+      const subcatList = (Array.isArray(rawSubcats) ? rawSubcats : String(rawSubcats).split(','))
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (subcatList.length === 1) {
+        filter.subcategory = new RegExp(`^${escapeRegex(subcatList[0])}$`, 'i');
+      } else if (subcatList.length > 1) {
+        filter.subcategory = { $in: subcatList.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i')) };
+      }
+    }
+
+    // Category / Gender filtering
+    if (targetCategory && targetCategory !== 'All' && targetCategory !== 'all') {
+      const catLower = targetCategory.toLowerCase();
       if (catLower === 'men') {
         filter.category = { $regex: /^(men|both|unisex|both \(men & women\))$/i };
       } else if (catLower === 'women') {
@@ -61,7 +93,31 @@ exports.list = async (req, res, next) => {
       } else if (catLower === 'both' || catLower.includes('both')) {
         filter.category = { $regex: /^(both|unisex|both \(men & women\))$/i };
       } else {
-        filter.category = new RegExp(`^${escapeRegex(category)}$`, 'i');
+        filter.category = new RegExp(`^${escapeRegex(targetCategory)}$`, 'i');
+      }
+    }
+
+    // Price range filtering
+    let minP = minPrice !== undefined && minPrice !== '' ? Number(minPrice) : undefined;
+    let maxP = maxPrice !== undefined && maxPrice !== '' ? Number(maxPrice) : undefined;
+    if (priceRange && typeof priceRange === 'string' && priceRange.includes('-')) {
+      const [pMin, pMax] = priceRange.split('-').map(Number);
+      if (!isNaN(pMin)) minP = pMin;
+      if (!isNaN(pMax)) maxP = pMax;
+    }
+    if ((minP !== undefined && !isNaN(minP)) || (maxP !== undefined && !isNaN(maxP))) {
+      filter.price = {};
+      if (minP !== undefined && !isNaN(minP)) filter.price.$gte = minP;
+      if (maxP !== undefined && !isNaN(maxP)) filter.price.$lte = maxP;
+    }
+
+    // Sizes filtering
+    if (sizes) {
+      const sizeList = (Array.isArray(sizes) ? sizes : String(sizes).split(','))
+        .map(s => s.trim())
+        .filter(Boolean);
+      if (sizeList.length > 0) {
+        filter.sizes = { $in: sizeList.map(s => new RegExp(`^${escapeRegex(s)}$`, 'i')) };
       }
     }
 
@@ -72,6 +128,7 @@ exports.list = async (req, res, next) => {
     if (sort === 'price-low') sortOption = { price: 1 };
     else if (sort === 'price-high') sortOption = { price: -1 };
     else if (sort === 'name') sortOption = { name: 1 };
+    else if (sort === 'rating') sortOption = { 'rating.rating': -1, createdAt: -1 };
 
     const [products, total] = await Promise.all([
       Product.find(filter).skip(skip).limit(parseInt(limit)).sort(sortOption).lean(),

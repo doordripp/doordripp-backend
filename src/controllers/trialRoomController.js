@@ -326,8 +326,8 @@ exports.getTrialHistory = async (req, res) => {
     const [trials, total] = await Promise.all([
       TrialOrder.find(filter)
         .populate('userId', 'name email phone')
-        .populate('trialItems.product', 'name price image')
-        .populate('purchasedItemId', 'name price image')
+        .populate('trialItems.product', 'name price image images')
+        .populate('purchasedItemId', 'name price image images')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit),
