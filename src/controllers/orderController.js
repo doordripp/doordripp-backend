@@ -766,8 +766,12 @@ exports.verifyPayment = async (req, res, next) => {
     console.log('✅ Payment verified successfully for order:', orderId);
 
     // Finalize size-wise stock reduction after successful online payment.
-    for (const item of order.items) {
-      await adjustProductSizeStock(item.product, item.size, -item.quantity);
+    const reservationList = order.isTrial ? (order.trialItems && order.trialItems.length > 0 ? order.trialItems : order.items) : order.items;
+    for (const item of reservationList) {
+      const pid = item.product || item.productId || item._id;
+      const quantity = item.quantity || 1;
+      const size = item.size || item.selectedSize;
+      await adjustProductSizeStock(pid, size, -quantity);
     }
     console.log('✅ Stock updated for order:', orderId);
 
