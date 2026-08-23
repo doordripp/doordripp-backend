@@ -631,6 +631,148 @@ class MailService {
     }
   }
 
+    /**
+   * Send newsletter welcome email
+   *
+   * @param {String} email - Subscriber email
+   * @returns {Promise<Object>} Send result
+   */
+    async sendNewsletterWelcomeEmail(email) {
+      const clientUrl = getClientUrl();
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Welcome to DoorDripp</title>
+          </head>
+
+          <body style="
+            margin: 0;
+            padding: 0;
+            background-color: #11100f;
+            font-family: Arial, sans-serif;
+            color: #ececec;
+          ">
+
+            <div style="
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 50px 25px;
+            ">
+
+              <div style="
+                border: 1px solid #2a2622;
+                padding: 40px;
+                background-color: #151412;
+              ">
+
+                <p style="
+                  margin: 0 0 15px;
+                  color: #dfc7a3;
+                  font-size: 11px;
+                  letter-spacing: 3px;
+                  text-transform: uppercase;
+                ">
+                  Newsletter
+                </p>
+
+                <h1 style="
+                  margin: 0 0 25px;
+                  font-family: Georgia, serif;
+                  font-weight: 400;
+                  font-size: 32px;
+                  color: #ececec;
+                ">
+                  Welcome to DoorDripp
+                </h1>
+
+                <p style="
+                  color: #c8c4bd;
+                  font-size: 15px;
+                  line-height: 1.8;
+                ">
+                  Thank you for subscribing to the DoorDripp newsletter.
+                </p>
+
+                <p style="
+                  color: #c8c4bd;
+                  font-size: 15px;
+                  line-height: 1.8;
+                ">
+                  You'll now be among the first to hear about our
+                  latest offers, new arrivals and updates.
+                </p>
+
+                <div style="
+                  margin: 30px 0;
+                  border-top: 1px solid #2a2622;
+                "></div>
+
+                <a
+                  href="${clientUrl}"
+                  style="
+                    display: inline-block;
+                    padding: 12px 24px;
+                    background-color: #dfc7a3;
+                    color: #11100f;
+                    text-decoration: none;
+                    font-size: 12px;
+                    letter-spacing: 1px;
+                    text-transform: uppercase;
+                  "
+                >
+                  Visit DoorDripp
+                </a>
+
+                <p style="
+                  margin-top: 35px;
+                  color: #8a857d;
+                  font-size: 12px;
+                  line-height: 1.6;
+                ">
+                  You received this email because you subscribed
+                  to the DoorDripp newsletter.
+                </p>
+
+              </div>
+
+              <p style="
+                text-align: center;
+                color: #6b665c;
+                font-size: 11px;
+                margin-top: 20px;
+              ">
+                © ${new Date().getFullYear()} DoorDripp. All rights reserved.
+              </p>
+
+            </div>
+
+          </body>
+        </html>
+      `;
+
+      return this.sendEmail({
+        to: email,
+        subject: 'Welcome to the DoorDripp Newsletter',
+        html,
+        text: `
+  Welcome to DoorDripp!
+
+  Thank you for subscribing to the DoorDripp newsletter.
+
+  You'll now be among the first to hear about our latest offers,
+  new arrivals and updates.
+
+  Visit us at ${clientUrl}
+
+  © ${new Date().getFullYear()} DoorDripp. All rights reserved.
+        `.trim()
+      });
+    }
+
   // ========== Helper Methods ==========
 
   /**
