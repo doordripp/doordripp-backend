@@ -44,7 +44,8 @@ const UserSchema = new mongoose.Schema({
   isPasswordSet: { type: Boolean, default: false },
   // OAuth fields
   googleId: { type: String, unique: true, sparse: true },
-  authProvider: { type: String, enum: ['local', 'google'], default: 'local' },
+  appleId: { type: String, unique: true, sparse: true },
+  authProvider: { type: String, enum: ['local', 'google', 'apple'], default: 'local' },
   // Password hashing control
   skipPasswordHash: { type: Boolean, default: false },
   // Password reset fields

@@ -100,6 +100,15 @@ const googleOAuthLimiter = rateLimit({
   handler: (req, res) => res.status(429).json({ error: 'Too many Google auth attempts. Please try again later.' }),
 });
 
+const appleOAuthLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => ipKeyGenerator(req),
+  handler: (req, res) => res.status(429).json({ error: 'Too many Apple auth attempts. Please try again later.' }),
+});
+
 const passwordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5,
@@ -283,6 +292,17 @@ if (hasGoogleOAuthProd) {
     }
   });
 }
+
+// Sign-In with Apple (POST - for Flutter iOS/Android mobile apps)
+// Receives identityToken & userIdentifier from client, verifies RS256 signature with Apple JWKS, and signs in or creates user
+router.post('/apple', skipIfDisabled(appleOAuthLimiter), async (req, res, next) => {
+  try {
+    return authController.signInWithApple(req, res, next);
+  } catch (e) {
+    logger.error('Apple sign-in route error:', e);
+    return res.status(500).json({ success: false, error: 'Failed to sign in with Apple' });
+  }
+});
 
 // Google OAuth routes - only enable if Google creds are configured
 if (hasGoogleOAuthProd) {

@@ -7,8 +7,8 @@ const hasUserSetPassword = (user) => {
   if (user.isPasswordSet) return true
 
   // Legacy local accounts predate the isPasswordSet flag but still have a real password.
-  // Google-only accounts also carry an internal random password, so keep those in set-password mode.
-  return user.authProvider !== 'google'
+  // OAuth-only accounts (Google/Apple) carry an internal random password, so keep those in set-password mode.
+  return user.authProvider !== 'google' && user.authProvider !== 'apple'
 }
 
 const verifyPasswordAndUpgrade = async (user, candidatePassword) => {

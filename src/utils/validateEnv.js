@@ -20,6 +20,7 @@ const validateEnvironment = () => {
     'GOOGLE_CLIENT_ID',
     'GOOGLE_CLIENT_SECRET',
     'GOOGLE_CALLBACK_URL',
+    'APPLE_BUNDLE_ID',
   ];
 
   // Check required variables

@@ -649,6 +649,127 @@ exports.signInWithGoogle = async (req, res, next) => {
   }
 };
 
+// Verify Apple identityToken and sign in or create user (for Flutter/iOS/mobile apps)
+exports.signInWithApple = async (req, res, next) => {
+  try {
+    const { identityToken, userIdentifier, name, fullName, email: fallbackEmail } = req.body || {};
+
+    if (!identityToken) {
+      return res.status(400).json({ success: false, error: 'identityToken is required' });
+    }
+
+    const { verifyAppleIdToken } = require('../utils/appleAuth');
+    let verified;
+    try {
+      verified = await verifyAppleIdToken(identityToken);
+    } catch (verifyErr) {
+      logger.error('Apple token verification failed:', verifyErr.message);
+      return res.status(401).json({ success: false, error: verifyErr.message || 'Invalid Apple identity token' });
+    }
+
+    const appleId = verified.appleId || userIdentifier;
+    if (!appleId) {
+      return res.status(400).json({ success: false, error: 'Could not extract Apple user identifier' });
+    }
+
+    // Resolve name if sent by Apple (Apple only sends name on the very first sign-in!)
+    let resolvedName = '';
+    if (typeof name === 'string' && name.trim()) {
+      resolvedName = name.trim();
+    } else if (typeof fullName === 'string' && fullName.trim()) {
+      resolvedName = fullName.trim();
+    } else if (name && typeof name === 'object') {
+      const first = name.firstName || name.givenName || '';
+      const last = name.lastName || name.familyName || '';
+      resolvedName = `${first} ${last}`.trim();
+    } else if (fullName && typeof fullName === 'object') {
+      const first = fullName.givenName || fullName.firstName || '';
+      const last = fullName.familyName || fullName.lastName || '';
+      resolvedName = `${first} ${last}`.trim();
+    }
+
+    // 1. Try finding user by appleId
+    let user = await User.findOne({ appleId });
+
+    // 2. If not found by appleId, try finding by email
+    const tokenEmail = verified.email ? normalizeEmail(verified.email) : null;
+    const clientEmail = fallbackEmail ? normalizeEmail(fallbackEmail) : null;
+    const targetEmail = tokenEmail || clientEmail;
+
+    if (!user && targetEmail) {
+      user = await User.findOne({ email: targetEmail });
+    }
+
+    if (!user) {
+      // If we don't have an email at all (very rare edge case), fallback to private relay alias
+      const userEmail = targetEmail || `${appleId}@privaterelay.appleid.com`;
+      const finalName = resolvedName || (targetEmail ? targetEmail.split('@')[0] : 'Apple User');
+      const randomPassword = Math.random().toString(36).slice(-12) + Math.random().toString(36).slice(-12);
+
+      user = new User({
+        name: finalName,
+        email: userEmail,
+        password: randomPassword,
+        emailVerified: true,
+        appleId,
+        authProvider: 'apple',
+        roles: [],
+        termsAccepted: true,
+        isPasswordSet: false
+      });
+      await user.save();
+      logger.info(`✅ New user created via Sign In with Apple: ${user.email} (${appleId})`);
+    } else {
+      // Existing user found - link Apple ID and update missing fields
+      let updated = false;
+      if (!user.appleId) {
+        user.appleId = appleId;
+        updated = true;
+      }
+      if (!user.emailVerified) {
+        user.emailVerified = true;
+        updated = true;
+      }
+      if (resolvedName && (user.name === 'Apple User' || !user.name)) {
+        user.name = resolvedName;
+        updated = true;
+      }
+      if (updated) {
+        await user.save();
+      }
+      logger.info(`✅ Existing user authenticated via Apple: ${user.email} (${appleId})`);
+    }
+
+    // Generate JWT token
+    const { token, cookieOptions } = await exports.createTokenForUser(user);
+
+    if (res.cookie) {
+      res.cookie('token', token, cookieOptions);
+    }
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        roles: user.roles || [],
+        avatar: user.avatar || null,
+        phone: user.phone || null,
+        emailVerified: user.emailVerified,
+        authProvider: user.authProvider || 'apple'
+      }
+    });
+  } catch (err) {
+    logger.error('❌ signInWithApple error:', err.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to sign in with Apple'
+    });
+  }
+};
+
 exports.me = async (req, res, next) => {
   try {
     let token = null;
