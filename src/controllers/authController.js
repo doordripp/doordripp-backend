@@ -973,6 +973,53 @@ exports.changePassword = async (req, res, next) => {
   }
 }
 
+exports.deleteAccount = async (req, res, next) => {
+  try {
+    let token = null
+
+    if (req.cookies && req.cookies.token) {
+      token = req.cookies.token
+    }
+
+    if (!token && req.headers.authorization) {
+      const parts = req.headers.authorization.split(' ')
+      if (parts.length === 2 && parts[0] === 'Bearer') {
+        token = parts[1]
+      }
+    }
+
+    if (!token) {
+      return res.status(401).json({ error: 'Not authenticated' })
+    }
+
+    const jwtSecret = process.env.JWT_SECRET
+
+    if (!jwtSecret) {
+      return res.status(500).json({ error: 'Server configuration error' })
+    }
+
+    const payload = jwt.verify(token, jwtSecret)
+
+    const user = await User.findById(payload.id)
+
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid token user' })
+    }
+
+    await User.findByIdAndDelete(user._id)
+
+    res.clearCookie('token')
+
+    return res.json({
+      ok: true,
+      message: 'Account deleted successfully'
+    })
+  } catch (e) {
+    logger.error('delete account error', e)
+    return res.status(500).json({ error: 'Failed to delete account' })
+  }
+}
+
 exports.sendOtp = async (req, res, next) => {
   try {
     const { phone, email } = req.body || {}
@@ -1284,4 +1331,4 @@ exports.resetPassword = async (req, res, next) => {
       error: 'Failed to reset password' 
     });
   }
-};
+};

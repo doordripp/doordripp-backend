@@ -274,6 +274,9 @@ router.put('/profile', authController.updateProfile);
 // Change password (authenticated)
 router.put('/change-password', skipIfDisabled(passwordLimiter), authController.changePassword);
 
+//delete authenticated user's account
+router.delete('/account', authController.deleteAccount);
+
 // POST /api/auth/send-otp
 router.post('/send-otp', authController.sendOtp);
 
