@@ -1284,4 +1284,77 @@ exports.resetPassword = async (req, res, next) => {
       error: 'Failed to reset password' 
     });
   }
-};
+};
+
+/**
+ * Delete Account
+ * Deletes the authenticated user account and cascades cleanup of personal data.
+ * Supports both web (cookies) and mobile apps (Bearer token / req.user).
+ */
+exports.deleteAccount = async (req, res, next) => {
+  try {
+    let token = null;
+    if (req.cookies && req.cookies.token) token = req.cookies.token;
+    if (!token && req.headers.authorization) {
+      const parts = req.headers.authorization.split(' ');
+      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
+    }
+
+    let userId = req.user?._id || req.user?.id;
+
+    if (!userId) {
+      if (!token) return res.status(401).json({ error: 'Not authenticated' });
+      const jwtSecret = process.env.JWT_SECRET;
+      if (!jwtSecret) return res.status(500).json({ error: 'Server configuration error' });
+      try {
+        const payload = jwt.verify(token, jwtSecret);
+        userId = payload.id;
+      } catch (err) {
+        return res.status(401).json({ error: 'Invalid or expired token' });
+      }
+    }
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Lazy load related models for cascade clean-up
+    const Cart = require('../models/Cart');
+    const Wishlist = require('../models/Wishlist');
+    const Address = require('../models/Address');
+
+    // Cascade clean-up for user's ephemeral / private data
+    const identifiers = [user.email, user.phone].filter(Boolean);
+    await Promise.allSettled([
+      Cart.deleteMany({ user: userId }),
+      Wishlist.deleteMany({ user: userId }),
+      Address.deleteMany({ userId: userId }),
+      Otp.deleteMany({ identifier: { $in: identifiers } }),
+      PendingUser.deleteMany({ email: user.email })
+    ]);
+
+    // Delete user document
+    await User.findByIdAndDelete(userId);
+
+    // Clear session cookie
+    res.clearCookie('token');
+
+    logger.info(`Account deleted successfully for user ID: ${userId} (${user.email})`);
+
+    return res.json({
+      success: true,
+      message: 'Account deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Delete account error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to delete account'
+    });
+  }
+};

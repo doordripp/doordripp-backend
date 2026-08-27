@@ -274,6 +274,11 @@ router.put('/profile', authController.updateProfile);
 // Change password (authenticated)
 router.put('/change-password', skipIfDisabled(passwordLimiter), authController.changePassword);
 
+// Delete account (authenticated) - Web and Mobile App endpoint
+router.delete('/account', authController.deleteAccount);
+router.delete('/delete-account', authController.deleteAccount);
+router.post('/delete-account', authController.deleteAccount);
+
 // POST /api/auth/send-otp
 router.post('/send-otp', authController.sendOtp);
 
