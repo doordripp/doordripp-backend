@@ -7,6 +7,7 @@ const Product = require('../models/Product');
 const Order = require('../models/Order');
 const AreaManager = require('../models/AreaManager');
 const { hasAnyRole } = require('../middleware/auth');
+const pushService = require('../services/pushNotification.service');
 const { getOrderTrackUrl } = require('../utils/appUrls');
 const { buildProductInventoryPayload, normalizeSizeInventory } = require('../utils/productInventory');
 
@@ -886,6 +887,10 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     const order = await Order.findById(id).populate('customer');
+
+    // Customer push: only when the status actually changed.
+    pushService.notifyCustomerOrderStatusChange(order, previousStatus, status)
+      .catch(err => logger.error('Customer push notification failed:', err));
 
     // Generate invoice when order is delivered (for COD orders)
     if (status === 'delivered' && order.payment?.method === 'cod') {

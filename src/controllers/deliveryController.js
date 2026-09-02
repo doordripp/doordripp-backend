@@ -8,6 +8,7 @@ const logger = require('../utils/logger');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const AreaManager = require('../models/AreaManager');
+const pushService = require('../services/pushNotification.service');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
@@ -145,8 +146,9 @@ exports.updateOrderStatus = async (req, res, next) => {
     }
 
     // Update status
+    const previousStatus = order.status;
     order.status = status;
-    
+
     // Add to delivery updates
     order.deliveryUpdates.push({
       status,
@@ -178,6 +180,10 @@ exports.updateOrderStatus = async (req, res, next) => {
     if (shouldReleaseLoad) {
       await adjustDeliveryPartnerLoad(userId, -1);
     }
+
+    // Customer push: only when the status actually changed.
+    pushService.notifyCustomerOrderStatusChange(order, previousStatus, status)
+      .catch(err => logger.error('Customer push notification failed:', err));
 
     // Emit socket event (if io is attached to app)
     if (req.app.get('io')) {
@@ -324,6 +330,7 @@ exports.uploadProofOfDelivery = async (req, res, next) => {
     };
 
     // Auto-update status to delivered
+    const previousStatus = order.status;
     const newlyDelivered = order.status !== 'delivered';
 
     if (newlyDelivered) {
@@ -345,6 +352,10 @@ exports.uploadProofOfDelivery = async (req, res, next) => {
 
     if (newlyDelivered) {
       await adjustDeliveryPartnerLoad(userId, -1);
+
+      // Customer push: proof upload moved the order into delivered.
+      pushService.notifyCustomerOrderStatusChange(order, previousStatus, 'delivered')
+        .catch(err => logger.error('Customer push notification failed:', err));
     }
 
     // Emit socket event
