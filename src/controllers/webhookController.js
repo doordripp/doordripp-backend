@@ -7,6 +7,7 @@ const DeploymentLog = require('../models/DeploymentLog');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 const orderController = require('../controllers/orderController');
+const pushService = require('../services/pushNotification.service');
 
 const DEPLOY_FRONTEND_REPO_FULL_NAME = process.env.DEPLOY_FRONTEND_REPO_FULL_NAME || 'doordripp/doordripp-frontend';
 const DEPLOY_BACKEND_REPO_FULL_NAME = process.env.DEPLOY_BACKEND_REPO_FULL_NAME || 'doordripp/doordripp-backend';
@@ -125,6 +126,11 @@ exports.razorpayWebhook = async (req, res) => {
           logger.error('Webhook: Failed to auto-assign delivery partner:', assignErr);
         }
 
+        // Customer push: order transitioned into confirmed here. Idempotent, so if
+        // verifyPayment already confirmed this order nothing is sent twice.
+        pushService.notifyCustomerOrderConfirmed(order)
+          .catch(err => logger.error('Webhook: customer push notification failed:', err));
+
         logger.info(`✅ Webhook: Payment captured for order ${order._id}`);
       } else {
         logger.warn(`Webhook: no order found for razorpay order ${razorpayOrderId}`);
@@ -151,6 +157,11 @@ exports.razorpayWebhook = async (req, res) => {
         order.status = 'failed';
         order.payment.status = 'failed';
         await order.save();
+
+        // Customer push: payment transitioned into failed here (guarded above
+        // against repeated deliveries of the same event).
+        pushService.notifyCustomerPaymentFailed(order)
+          .catch(err => logger.error('Webhook: customer push notification failed:', err));
 
         logger.info(`❌ Webhook: Payment failed for order ${order._id}`);
       } else {

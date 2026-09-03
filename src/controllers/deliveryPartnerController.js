@@ -9,6 +9,7 @@
 const Order = require('../models/Order');
 const User = require('../models/User');
 const logger = require('../utils/logger');
+const pushService = require('../services/pushNotification.service');
 
 const adjustDeliveryPartnerLoad = async (partnerId, delta) => {
   if (!partnerId || !delta) return;
@@ -217,6 +218,10 @@ exports.updateOrderStatus = async (req, res, next) => {
     if (shouldReleaseLoad) {
       await adjustDeliveryPartnerLoad(deliveryPartnerId, -1);
     }
+
+    // Customer push: only when the delivery status actually changed.
+    pushService.notifyCustomerOrderStatusChange(order, oldStatus, status)
+      .catch(err => logger.error('Customer push notification failed:', err));
 
     // Emit socket event for real-time update
     const io = req.app.get('io');

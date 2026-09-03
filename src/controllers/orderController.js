@@ -609,6 +609,10 @@ exports.create = async (req, res, next) => {
         paymentMethod: 'COD'
       }).catch(err => console.error('Push notification send failed:', err));
 
+      // Customer push: COD order is created already confirmed.
+      pushService.notifyCustomerOrderConfirmed(order)
+        .catch(err => console.error('Customer push notification send failed:', err));
+
       return res.status(201).json({
         order,
         paymentMethod: 'cod',
@@ -861,6 +865,11 @@ exports.verifyPayment = async (req, res, next) => {
       customerName: order.customer.name
     }).catch(err => console.error('Notification persistence failed:', err));
 
+    // Customer push: payment verified, order moved pending -> confirmed above.
+    // Idempotent, so the Razorpay webhook confirming the same order sends nothing extra.
+    pushService.notifyCustomerOrderConfirmed(order)
+      .catch(err => console.error('Customer push notification send failed:', err));
+
     // If this is a Trial & Buy order, create/sync the TrialOrder record with status converted_to_order
     if (order.isTrial && Array.isArray(order.trialItems) && order.trialItems.length > 0) {
       try {
@@ -929,6 +938,9 @@ exports.markPaymentFailed = async (req, res, next) => {
       order.payment.status = 'failed';
 
       await order.save();
+
+      pushService.notifyCustomerPaymentFailed(order)
+        .catch(err => console.error('Customer push notification send failed:', err));
     }
     res.json({ success: true, message: 'Order payment marked as failed', order });
   } catch (err) {
@@ -1009,6 +1021,10 @@ exports.updateStatus = async (req, res, next) => {
       return res.status(400).json({ error: `Invalid status. Valid statuses: ${validStatuses.join(', ')}` });
     }
 
+    const existingOrder = await Order.findById(req.params.id).select('status');
+    if (!existingOrder) return res.status(404).json({ error: 'Order not found' });
+    const previousStatus = existingOrder.status;
+
     const order = await Order.findByIdAndUpdate(
       req.params.id,
       {
@@ -1019,6 +1035,9 @@ exports.updateStatus = async (req, res, next) => {
     ).populate('customer');
 
     if (!order) return res.status(404).json({ error: 'Order not found' });
+
+    pushService.notifyCustomerOrderStatusChange(order, previousStatus, status)
+      .catch(err => console.error('Customer push notification send failed:', err));
 
     res.json({ message: 'Order status updated', order });
   } catch (err) {
@@ -1053,8 +1072,12 @@ exports.cancel = async (req, res, next) => {
       }
     }
 
+    const previousStatus = order.status;
     order.status = 'cancelled';
     await order.save();
+
+    pushService.notifyCustomerOrderStatusChange(order, previousStatus, 'cancelled')
+      .catch(err => console.error('Customer push notification send failed:', err));
 
     res.json({ message: 'Order cancelled successfully', order });
   } catch (err) {

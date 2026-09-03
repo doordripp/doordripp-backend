@@ -140,7 +140,15 @@ const OrderSchema = new mongoose.Schema({
   },
 
   // Store buyer state code for tax calculation
-  buyerStateCode: { type: String, default: '27' }
+  buyerStateCode: { type: String, default: '27' },
+
+  // One-shot markers so a customer push is never sent twice for the same event,
+  // even when two paths race (e.g. verifyPayment and the Razorpay webhook).
+  pushFlags: {
+    orderConfirmedSentAt: { type: Date, default: null },
+    paymentFailedSentAt: { type: Date, default: null },
+    lastStatusPushed: { type: String, default: null }
+  }
 }, { timestamps: true })
 
 module.exports = mongoose.models.Order || mongoose.model('Order', OrderSchema)

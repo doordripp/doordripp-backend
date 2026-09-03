@@ -18,6 +18,9 @@ const recommendedEnvVars = [
   'GOOGLE_CLIENT_SECRET',
   'GOOGLE_CLIENT_ID_DEV',
   'GOOGLE_CLIENT_SECRET_DEV',
+  // Push notifications degrade gracefully when unset, so these only warn.
+  'ONESIGNAL_APP_ID',
+  'ONESIGNAL_REST_API_KEY',
 ];
 
 const googleAppAudienceVars = [
