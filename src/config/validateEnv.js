@@ -21,6 +21,9 @@ const recommendedEnvVars = [
   // Push notifications degrade gracefully when unset, so these only warn.
   'ONESIGNAL_APP_ID',
   'ONESIGNAL_REST_API_KEY',
+  // App (customer-facing) push notifications — separate OneSignal account.
+  'APP_ONESIGNAL_APP_ID',
+  'APP_ONESIGNAL_REST_API_KEY',
 ];
 
 const googleAppAudienceVars = [

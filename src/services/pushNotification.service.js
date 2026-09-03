@@ -17,6 +17,10 @@ const Order = require('../models/Order');
 const ONESIGNAL_APP_ID = process.env.ONESIGNAL_APP_ID;
 const ONESIGNAL_REST_API_KEY = process.env.ONESIGNAL_REST_API_KEY;
 
+// Separate credentials for the mobile app (customer-facing push notifications)
+const APP_ONESIGNAL_APP_ID = process.env.APP_ONESIGNAL_APP_ID;
+const APP_ONESIGNAL_REST_API_KEY = process.env.APP_ONESIGNAL_REST_API_KEY;
+
 // Current OneSignal REST endpoint. The legacy `/api/v1/notifications` path is still
 // accepted but is no longer the documented one.
 const ONESIGNAL_API_URL = 'https://api.onesignal.com/notifications';
@@ -81,6 +85,41 @@ async function send(payload) {
 }
 
 /**
+ * Send a push notification via the app-specific OneSignal account.
+ * Used for customer-facing notifications sent to the mobile app.
+ */
+async function sendApp(payload) {
+  if (!APP_ONESIGNAL_APP_ID || !APP_ONESIGNAL_REST_API_KEY) {
+    console.warn('⚠️ OneSignal App: Missing APP_ONESIGNAL_APP_ID or APP_ONESIGNAL_REST_API_KEY. Skipping push notification.');
+    return null;
+  }
+
+  try {
+    const response = await fetch(ONESIGNAL_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': buildAuthorizationHeader(APP_ONESIGNAL_REST_API_KEY)
+      },
+      body: JSON.stringify({ app_id: APP_ONESIGNAL_APP_ID, ...payload })
+    });
+
+    const result = await response.json();
+
+    if (result.errors) {
+      console.error('❌ OneSignal App notification error:', result.errors);
+    } else {
+      console.log(`✅ OneSignal App: Push sent to ${result.recipients || 0} recipient(s). ID: ${result.id}`);
+    }
+
+    return result;
+  } catch (err) {
+    console.error('❌ OneSignal App push notification failed:', err.message);
+    return null;
+  }
+}
+
+/**
  * Send a push notification to all admins and managers
  * Uses tag-based filtering: role = admin OR role = manager
  */
@@ -138,7 +177,7 @@ async function sendToCustomer(order, { event, heading, content, extraData = {} }
 
   console.log(`📲 OneSignal: sending "${event}" push for order ${orderId} to external_id ${externalId}`);
 
-  return send({
+  return sendApp({
     headings: { en: heading },
     contents: { en: content },
     include_aliases: { external_id: [externalId] },
