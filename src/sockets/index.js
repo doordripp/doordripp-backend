@@ -7,7 +7,7 @@
 const socketIO = require('socket.io')
 const logger = require('../utils/logger')
 
-const JWT_SECRET = process.env.JWT_SECRET
+const { verifyToken: verifyJwt } = require('../config/auth')
 
 /**
  * Setup Socket.io server
@@ -51,12 +51,8 @@ function setupSocketIO(httpServer, corsOptions) {
     }
 
     try {
-      const jwt = require('jsonwebtoken')
-      if (!JWT_SECRET) {
-        socket.data.authenticated = false
-        return next()
-      }
-      const decoded = jwt.verify(token, JWT_SECRET)
+      const decoded = verifyJwt(token)
+      if (!decoded || !decoded.id || decoded.purpose) throw new Error('not a session token')
       socket.data.authenticated = true
       socket.data.userId = decoded.id || decoded.userId
       socket.data.roles = Array.from(new Set(['customer', ...((decoded.roles || []).filter(Boolean))]))

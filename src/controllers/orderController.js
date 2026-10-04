@@ -9,7 +9,11 @@ const DeliveryZone = require('../models/DeliveryZone');
 const AreaManager = require('../models/AreaManager');
 const voucherService = require('../services/voucher.service');
 const { getDeliveryChargeConfig, pickDeliveryOption } = require('../utils/deliveryChargeConfig');
-const { normalizeSizeInventory, getDefaultSize, normalizeSizeLabel, getTotalStock } = require('../utils/productInventory');
+const { getDefaultSize, normalizeSizeLabel } = require('../utils/productInventory');
+const orderLifecycle = require('../services/orderLifecycle.service');
+const { StockError } = require('../services/inventory.service');
+const { TRIAL_FEE } = require('../config/trial');
+const logger = require('../utils/logger');
 
 const forwardControllerError = (next, res, err, fallbackMessage = 'Internal server error') => {
   if (typeof next === 'function') {
@@ -22,35 +26,6 @@ const forwardControllerError = (next, res, err, fallbackMessage = 'Internal serv
   }
 
   return null;
-};
-
-const adjustProductSizeStock = async (productId, size, quantityDelta) => {
-  const product = await Product.findById(productId);
-  if (!product) return null;
-
-  const normalizedInventory = normalizeSizeInventory(product.sizeInventory, product.sizes, product.stock);
-  const fallbackSize = getDefaultSize(normalizedInventory, product.sizes);
-  const targetSize = normalizeSizeLabel(size || fallbackSize);
-  const nextInventory = normalizedInventory.map((entry) => {
-    if (entry.size !== targetSize) return entry;
-    return {
-      ...entry,
-      stock: Math.max(0, Number(entry.stock || 0) + Number(quantityDelta || 0))
-    };
-  });
-
-  if (!nextInventory.some((entry) => entry.size === targetSize)) {
-    nextInventory.push({
-      size: targetSize,
-      stock: Math.max(0, Number(quantityDelta || 0))
-    });
-  }
-
-  product.sizeInventory = nextInventory;
-  product.sizes = nextInventory.map((entry) => entry.size);
-  product.stock = getTotalStock(nextInventory);
-  await product.save();
-  return product;
 };
 
 /**
@@ -304,7 +279,6 @@ exports.create = async (req, res, next) => {
       items,
       shippingAddress,
       deliveryType = 'regular',
-      trialFee = 0,
       isTrial = false,
       trialItems = [],
       voucherCode,
@@ -312,9 +286,15 @@ exports.create = async (req, res, next) => {
     } = req.body;
     if (!items || !items.length) return res.status(400).json({ error: 'No items' });
 
+    if (!Array.isArray(items) || items.length > 50) return res.status(400).json({ error: 'Invalid items' });
+
     const isCOD = paymentMethod === 'cod';
-    const parsedTrialFee = Number(trialFee);
-    const safeTrialFee = Number.isFinite(parsedTrialFee) && parsedTrialFee >= 0 ? parsedTrialFee : 0;
+    const isTrialOrder = isTrial === true;
+    // The trial fee is decided by the server. Whatever the client sends is ignored.
+    const safeTrialFee = isTrialOrder ? TRIAL_FEE : 0;
+
+    // Free up stock held by abandoned checkouts before trying to reserve.
+    await orderLifecycle.expireStalePendingOrders().catch(err => logger.error('Stale order sweep failed', err));
 
     // Resolve delivery option from dynamic admin-configured settings.
     const deliveryChargeConfig = await getDeliveryChargeConfig();
@@ -411,12 +391,10 @@ exports.create = async (req, res, next) => {
       return res.status(400).json({ error: 'Payable amount must be greater than 0 after voucher discount' });
     }
 
-    // Build list of products to reserve or deduct
-    const reservationList = isTrial ? trialItems : orderItems;
-
     // Enrich trialItems with source if present
     const enrichedTrialItems = [];
-    if (isTrial && Array.isArray(trialItems)) {
+    if (isTrialOrder && Array.isArray(trialItems)) {
+      if (trialItems.length > 10) return res.status(400).json({ error: 'Too many trial items' });
       for (const ti of trialItems) {
         const pidStr = String(ti.product || ti.productId || ti._id || '').trim();
         let p = null;
@@ -426,203 +404,71 @@ exports.create = async (req, res, next) => {
         if (!p) {
           p = await Product.findOne({ slug: pidStr });
         }
+        if (!p) return res.status(400).json({ error: 'Invalid trial product ' + pidStr });
         enrichedTrialItems.push({
-          product: p ? p._id : pidStr,
-          name: ti.name || p?.name,
-          image: ti.image || (p?.images && p.images[0]) || p?.image,
-          price: ti.price || p?.price,
-          size: normalizeSizeLabel(ti.size || ti.selectedSize || getDefaultSize(p?.sizeInventory, p?.sizes)),
-          productSource: p?.productSource || 'Manufacturer'
+          product: p._id,
+          name: p.name,
+          image: (p.images && p.images[0]) || p.image,
+          // Price always comes from the catalogue, never from the request.
+          price: p.price,
+          size: normalizeSizeLabel(ti.size || ti.selectedSize || getDefaultSize(p.sizeInventory, p.sizes)),
+          productSource: p.productSource || 'Manufacturer'
         });
       }
     }
 
     const roundedTotal = Math.round(total * 100) / 100;
 
+    // Units this order takes out of stock: the trial selection for Trial & Buy, otherwise the purchased lines.
+    const reservationLines = (isTrialOrder && enrichedTrialItems.length > 0 ? enrichedTrialItems : orderItems)
+      .map(it => ({ product: it.product, size: it.size, quantity: it.quantity || 1, name: it.name }));
+
+    const baseOrder = {
+      customer: req.user.id,
+      items: orderItems,
+      subtotal: Math.round(subtotal * 100) / 100,
+      cgstTotal: Math.round(totalCGST * 100) / 100,
+      sgstTotal: Math.round(totalSGST * 100) / 100,
+      igstTotal: 0,
+      totalGST: Math.round(totalGST * 100) / 100,
+      deliveryFee,
+      trialFee: safeTrialFee,
+      isTrial: isTrialOrder,
+      trialItems: enrichedTrialItems,
+      deliveryType: resolvedDeliveryType,
+      deliveryETA,
+      totalBeforeDiscount,
+      voucherDiscount,
+      voucher,
+      total: roundedTotal,
+      shippingAddress
+    };
+
+    const pricing = {
+      discountBase: discountBaseSubtotal,
+      totalBeforeDiscount,
+      voucherDiscount,
+      payableTotal: roundedTotal
+    };
+
     // --- COD vs ONLINE payment branching ---
     if (isCOD) {
-      // COD: No Razorpay order needed. Confirm order immediately.
-      const order = await Order.create({
-        customer: req.user.id,
-        items: orderItems,
-        subtotal: Math.round(subtotal * 100) / 100,
-        cgstTotal: Math.round(totalCGST * 100) / 100,
-        sgstTotal: Math.round(totalSGST * 100) / 100,
-        igstTotal: 0,
-        totalGST: Math.round(totalGST * 100) / 100,
-        deliveryFee,
-        trialFee: safeTrialFee,
-        isTrial,
-        trialItems: enrichedTrialItems,
-        deliveryType: resolvedDeliveryType,
-        deliveryETA,
-        totalBeforeDiscount,
-        voucherDiscount,
-        voucher,
-        total: roundedTotal,
-        status: 'confirmed',
-        payment: {
-          method: 'cod',
-          status: 'cod_pending',
-          codAmount: roundedTotal
+      // COD: no gateway. The order, its stock and its voucher use are written in
+      // one transaction, so an out-of-stock line or a spent voucher creates nothing.
+      const order = await orderLifecycle.createOrderWithReservation({
+        orderData: {
+          ...baseOrder,
+          status: 'confirmed',
+          payment: { method: 'cod', status: 'cod_pending', codAmount: roundedTotal }
         },
-        shippingAddress
+        reservationLines,
+        userId: req.user.id
       });
 
-      // Deduct size-wise stock immediately for confirmed COD orders.
-      for (const it of reservationList) {
-        const pid = it.product || it.productId || it._id;
-        const quantity = it.quantity || 1;
-        const size = it.size || it.selectedSize;
-        await adjustProductSizeStock(pid, size, -quantity);
-      }
-
-      // Consume voucher usage for COD
-      if (order.voucher?.voucherId && !order.voucher?.usageApplied) {
-        await voucherService.consumeVoucherUsage({
-          voucherId: order.voucher.voucherId,
-          userId: req.user.id
-        });
-        order.voucher.usageApplied = true;
-        await order.save();
-      }
-
-      // If this is a Trial & Buy order, create/sync the TrialOrder record with status converted_to_order
-      if (isTrial && Array.isArray(enrichedTrialItems) && enrichedTrialItems.length > 0) {
-        try {
-          const TrialOrder = require('../models/TrialOrder');
-          const purchasedProd = order.items[0];
-          const purchasedPrice = (purchasedProd?.price || 0) * (purchasedProd?.quantity || 1);
-
-          const formattedTrialItems = enrichedTrialItems.map(ti => ({
-            product: ti.product || ti.productId || ti._id,
-            name: ti.name,
-            price: ti.price,
-            image: ti.image,
-            size: ti.size || 'M',
-            quantity: ti.quantity || 1
-          }));
-
-          await TrialOrder.create({
-            userId: req.user.id,
-            trialItems: formattedTrialItems,
-            purchasedItemId: purchasedProd?.product || purchasedProd?._id,
-            itemsTotal: Math.round(purchasedPrice * 100) / 100,
-            trialFee: safeTrialFee,
-            finalTotal: Math.round((purchasedPrice + safeTrialFee) * 100) / 100,
-            status: 'converted_to_order',
-            linkedOrderId: order._id,
-            convertedAt: new Date()
-          });
-        } catch (tErr) {
-          console.error('Error creating TrialOrder record for COD order:', tErr);
-        }
-      }
-
-      // Populate customer for notifications
       await order.populate('customer');
+      await runOrderConfirmedEffects(order, { paymentLabel: 'Cash on Delivery', notifyStaffPush: true });
 
-      // Auto-assign delivery partner (non-blocking)
-      const deliveryInfo = await autoAssignDeliveryPartner(order);
-
-      // Generate invoice (non-blocking)
-      const InvoiceService = require('../services/invoiceService');
-      InvoiceService.generateInvoice(order._id.toString())
-        .then(invoiceResult => {
-          console.log(`✅ COD Invoice generated: ${invoiceResult.invoice.invoiceNumber}`);
-          if (mailService && mailService.sendInvoiceEmail) {
-            mailService.sendInvoiceEmail({
-              customerName: order.customer.name,
-              customerEmail: order.customer.email,
-              invoiceNumber: invoiceResult.invoice.invoiceNumber,
-              pdfPath: invoiceResult.pdfPath
-            }).catch(err => console.error('Invoice email send failed:', err));
-          }
-        })
-        .catch(err => console.error('Invoice generation failed:', err));
-
-      // Send confirmation email (non-blocking)
-      if (mailService && mailService.sendOrderConfirmation) {
-        mailService.sendOrderConfirmation({
-          customerName: order.customer.name,
-          customerEmail: order.customer.email,
-          customerPhone: order.shippingAddress?.phone || order.customer.phone || 'N/A',
-          orderId: order._id.toString(),
-          orderDate: order.createdAt,
-          items: order.items.map(it => ({
-            productName: it.name,
-            name: it.name,
-            productImage: it.image || it.productImage,
-            productDescription: it.description || it.productDescription,
-            size: it.size,
-            color: it.color,
-            quantity: it.quantity,
-            price: it.price
-          })),
-          totalAmount: order.total,
-          shippingAddress: order.shippingAddress,
-          paymentMethod: 'Cash on Delivery'
-        }).catch(err => console.error('Customer email send failed:', err));
-      }
-
-      // Manager notifications (non-blocking)
-      if (deliveryInfo?.managers?.length > 0) {
-        for (const manager of deliveryInfo.managers) {
-          if (mailService && mailService.sendManagerOrderNotification) {
-            mailService.sendManagerOrderNotification({
-              managerName: manager.name,
-              managerEmail: manager.email,
-              customerName: order.customer.name,
-              customerPhone: order.shippingAddress.phone || order.customer.phone || 'N/A',
-              orderId: order._id.toString(),
-              orderDate: order.createdAt,
-              items: order.items.map(it => ({
-                name: it.name,
-                quantity: it.quantity,
-                price: it.price,
-                productImage: it.image || it.productImage || '',
-                productUrl: it.product ? `/product/${it.product.toString()}` : ''
-              })),
-              totalAmount: order.total,
-              shippingAddress: order.shippingAddress,
-              zoneName: deliveryInfo.zone?.name,
-              paymentMethod: 'Cash on Delivery'
-            }).catch(err => console.error('Manager email send failed:', err));
-          }
-        }
-      }
-
-      // Notification persistence
-      notificationService.createNewOrderNotifications({
-        order,
-        deliveryInfo,
-        customerName: order.customer.name
-      }).catch(err => console.error('Notification persistence failed:', err));
-
-      // Push notification
-      pushService.notifyNewOrder({
-        orderId: order._id.toString(),
-        customerName: order.customer.name,
-        total: order.total,
-        itemCount: order.items.length,
-        isTrial: order.isTrial || false,
-        paymentMethod: 'COD'
-      }).catch(err => console.error('Push notification send failed:', err));
-
-      // Customer push: COD order is created already confirmed.
-      pushService.notifyCustomerOrderConfirmed(order)
-        .catch(err => console.error('Customer push notification send failed:', err));
-
-      return res.status(201).json({
-        order,
-        paymentMethod: 'cod',
-        pricing: {
-          discountBase: discountBaseSubtotal,
-          totalBeforeDiscount,
-          voucherDiscount,
-          payableTotal: roundedTotal
-        }
-      });
+      return res.status(201).json({ order, paymentMethod: 'cod', pricing });
     }
 
     // --- ONLINE PAYMENT (Razorpay) ---
@@ -635,310 +481,260 @@ exports.create = async (req, res, next) => {
         receipt: razorReceipt
       });
     } catch (razorError) {
-      console.error('❌ Razorpay order creation failed:', {
+      logger.error('Razorpay order creation failed', {
         message: razorError?.message,
         statusCode: razorError?.statusCode || razorError?.status,
-        description: razorError?.error?.description,
-        code: razorError?.error?.code,
-        details: razorError?.error || razorError
+        code: razorError?.error?.code
       });
-
-      const isAuthError =
-        (razorError?.message && razorError.message.toLowerCase().includes('authentication failed')) ||
-        (razorError?.error?.description && razorError.error.description.toLowerCase().includes('authentication failed')) ||
-        razorError?.statusCode === 401;
-
-      if (isAuthError) {
-        console.error('CRITICAL: Payment gateway authentication failed. Verify RAZORPAY_KEY_ID & RAZORPAY_KEY_SECRET in server environment variables.');
-        return res.status(502).json({
-          error: 'Payment gateway authentication failed. Please verify server environment keys in GCP Cloud Run.'
-        });
-      }
-
-      return res.status(502).json({
-        error: razorError?.error?.description || razorError?.message || 'Payment gateway connection error'
-      });
+      return res.status(502).json({ error: 'Payment gateway is unavailable. Please try again.' });
     }
 
-    const order = await Order.create({
-      customer: req.user.id,
-      items: orderItems,
-      subtotal: Math.round(subtotal * 100) / 100,
-      cgstTotal: Math.round(totalCGST * 100) / 100,
-      sgstTotal: Math.round(totalSGST * 100) / 100,
-      igstTotal: 0,
-      totalGST: Math.round(totalGST * 100) / 100,
-      deliveryFee,
-      trialFee: safeTrialFee,
-      isTrial,
-      trialItems: enrichedTrialItems,
-      deliveryType: resolvedDeliveryType,
-      deliveryETA,
-      totalBeforeDiscount,
-      voucherDiscount,
-      voucher,
-      total: roundedTotal,
-      status: 'pending',
-      payment: { method: 'razorpay', razorpayOrderId: razorOrder.id, status: 'pending' },
-      shippingAddress
+    // Stock and voucher are held from this moment. They are released again if the
+    // payment fails, is abandoned (see expireStalePendingOrders) or the order is cancelled.
+    const order = await orderLifecycle.createOrderWithReservation({
+      orderData: {
+        ...baseOrder,
+        status: 'pending',
+        payment: { method: 'razorpay', razorpayOrderId: razorOrder.id, status: 'pending' }
+      },
+      reservationLines,
+      userId: req.user.id
     });
 
-    res.status(201).json({
-      order,
-      razorOrder,
-      paymentMethod: 'online',
-      pricing: {
-        discountBase: discountBaseSubtotal,
-        totalBeforeDiscount,
-        voucherDiscount,
-        payableTotal: roundedTotal
-      }
-    });
+    res.status(201).json({ order, razorOrder, paymentMethod: 'online', pricing });
   } catch (err) {
     if (err?.name === 'VoucherError') {
       return res.status(err.status || 400).json({ error: err.message });
     }
-    if (err?.error?.description) {
-      err.message = err.error.description;
+    if (err instanceof StockError) {
+      return res.status(409).json({ error: err.message, code: err.code, items: err.items });
     }
     return forwardControllerError(next, res, err, 'Failed to create order');
   }
 };
 
 /**
+ * Everything that should happen once, when an order becomes confirmed:
+ * delivery assignment, invoice, emails, notifications, pushes and the Trial & Buy record.
+ * Callers must only invoke this for the request that actually performed the
+ * transition (see orderLifecycle.confirmPaidOrder), so nothing is sent twice.
+ * All steps are best-effort and never fail the request.
+ */
+async function runOrderConfirmedEffects(order, { paymentLabel, notifyStaffPush = false } = {}) {
+  const customer = order.customer || {};
+  const deliveryInfo = await autoAssignDeliveryPartner(order);
+
+  const InvoiceService = require('../services/invoiceService');
+  InvoiceService.generateInvoice(order._id.toString())
+    .then(invoiceResult => {
+      if (mailService && mailService.sendInvoiceEmail) {
+        mailService.sendInvoiceEmail({
+          customerName: customer.name,
+          customerEmail: customer.email,
+          invoiceNumber: invoiceResult.invoice.invoiceNumber,
+          pdfPath: invoiceResult.pdfPath
+        }).catch(err => console.error('Invoice email send failed:', err));
+      }
+    })
+    .catch(err => console.error('Invoice generation failed:', err));
+
+  if (mailService && mailService.sendOrderConfirmation) {
+    mailService.sendOrderConfirmation({
+      customerName: customer.name,
+      customerEmail: customer.email,
+      customerPhone: order.shippingAddress?.phone || customer.phone || 'N/A',
+      orderId: order._id.toString(),
+      orderDate: order.createdAt,
+      items: order.items.map(it => ({
+        productName: it.name,
+        name: it.name,
+        productImage: it.image || it.productImage,
+        productDescription: it.description || it.productDescription,
+        size: it.size,
+        color: it.color,
+        quantity: it.quantity,
+        price: it.price
+      })),
+      totalAmount: order.total,
+      shippingAddress: order.shippingAddress,
+      paymentMethod: paymentLabel
+    }).catch(err => console.error('Customer email send failed:', err));
+  }
+
+  if (deliveryInfo?.managers?.length > 0) {
+    for (const manager of deliveryInfo.managers) {
+      if (mailService && mailService.sendManagerOrderNotification) {
+        mailService.sendManagerOrderNotification({
+          managerName: manager.name,
+          managerEmail: manager.email,
+          customerName: customer.name,
+          customerPhone: order.shippingAddress?.phone || customer.phone || 'N/A',
+          orderId: order._id.toString(),
+          orderDate: order.createdAt,
+          items: order.items.map(it => ({
+            name: it.name,
+            quantity: it.quantity,
+            price: it.price,
+            productImage: it.image || it.productImage || '',
+            productUrl: it.product ? `/product/${it.product.toString()}` : ''
+          })),
+          totalAmount: order.total,
+          shippingAddress: order.shippingAddress,
+          zoneName: deliveryInfo.zone?.name,
+          paymentMethod: paymentLabel
+        }).catch(err => console.error('Manager email send failed:', err));
+      }
+    }
+  }
+
+  notificationService.createNewOrderNotifications({
+    order,
+    deliveryInfo,
+    customerName: customer.name
+  }).catch(err => console.error('Notification persistence failed:', err));
+
+  if (notifyStaffPush) {
+    pushService.notifyNewOrder({
+      orderId: order._id.toString(),
+      customerName: customer.name,
+      total: order.total,
+      itemCount: order.items.length,
+      isTrial: order.isTrial || false,
+      paymentMethod: 'COD'
+    }).catch(err => console.error('Push notification send failed:', err));
+  }
+
+  // Idempotent on its own (one-shot flag on the order).
+  pushService.notifyCustomerOrderConfirmed(order)
+    .catch(err => console.error('Customer push notification send failed:', err));
+
+  // Trial & Buy: create/sync the TrialOrder record
+  if (order.isTrial && Array.isArray(order.trialItems) && order.trialItems.length > 0) {
+    try {
+      const TrialOrder = require('../models/TrialOrder');
+      const purchasedProd = order.items[0];
+      const purchasedPrice = (purchasedProd?.price || 0) * (purchasedProd?.quantity || 1);
+      const itemsTotal = Math.round(purchasedPrice * 100) / 100;
+      const finalTotal = Math.round((purchasedPrice + (order.trialFee || 0)) * 100) / 100;
+
+      const trialOrder = await TrialOrder.findOne({ linkedOrderId: order._id });
+      if (!trialOrder) {
+        await TrialOrder.create({
+          userId: customer._id || order.customer,
+          trialItems: order.trialItems.map(ti => ({
+            product: ti.product,
+            name: ti.name,
+            price: ti.price,
+            image: ti.image,
+            size: ti.size || 'M',
+            quantity: ti.quantity || 1
+          })),
+          purchasedItemId: purchasedProd?.product || purchasedProd?._id,
+          itemsTotal,
+          trialFee: order.trialFee || 0,
+          finalTotal,
+          status: 'converted_to_order',
+          linkedOrderId: order._id,
+          convertedAt: new Date()
+        });
+      } else {
+        trialOrder.status = 'converted_to_order';
+        trialOrder.itemsTotal = itemsTotal;
+        trialOrder.finalTotal = finalTotal;
+        trialOrder.convertedAt = new Date();
+        await trialOrder.save();
+      }
+    } catch (tErr) {
+      console.error('Error syncing TrialOrder record:', tErr);
+    }
+  }
+}
+
+exports.runOrderConfirmedEffects = runOrderConfirmedEffects;
+
+/**
  * Verify Razorpay payment signature and finalize order
- * Called after successful payment
+ * Called by the app after a successful payment. Idempotent, and safe to race
+ * with the Razorpay webhook: both go through orderLifecycle.confirmPaidOrder.
  */
 exports.verifyPayment = async (req, res, next) => {
   try {
-    const { orderId, razorpayPaymentId, razorpaySignature } = req.body;
+    const { razorpayPaymentId, razorpaySignature } = req.body || {};
+    const orderId = req.body?.orderId || req.params.id;
 
-    if (!orderId || !razorpayPaymentId || !razorpaySignature) {
-      console.error('❌ Missing payment details:', { orderId, razorpayPaymentId, razorpaySignature });
+    if (!orderId || !razorpayPaymentId || !razorpaySignature ||
+        typeof razorpayPaymentId !== 'string' || typeof razorpaySignature !== 'string') {
       return res.status(400).json({ error: 'Missing payment details' });
     }
-
-    const order = await Order.findById(orderId).populate('customer');
-    if (!order) {
-      console.error('❌ Order not found:', orderId);
+    if (!mongoose.Types.ObjectId.isValid(String(orderId))) {
       return res.status(404).json({ error: 'Order not found' });
     }
 
+    const existing = await Order.findById(orderId).populate('customer');
+    if (!existing) return res.status(404).json({ error: 'Order not found' });
+
     // Verify user owns this order
-    if (String(order.customer._id) !== String(req.user.id)) {
-      console.error('❌ Unauthorized access to order:', orderId);
+    if (String(existing.customer?._id || existing.customer) !== String(req.user.id)) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    if (order.payment?.status === 'success') {
-      return res.json({ message: 'Payment already verified', order });
+    if (existing.payment?.status === 'success') {
+      return res.json({ message: 'Payment already verified', order: existing });
     }
 
-    // Verify Razorpay signature
-    console.log('🔍 Verifying payment signature...');
-
     const isValid = RazorpayUtil.verifyPaymentSignature(
-      order.payment.razorpayOrderId,
+      existing.payment?.razorpayOrderId,
       razorpayPaymentId,
       razorpaySignature
     );
 
     if (!isValid) {
-      console.error('❌ Invalid payment signature for order:', orderId);
-      // Explicitly mark order as failed
-      order.status = 'failed';
-      order.payment.status = 'failed';
-      await order.save();
+      // A bad signature proves nothing either way, so the order is left untouched:
+      // it must not be possible to fail (and un-reserve) an order by sending junk.
+      logger.security('Invalid Razorpay signature on verify-payment', { order: String(existing._id) });
       return res.status(400).json({ error: 'Payment verification failed' });
     }
 
-    console.log('✅ Payment signature verified');
+    const result = await orderLifecycle.confirmPaidOrder({ orderId: existing._id, paymentId: razorpayPaymentId });
+    const order = await Order.findById(existing._id).populate('customer');
 
-    if (order.voucher?.voucherId && !order.voucher?.usageApplied) {
-      await voucherService.consumeVoucherUsage({
-        voucherId: order.voucher.voucherId,
-        userId: req.user.id
+    if (result.refundRequired) {
+      return res.status(409).json({
+        error: 'Your payment was received but the order could not be confirmed. A refund will be issued.',
+        code: 'REFUND_REQUIRED',
+        order
       });
-      order.voucher.usageApplied = true;
     }
 
-    // Update order payment status
-    order.payment.transactionId = razorpayPaymentId;
-    order.payment.status = 'success';
-    order.status = 'confirmed';
-    await order.save();
-    console.log('✅ Payment verified successfully for order:', orderId);
-
-    // Finalize size-wise stock reduction after successful online payment.
-    const reservationList = order.isTrial ? (order.trialItems && order.trialItems.length > 0 ? order.trialItems : order.items) : order.items;
-    for (const item of reservationList) {
-      const pid = item.product || item.productId || item._id;
-      const quantity = item.quantity || 1;
-      const size = item.size || item.selectedSize;
-      await adjustProductSizeStock(pid, size, -quantity);
-    }
-    console.log('✅ Stock updated for order:', orderId);
-
-    // Find assigned managers for this delivery area and auto-assign delivery partner
-    const deliveryInfo = await autoAssignDeliveryPartner(order);
-
-    // Generate invoice for paid order (non-blocking)
-    const InvoiceService = require('../services/invoiceService');
-    InvoiceService.generateInvoice(order._id.toString())
-      .then(invoiceResult => {
-        console.log(`✅ Invoice generated: ${invoiceResult.invoice.invoiceNumber}`);
-        // Send invoice email if mail service available
-        if (mailService && mailService.sendInvoiceEmail) {
-          mailService.sendInvoiceEmail({
-            customerName: order.customer.name,
-            customerEmail: order.customer.email,
-            invoiceNumber: invoiceResult.invoice.invoiceNumber,
-            pdfPath: invoiceResult.pdfPath
-          }).catch(err => console.error('Invoice email send failed:', err));
-        }
-      })
-      .catch(err => console.error('Invoice generation failed:', err));
-
-    // Send confirmation email to customer (non-blocking)
-    if (mailService && mailService.sendOrderConfirmation) {
-      mailService.sendOrderConfirmation({
-        customerName: order.customer.name,
-        customerEmail: order.customer.email,
-        customerPhone: order.shippingAddress?.phone || order.customer.phone || 'N/A',
-        orderId: order._id.toString(),
-        orderDate: order.createdAt,
-        items: order.items.map(it => ({
-          productName: it.name,
-          name: it.name,
-          productImage: it.image || it.productImage,
-          productDescription: it.description || it.productDescription,
-          size: it.size,
-          color: it.color,
-          quantity: it.quantity,
-          price: it.price
-        })),
-        totalAmount: order.total,
-        shippingAddress: order.shippingAddress,
-        paymentMethod: 'Online Payment'
-      }).catch(err => console.error('Customer email send failed:', err));
+    if (result.transitioned) {
+      await runOrderConfirmedEffects(order, { paymentLabel: 'Online Payment' });
+      return res.json({ message: 'Payment verified successfully', order });
     }
 
-    // Find assigned managers for this delivery area and send them notifications (non-blocking)
-    // deliveryInfo already retrieved above
-    if (deliveryInfo?.managers?.length > 0) {
-      const managerEmails = deliveryInfo.managers.map(m => m.email);
-      console.log(`📧 Sending order notification to ${managerEmails.length} manager(s): ${managerEmails.join(', ')}`);
-
-      // Send manager notification email with customer details
-      for (const manager of deliveryInfo.managers) {
-        if (mailService && mailService.sendManagerOrderNotification) {
-          mailService.sendManagerOrderNotification({
-            managerName: manager.name,
-            managerEmail: manager.email,
-            customerName: order.customer.name,
-            customerPhone: order.shippingAddress.phone || order.customer.phone || 'N/A',
-            orderId: order._id.toString(),
-            orderDate: order.createdAt,
-            items: order.items.map(it => ({
-              name: it.name,
-              quantity: it.quantity,
-              price: it.price,
-              productImage: it.image || it.productImage || '',
-              productUrl: it.product ? `/product/${it.product.toString()}` : ''
-            })),
-            totalAmount: order.total,
-            shippingAddress: order.shippingAddress,
-            zoneName: deliveryInfo.zone?.name,
-            paymentMethod: 'Online Payment'
-          }).catch(err => console.error('Manager email send failed:', err));
-        }
-      }
-
-      console.log(`✅ Order notification sent to ${managerEmails.length} manager(s) for zone: ${deliveryInfo.zone.name}`);
-    } else {
-      console.warn('⚠️ No managers found for this delivery area');
-    }
-
-    notificationService.createNewOrderNotifications({
-      order,
-      deliveryInfo,
-      customerName: order.customer.name
-    }).catch(err => console.error('Notification persistence failed:', err));
-
-    // Customer push: payment verified, order moved pending -> confirmed above.
-    // Idempotent, so the Razorpay webhook confirming the same order sends nothing extra.
-    pushService.notifyCustomerOrderConfirmed(order)
-      .catch(err => console.error('Customer push notification send failed:', err));
-
-    // If this is a Trial & Buy order, create/sync the TrialOrder record with status converted_to_order
-    if (order.isTrial && Array.isArray(order.trialItems) && order.trialItems.length > 0) {
-      try {
-        const TrialOrder = require('../models/TrialOrder');
-        const purchasedProd = order.items[0];
-        const purchasedPrice = (purchasedProd?.price || 0) * (purchasedProd?.quantity || 1);
-
-        const formattedTrialItems = order.trialItems.map(ti => ({
-          product: ti.product || ti.productId || ti._id,
-          name: ti.name,
-          price: ti.price,
-          image: ti.image,
-          size: ti.size || 'M',
-          quantity: ti.quantity || 1
-        }));
-
-        let trialOrder = await TrialOrder.findOne({ linkedOrderId: order._id });
-        if (!trialOrder) {
-          await TrialOrder.create({
-            userId: order.customer?._id || order.customer,
-            trialItems: formattedTrialItems,
-            purchasedItemId: purchasedProd?.product || purchasedProd?._id,
-            itemsTotal: Math.round(purchasedPrice * 100) / 100,
-            trialFee: order.trialFee || 0,
-            finalTotal: Math.round((purchasedPrice + (order.trialFee || 0)) * 100) / 100,
-            status: 'converted_to_order',
-            linkedOrderId: order._id,
-            convertedAt: new Date()
-          });
-        } else {
-          trialOrder.status = 'converted_to_order';
-          trialOrder.itemsTotal = Math.round(purchasedPrice * 100) / 100;
-          trialOrder.finalTotal = Math.round((purchasedPrice + (order.trialFee || 0)) * 100) / 100;
-          trialOrder.convertedAt = new Date();
-          await trialOrder.save();
-        }
-      } catch (tErr) {
-        console.error('Error syncing TrialOrder on payment verification:', tErr);
-      }
-    }
-
-    res.json({ message: 'Payment verified successfully', order });
+    return res.json({ message: 'Payment already verified', order });
   } catch (err) {
-    if (err?.name === 'VoucherError') {
-      return res.status(err.status || 400).json({ error: err.message });
-    }
-    if (err?.error?.description) {
-      err.message = err.error.description;
-    }
     return forwardControllerError(next, res, err, 'Failed to verify payment');
   }
 };
 
 /**
- * Mark payment as failed
+ * Mark payment as failed. Only ever affects an order that is still awaiting
+ * payment; an order that was already paid is returned unchanged.
  */
 exports.markPaymentFailed = async (req, res, next) => {
   try {
-    const { orderId } = req.body;
-    const order = await Order.findById(orderId);
-    if (!order) return res.status(404).json({ error: 'Order not found' });
-    if (String(order.customer) !== String(req.user.id)) return res.status(403).json({ error: 'Unauthorized' });
+    const orderId = req.body?.orderId || req.params.id;
+    if (!orderId || !mongoose.Types.ObjectId.isValid(String(orderId))) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    const existing = await Order.findById(orderId);
+    if (!existing) return res.status(404).json({ error: 'Order not found' });
+    if (String(existing.customer) !== String(req.user.id)) return res.status(403).json({ error: 'Unauthorized' });
 
-    if (order.status === 'pending') {
-      order.status = 'failed';
-      order.payment.status = 'failed';
+    const result = await orderLifecycle.failPendingOrder({ orderId: existing._id, reason: 'reported_by_client' });
+    const order = result.order || existing;
 
-      await order.save();
-
+    if (result.transitioned) {
       pushService.notifyCustomerPaymentFailed(order)
         .catch(err => console.error('Customer push notification send failed:', err));
     }
@@ -956,7 +752,7 @@ exports.get = async (req, res, next) => {
     const roles = req.user.roles || [];
     const isAdminOrManager = roles.includes('admin') || roles.includes('manager');
 
-    if (String(order.customer._id) !== String(req.user.id) && !isAdminOrManager) {
+    if (String(order.customer?._id || order.customer) !== String(req.user.id) && !isAdminOrManager) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -974,8 +770,11 @@ exports.list = async (req, res, next) => {
     // Allow admins/managers to list all orders. For regular users, return only their orders.
     const roles = req.user.roles || [];
     const isAdminOrManager = roles.includes('admin') || roles.includes('manager');
-    const { status, sort = '-createdAt', limit = 20, page = 1 } = req.query;
-    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined;
+    const sort = ['createdAt', '-createdAt', 'total', '-total'].includes(req.query.sort) ? req.query.sort : '-createdAt';
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const skip = (page - 1) * limit;
 
     let query = {}
     if (status) query.status = status
@@ -1036,6 +835,12 @@ exports.updateStatus = async (req, res, next) => {
 
     if (!order) return res.status(404).json({ error: 'Order not found' });
 
+    // Staff cancelled / failed the order: give back its stock and voucher use, and
+    // list it for a manual refund if the customer had already paid online.
+    if (['cancelled', 'failed'].includes(status) && !['cancelled', 'failed'].includes(previousStatus)) {
+      await orderLifecycle.handleStaffCancellation(order._id);
+    }
+
     pushService.notifyCustomerOrderStatusChange(order, previousStatus, status)
       .catch(err => console.error('Customer push notification send failed:', err));
 
@@ -1050,33 +855,28 @@ exports.updateStatus = async (req, res, next) => {
  */
 exports.cancel = async (req, res, next) => {
   try {
-    const order = await Order.findById(req.params.id).populate('customer');
-    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (!mongoose.Types.ObjectId.isValid(String(req.params.id))) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+    const existing = await Order.findById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Order not found' });
 
     // Check authorization
-    const isOwner = String(order.customer._id) === String(req.user.id);
+    const isOwner = String(existing.customer) === String(req.user.id);
     const isAdmin = req.user.roles && req.user.roles.includes('admin');
 
     if (!isOwner && !isAdmin) {
       return res.status(403).json({ error: 'Unauthorized' });
     }
 
-    // Only allow cancellation of pending/confirmed orders
-    if (['out_for_delivery', 'delivered', 'cancelled'].includes(order.status)) {
-      return res.status(400).json({ error: `Cannot cancel order with status: ${order.status}` });
+    const result = await orderLifecycle.cancelOrder({ orderId: existing._id });
+    if (!result.transitioned) {
+      return res.status(400).json({ error: `Cannot cancel order with status: ${result.order?.status || existing.status}` });
     }
 
-    for (const it of order.items) {
-      if (order.status === 'confirmed') {
-        await adjustProductSizeStock(it.product, it.size, it.quantity);
-      }
-    }
+    const order = await Order.findById(existing._id).populate('customer');
 
-    const previousStatus = order.status;
-    order.status = 'cancelled';
-    await order.save();
-
-    pushService.notifyCustomerOrderStatusChange(order, previousStatus, 'cancelled')
+    pushService.notifyCustomerOrderStatusChange(order, result.previousStatus, 'cancelled')
       .catch(err => console.error('Customer push notification send failed:', err));
 
     res.json({ message: 'Order cancelled successfully', order });

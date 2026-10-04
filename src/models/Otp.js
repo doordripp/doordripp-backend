@@ -41,13 +41,15 @@ const OtpSchema = new mongoose.Schema({
   attempts: {
     type: Number,
     default: 0,
-    max: 3 // Maximum 3 failed attempts before OTP becomes invalid
+    min: 0 // Failed attempts; the controller invalidates the OTP after 5
   },
   purpose: {
     type: String,
-    enum: ['signup', 'login', 'reset-password', 'verify-email'],
+    enum: ['signup', 'login', 'reset-password', 'verify-email', 'verify-contact'],
     default: 'signup'
   },
+  // Set when the OTP was requested by a signed-in user for their own contact details
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
   verified: {
     type: Boolean,
     default: false

@@ -882,6 +882,13 @@ exports.updateOrderStatus = async (req, res, next) => {
 
     await existingOrder.save();
 
+    // Only once the status change is saved: cancelling / failing an order from the
+    // panel gives its stock and voucher use back, and lists it for a manual refund
+    // if the customer had already paid online.
+    if (['cancelled', 'failed'].includes(status) && !['cancelled', 'failed'].includes(previousStatus)) {
+      await require('../services/orderLifecycle.service').handleStaffCancellation(existingOrder._id);
+    }
+
     if (shouldReleaseLoad) {
       await adjustDeliveryPartnerLoad(assignedPartnerId, -1);
     }

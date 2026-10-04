@@ -329,8 +329,14 @@ exports.updateUser = async (req, res, next) => {
 
 exports.deleteUser = async (req, res, next) => {
   try {
-    const user = await User.findByIdAndDelete(req.params.id || req.params.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    const targetId = req.params.id || req.params.userId;
+    if (String(targetId) === String(req.user.id)) {
+      return res.status(400).json({ error: 'You cannot delete your own account from the admin panel' });
+    }
+    // Same path as self-service deletion: personal data is wiped, order/invoice records stay valid.
+    const { deleteUserAccount } = require('../services/accountDeletion.service');
+    const result = await deleteUserAccount(targetId);
+    if (!result.deleted && result.reason === 'not_found') return res.status(404).json({ error: 'User not found' });
     res.json({ ok: true, message: 'User deleted successfully' });
   } catch (err) {
     next(err);
@@ -516,6 +522,8 @@ exports.banUser = async (req, res, next) => {
     user.banReason = reason;
     user.bannedAt = new Date();
     user.bannedBy = req.user.id;
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    user.keepTokenHash = null;
     await user.save();
 
     // If user handles delivery areas, deactivate their assignments

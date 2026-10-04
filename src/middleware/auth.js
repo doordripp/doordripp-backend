@@ -1,4 +1,5 @@
-const jwt = require('jsonwebtoken');
+const { verifyToken: verifyJwt, hashToken } = require('../config/auth');
+const RevokedToken = require('../models/RevokedToken');
 const User = require('../models/User');
 const logger = require('../utils/logger');
 
@@ -42,94 +43,112 @@ const getPermissionsForRoles = (roles = []) => {
   return Array.from(perms);
 };
 
+// Roles that gate access must be matched exactly. The implicit 'customer' role
+// is only ever added to the USER side; adding it to the allowed side as well made
+// every check pass for every authenticated user.
+const normalizeAllowedRoles = (roles = []) => {
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  return Array.from(new Set(roleArray.filter(Boolean).map(role => String(role).toLowerCase().trim())));
+};
+
 const hasAnyRole = (userRoles, allowedRoles = []) => {
   const normalizedUserRoles = normalizeRoles(userRoles);
-  const normalizedAllowedRoles = normalizeRoles(allowedRoles);
+  const normalizedAllowedRoles = normalizeAllowedRoles(allowedRoles);
   return normalizedAllowedRoles.some(role => normalizedUserRoles.includes(role));
 };
 
 exports.getPermissionsForRoles = getPermissionsForRoles;
 exports.ROLE_PERMISSIONS = ROLE_PERMISSIONS;
 
-exports.verifyToken = async (req, res, next) => {
-  let token = null;
-  
-  // Check cookie first
-  if (req.cookies && req.cookies.token) {
-    token = req.cookies.token;
-  }
-  // Fallback to Authorization header
-  if (!token && req.headers.authorization) {
+const extractToken = (req) => {
+  if (req.cookies && req.cookies.token) return req.cookies.token;
+  if (req.headers && req.headers.authorization) {
     const parts = req.headers.authorization.split(' ');
-    if (parts.length === 2 && parts[0] === 'Bearer') {
-      token = parts[1];
-    }
+    if (parts.length === 2 && parts[0] === 'Bearer') return parts[1];
   }
-  
-  if (!token) return res.status(401).json({ error: 'No token provided' });
+  return null;
+};
 
+class AuthError extends Error {
+  constructor(message, status = 401) {
+    super(message);
+    this.name = 'AuthError';
+    this.status = status;
+  }
+}
+
+/**
+ * Single place that turns a request into an authenticated user.
+ * Rejects: bad signature / expired, single-purpose tokens, revoked tokens,
+ * tokens from an older token version, deleted and banned accounts.
+ */
+const authenticateRequest = async (req, { allowDeleted = false } = {}) => {
+  const token = extractToken(req);
+  if (!token) throw new AuthError('No token provided');
+
+  let payload;
   try {
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      logger.error('JWT_SECRET environment variable is not set');
-      return res.status(500).json({ error: 'Server configuration error' });
-    }
-    
-    const payload = jwt.verify(token, jwtSecret);
-    const user = await User.findById(payload.id);
-    if (!user) return res.status(401).json({ error: 'Invalid token user' });
-    // Normalize user shape for downstream handlers
-    req.user = {
-      _id: user._id,
-      id: user._id,
-      roles: user.roles || [],
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      permissions: payload.permissions || getPermissionsForRoles(user.roles || [])
-    };
-    next();
+    payload = verifyJwt(token);
   } catch (err) {
-    return res.status(401).json({ error: 'Invalid token' });
+    if (err && (err.code === 'JWT_SECRET_MISSING' || err.code === 'JWT_SECRET_WEAK')) {
+      logger.error('JWT secret is not usable; refusing to authenticate');
+      throw new AuthError('Server configuration error', 500);
+    }
+    throw new AuthError('Invalid token');
+  }
+
+  // Reset / verification / download tokens share the signing key but are not sessions.
+  if (!payload || !payload.id || payload.purpose) throw new AuthError('Invalid token');
+
+  const user = await User.findById(payload.id);
+  if (!user) throw new AuthError('Invalid token user');
+  if (user.isDeleted && !allowDeleted) throw new AuthError('Invalid token user');
+  if ((payload.tv || 0) !== (user.tokenVersion || 0)) {
+    // Only the session that changed the password outlives that change.
+    if (!user.keepTokenHash || user.keepTokenHash !== hashToken(token)) throw new AuthError('Session expired');
+  }
+  if (!user.isDeleted && (user.isBanned || user.blocked)) throw new AuthError('Account blocked');
+
+  const revoked = await RevokedToken.exists({ tokenHash: hashToken(token) });
+  if (revoked) throw new AuthError('Session expired');
+
+  return { user, payload, token };
+};
+
+const toRequestUser = (user) => ({
+  _id: user._id,
+  id: user._id,
+  roles: user.roles || [],
+  name: user.name,
+  email: user.email,
+  phone: user.phone,
+  // Always derived from the roles stored in the database, never from the token.
+  permissions: getPermissionsForRoles(user.roles || [])
+});
+
+exports.extractToken = extractToken;
+exports.authenticateRequest = authenticateRequest;
+exports.AuthError = AuthError;
+
+exports.verifyToken = async (req, res, next) => {
+  try {
+    const { user } = await authenticateRequest(req);
+    req.user = toRequestUser(user);
+    return next();
+  } catch (err) {
+    if (err instanceof AuthError) return res.status(err.status).json({ error: err.message });
+    return next(err);
   }
 };
 
 exports.optionalVerifyToken = async (req, res, next) => {
-  let token = null;
-  
-  if (req.cookies && req.cookies.token) {
-    token = req.cookies.token;
-  }
-  if (!token && req.headers.authorization) {
-    const parts = req.headers.authorization.split(' ');
-    if (parts.length === 2 && parts[0] === 'Bearer') {
-      token = parts[1];
-    }
-  }
-
-  if (!token) return next();
-
   try {
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) return next();
-    
-    const payload = jwt.verify(token, jwtSecret);
-    const user = await User.findById(payload.id);
-    if (!user) return next();
-
-    req.user = {
-      _id: user._id,
-      id: user._id,
-      roles: user.roles || [],
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      permissions: payload.permissions || getPermissionsForRoles(user.roles || [])
-    };
-    next();
+    const { user } = await authenticateRequest(req);
+    req.user = toRequestUser(user);
   } catch (err) {
-    next();
+    // Anonymous access is allowed on these routes.
   }
+  return next();
 };
 
 exports.authorize = (permission) => {

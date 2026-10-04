@@ -65,7 +65,7 @@ const OrderSchema = new mongoose.Schema({
   // Delivery Status (controlled by delivery partner)
   deliveryStatus: {
     type: String,
-    enum: ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'cancelled'],
+    enum: ['confirmed', 'accepted', 'picked_up', 'out_for_delivery', 'delivered', 'failed', 'cancelled'],
     default: 'confirmed'
   },
 
@@ -97,7 +97,21 @@ const OrderSchema = new mongoose.Schema({
     transactionId: { type: String },
     razorpayOrderId: { type: String },
     status: { type: String, enum: ['pending', 'success', 'failed', 'cod_pending', 'cod_collected'], default: 'pending' },
-    codAmount: { type: Number, default: 0 }
+    codAmount: { type: Number, default: 0 },
+    // Refunds are issued MANUALLY by staff in the Razorpay dashboard. The backend
+    // never calls the refund API; it only records which orders are owed money
+    // and when staff marked the refund as done.
+    //   refundRequired - true while a refund is owed and not yet marked done
+    //   refundStatus   - none | required | completed
+    refundRequired: { type: Boolean, default: false },
+    refundStatus: { type: String, enum: ['none', 'required', 'completed'], default: 'none' },
+    refundReason: { type: String },
+    refundRequestedAt: { type: Date },
+    refundedAt: { type: Date },
+    refundedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    refundReference: { type: String }, // Razorpay refund id / bank reference entered by staff
+    refundNote: { type: String },
+    failureReason: { type: String }
   },
   shippingAddress: {
     name: { type: String },
@@ -139,6 +153,18 @@ const OrderSchema = new mongoose.Schema({
     notes: { type: String }
   },
 
+  // Inventory held by this order.
+  //   none     - nothing held (orders created before atomic reservation existed)
+  //   reserved - units in stockReservation were taken out of stock for this order
+  //   released - those units were put back (payment failed / cancelled / expired)
+  stockState: { type: String, enum: ['none', 'reserved', 'released'], default: 'none' },
+  stockReservation: [{
+    _id: false,
+    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    size: { type: String },
+    quantity: { type: Number }
+  }],
+
   // Store buyer state code for tax calculation
   buyerStateCode: { type: String, default: '27' },
 
@@ -150,5 +176,12 @@ const OrderSchema = new mongoose.Schema({
     lastStatusPushed: { type: String, default: null }
   }
 }, { timestamps: true })
+
+OrderSchema.index({ 'payment.razorpayOrderId': 1 }, { sparse: true })
+// Lets the stale-payment sweep find abandoned checkouts without a collection scan.
+OrderSchema.index({ status: 1, stockState: 1, createdAt: 1 })
+OrderSchema.index({ customer: 1, createdAt: -1 })
+// The admin "refunds owed" list.
+OrderSchema.index({ 'payment.refundRequired': 1, 'payment.refundRequestedAt': 1 })
 
 module.exports = mongoose.models.Order || mongoose.model('Order', OrderSchema)

@@ -90,81 +90,92 @@ async function validateVoucherForUser({ code, cartTotal, userId }) {
   }
 }
 
-async function consumeVoucherUsage({ voucherId, userId }) {
-  if (!voucherId || !userId) return
+const activeVoucherFilter = (voucherId, now = new Date()) => ({
+  _id: voucherId,
+  isActive: true,
+  $or: [
+    { expiryDate: { $exists: false } },
+    { expiryDate: null },
+    { expiryDate: { $gt: now } }
+  ],
+  $and: [
+    {
+      $or: [
+        { usageLimit: { $exists: false } },
+        { usageLimit: null },
+        { $expr: { $lt: ['$usedCount', '$usageLimit'] } }
+      ]
+    }
+  ]
+})
 
-  const now = new Date()
-  const voucherFilter = {
-    _id: voucherId,
-    isActive: true,
-    $or: [
-      { expiryDate: { $exists: false } },
-      { expiryDate: null },
-      { expiryDate: { $gt: now } }
-    ],
-    $and: [
-      {
-        $or: [
-          { usageLimit: { $exists: false } },
-          { usageLimit: null },
-          { $expr: { $lt: ['$usedCount', '$usageLimit'] } }
-        ]
-      }
-    ]
+/**
+ * Make sure the per-user usage row exists. Done OUTSIDE the order transaction:
+ * an upsert that loses a race raises a duplicate-key error, and inside a
+ * transaction that would abort the whole order.
+ */
+async function ensureUsageRow(voucherId, userId) {
+  try {
+    await VoucherUsage.updateOne(
+      { voucher: voucherId, user: userId },
+      { $setOnInsert: { voucher: voucherId, user: userId, count: 0 } },
+      { upsert: true }
+    )
+  } catch (err) {
+    if (err?.code !== 11000) throw err
   }
+}
 
-  const updatedVoucher = await Voucher.findOneAndUpdate(
-    voucherFilter,
+/**
+ * Atomically claim one use of a voucher for a user, inside the caller's transaction.
+ *
+ * Both counters move with conditional updates ("increment only while below the
+ * limit"), so two simultaneous checkouts cannot both take the last use. Because
+ * it shares the order's transaction, the claim only exists if the order exists:
+ * a failed order never leaves a voucher consumed.
+ *
+ * Call ensureUsageRow() before starting the transaction.
+ */
+async function claimVoucher({ voucherId, userId, session }) {
+  if (!voucherId || !userId) throw new VoucherError('Invalid voucher')
+
+  const voucher = await Voucher.findOneAndUpdate(
+    activeVoucherFilter(voucherId),
     { $inc: { usedCount: 1 } },
-    { returnDocument: 'after' }
+    { returnDocument: 'after', session }
   )
-
-  if (!updatedVoucher) {
+  if (!voucher) {
     throw new VoucherError('Voucher is no longer available')
   }
 
-  try {
-    if (updatedVoucher.perUserLimit === null || updatedVoucher.perUserLimit === undefined) {
-      await VoucherUsage.findOneAndUpdate(
-        { voucher: voucherId, user: userId },
-        { $inc: { count: 1 }, $setOnInsert: { voucher: voucherId, user: userId } },
-        { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
-      )
-      return
-    }
-
-    const userUsage = await VoucherUsage.findOneAndUpdate(
-      {
-        voucher: voucherId,
-        user: userId,
-        count: { $lt: updatedVoucher.perUserLimit }
-      },
-      { $inc: { count: 1 }, $setOnInsert: { voucher: voucherId, user: userId } },
-      { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true }
-    )
-
-    if (!userUsage || userUsage.count > updatedVoucher.perUserLimit) {
-      await Voucher.findByIdAndUpdate(voucherId, { $inc: { usedCount: -1 } })
-      throw new VoucherError('Per-user voucher limit reached')
-    }
-  } catch (err) {
-    if (err?.code === 11000) {
-      await Voucher.findByIdAndUpdate(voucherId, { $inc: { usedCount: -1 } })
-      throw new VoucherError('Per-user voucher limit reached')
-    }
-
-    if (err instanceof VoucherError) {
-      throw err
-    }
-
-    await Voucher.findByIdAndUpdate(voucherId, { $inc: { usedCount: -1 } })
-    throw err
+  const usageFilter = { voucher: voucherId, user: userId }
+  if (voucher.perUserLimit !== null && voucher.perUserLimit !== undefined) {
+    usageFilter.count = { $lt: voucher.perUserLimit }
   }
+  const usage = await VoucherUsage.updateOne(usageFilter, { $inc: { count: 1 } }, { session })
+  if (usage.modifiedCount !== 1) {
+    // Thrown inside the transaction, so the usedCount increment above is rolled back too.
+    throw new VoucherError('Per-user voucher limit reached')
+  }
+  return voucher
+}
+
+/** Give a claimed use back (payment failed, order cancelled or expired). Never goes below zero. */
+async function releaseVoucher({ voucherId, userId, session }) {
+  if (!voucherId || !userId) return
+  await Voucher.updateOne({ _id: voucherId, usedCount: { $gt: 0 } }, { $inc: { usedCount: -1 } }, { session })
+  await VoucherUsage.updateOne(
+    { voucher: voucherId, user: userId, count: { $gt: 0 } },
+    { $inc: { count: -1 } },
+    { session }
+  )
 }
 
 module.exports = {
   VoucherError,
   normalizeCode,
   validateVoucherForUser,
-  consumeVoucherUsage
+  ensureUsageRow,
+  claimVoucher,
+  releaseVoucher
 }

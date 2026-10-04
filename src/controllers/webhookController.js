@@ -2,12 +2,12 @@
 const logger = require('../utils/logger');
 
 const Order = require('../models/Order');
-const Product = require('../models/Product');
 const DeploymentLog = require('../models/DeploymentLog');
 const crypto = require('crypto');
 const { exec } = require('child_process');
 const orderController = require('../controllers/orderController');
 const pushService = require('../services/pushNotification.service');
+const orderLifecycle = require('../services/orderLifecycle.service');
 
 const DEPLOY_FRONTEND_REPO_FULL_NAME = process.env.DEPLOY_FRONTEND_REPO_FULL_NAME || 'doordripp/doordripp-frontend';
 const DEPLOY_BACKEND_REPO_FULL_NAME = process.env.DEPLOY_BACKEND_REPO_FULL_NAME || 'doordripp/doordripp-backend';
@@ -77,7 +77,10 @@ exports.razorpayWebhook = async (req, res) => {
       return res.status(400).json({ error: 'Missing signature' });
     }
 
-    const body = req.rawBody || JSON.stringify(req.body);
+    const body = req.rawBody;
+    if (!body) {
+      return res.status(400).json({ error: 'Missing body' });
+    }
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
@@ -90,80 +93,52 @@ exports.razorpayWebhook = async (req, res) => {
     }
 
     const event = req.body.event;
-    const eventData = req.body.payload;
+    const payment = req.body?.payload?.payment?.entity;
+    const razorpayOrderId = payment?.order_id;
 
     if (event === 'payment.authorized' || event === 'payment.captured') {
-      // Payment successful
-      const payment = eventData.payment.entity;
-      const razorpayOrderId = payment.order_id;
+      // Payment succeeded (same events the previous handler acted on).
+      if (!razorpayOrderId || !payment?.id) {
+        return res.json({ status: 'ok', ignored: 'missing_order_reference' });
+      }
 
-      // Find and update order
-      const order = await Order.findOne({ 'payment.razorpayOrderId': razorpayOrderId });
-      if (order) {
-        if (order.payment?.status === 'success') {
-          logger.info(`Webhook: duplicate payment success event ignored for order ${order._id}`);
-          return res.json({ status: 'ok', duplicate: true });
-        }
-
-        order.payment.transactionId = payment.id;
-        order.payment.status = 'success';
-        order.status = 'confirmed';
-        await order.save();
-
-        // Decrement stock
-        for (const item of order.items) {
-          await Product.findByIdAndUpdate(item.product, {
-            $inc: { stock: -item.quantity, reserved: -item.quantity }
-          });
-        }
-
-        // Auto-assign delivery partner (non-blocking, best-effort)
-        try {
-          // Reload order with any required fields (like shippingAddress)
-          const freshOrder = await Order.findById(order._id);
-          await orderController.autoAssignDeliveryPartner(freshOrder);
-        } catch (assignErr) {
-          logger.error('Webhook: Failed to auto-assign delivery partner:', assignErr);
-        }
-
-        // Customer push: order transitioned into confirmed here. Idempotent, so if
-        // verifyPayment already confirmed this order nothing is sent twice.
-        pushService.notifyCustomerOrderConfirmed(order)
-          .catch(err => logger.error('Webhook: customer push notification failed:', err));
-
-        logger.info(`✅ Webhook: Payment captured for order ${order._id}`);
-      } else {
+      const existing = await Order.findOne({ 'payment.razorpayOrderId': razorpayOrderId }).select('total');
+      if (!existing) {
         logger.warn(`Webhook: no order found for razorpay order ${razorpayOrderId}`);
+        return res.json({ status: 'ok' });
+      }
+
+      // The captured amount must be what this order costs.
+      const expectedPaise = Math.round(Number(existing.total) * 100);
+      if (Number(payment.amount) !== expectedPaise || String(payment.currency || 'INR').toUpperCase() !== 'INR') {
+        logger.security('Webhook: captured amount does not match order total', { order: String(existing._id) });
+        return res.json({ status: 'ok', ignored: 'amount_mismatch' });
+      }
+
+      // Same code path as verify-payment. Whichever of the two arrives first
+      // performs the transition; the other one is a no-op.
+      const result = await orderLifecycle.confirmPaidOrder({ razorpayOrderId, paymentId: payment.id });
+
+      if (result.transitioned) {
+        const order = await Order.findById(result.order._id).populate('customer');
+        await orderController.runOrderConfirmedEffects(order, { paymentLabel: 'Online Payment' });
+        logger.info(`Webhook: payment captured for order ${order._id}`);
+      } else {
+        logger.info(`Webhook: payment success event already processed for order ${existing._id}`);
+        return res.json({ status: 'ok', duplicate: true });
       }
     } else if (event === 'payment.failed') {
-      // Payment failed - release reserved stock
-      const payment = eventData.payment.entity;
-      const razorpayOrderId = payment.order_id;
+      // Releases the stock/voucher hold. If the customer retries and pays, the
+      // capture event (or verify-payment) re-reserves and confirms.
+      if (!razorpayOrderId) return res.json({ status: 'ok', ignored: 'missing_order_reference' });
 
-      const order = await Order.findOne({ 'payment.razorpayOrderId': razorpayOrderId });
-      if (order) {
-        if (order.payment?.status === 'failed') {
-          logger.info(`Webhook: duplicate payment failed event ignored for order ${order._id}`);
-          return res.json({ status: 'ok', duplicate: true });
-        }
-
-        // Release reserved stock
-        for (const item of order.items) {
-          await Product.findByIdAndUpdate(item.product, {
-            $inc: { reserved: -item.quantity }
-          });
-        }
-
-        order.status = 'failed';
-        order.payment.status = 'failed';
-        await order.save();
-
-        // Customer push: payment transitioned into failed here (guarded above
-        // against repeated deliveries of the same event).
-        pushService.notifyCustomerPaymentFailed(order)
+      const result = await orderLifecycle.failPendingOrder({ razorpayOrderId, reason: 'gateway_payment_failed' });
+      if (result.transitioned) {
+        pushService.notifyCustomerPaymentFailed(result.order)
           .catch(err => logger.error('Webhook: customer push notification failed:', err));
-
-        logger.info(`❌ Webhook: Payment failed for order ${order._id}`);
+        logger.info(`Webhook: payment failed for order ${result.order._id}`);
+      } else if (result.order) {
+        return res.json({ status: 'ok', duplicate: true });
       } else {
         logger.warn(`Webhook: no order found for failed razorpay order ${razorpayOrderId}`);
       }

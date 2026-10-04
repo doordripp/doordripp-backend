@@ -1,4 +1,15 @@
-const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const mongoose = require('mongoose');
+const {
+  signAuthToken,
+  signPurposeToken,
+  verifyPurposeToken,
+  verifyToken: verifyJwt,
+  hashToken
+} = require('../config/auth');
+const { authenticateRequest, extractToken, AuthError } = require('../middleware/auth');
+const RevokedToken = require('../models/RevokedToken');
+const { verifyGoogleIdToken, GoogleAuthError } = require('../utils/googleAuth');
 const logger = require('../utils/logger');
 const nodemailer = require('nodemailer');
 const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -24,9 +35,25 @@ const normalizeEmail = (email) => otpUtil.sanitizeEmail(String(email || ''));
 const normalizePhone = (phone) => String(phone || '').replace(/\D/g, '');
 const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-const generateToken = (user) => {
-  const payload = { id: user._id, roles: user.roles || [] };
-  return jwt.sign(payload, process.env.JWT_SECRET || 'secret', { expiresIn: '7d' });
+const generateToken = (user) => signAuthToken(user);
+
+const MAX_OTP_ATTEMPTS = 5;
+const randomPassword = () => crypto.randomBytes(24).toString('hex');
+const isAccountBlocked = (user) => Boolean(user && (user.blocked || user.isBanned));
+
+// Resolve the authenticated user for handlers mounted without the verifyToken
+// middleware. Sends the error response itself and returns null on failure.
+const requireUser = async (req, res) => {
+  try {
+    const { user } = await authenticateRequest(req);
+    return user;
+  } catch (err) {
+    if (err instanceof AuthError) {
+      res.status(err.status).json({ error: err.status === 401 ? 'Not authenticated' : err.message });
+      return null;
+    }
+    throw err;
+  }
 };
 
 exports.createTokenForUser = async (user) => {
@@ -160,10 +187,14 @@ exports.verifyEmailRegistration = async (req, res, next) => {
       return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
     }
 
+    if ((pending.attempts || 0) >= MAX_OTP_ATTEMPTS) {
+      await PendingUser.deleteOne({ email: sanitizedEmail });
+      return res.status(400).json({ error: 'Too many incorrect attempts. Please register again to get a new OTP.' });
+    }
+
     const isMatch = await otpUtil.verifyOTP(otp, pending.otpHash);
     if (!isMatch) {
-      // Increment attempts and optionally cap in future
-      await PendingUser.findOneAndUpdate({ email: sanitizedEmail }, { $inc: { attempts: 1 } });
+      await PendingUser.updateOne({ email: sanitizedEmail }, { $inc: { attempts: 1 } });
       return res.status(400).json({ error: 'Invalid OTP' });
     }
 
@@ -244,6 +275,7 @@ exports.resendRegisterOtp = async (req, res, next) => {
 
     pending.otpHash = otpHash;
     pending.expiresAt = expiresAt;
+    pending.attempts = 0;
     await pending.save();
 
     await mailService.sendOtpEmail(sanitizedEmail, otp, 'signup');
@@ -261,23 +293,15 @@ exports.resendRegisterOtp = async (req, res, next) => {
 // Refresh JWT by issuing a new token if the existing one is valid
 exports.refresh = async (req, res) => {
   try {
-    let token = null;
-    if (req.cookies && req.cookies.token) token = req.cookies.token;
-    if (!token && req.headers.authorization) {
-      const parts = req.headers.authorization.split(' ');
-      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
-    }
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
-
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-    const user = await User.findById(payload.id);
-    if (!user) return res.status(401).json({ error: 'Invalid token user' });
-
+    const { user } = await authenticateRequest(req);
     const { token: newToken, cookieOptions } = await exports.createTokenForUser(user);
     res.cookie('token', newToken, cookieOptions);
     return res.json({ ok: true, token: newToken });
   } catch (e) {
-    return res.status(401).json({ error: 'Invalid token' });
+    if (e instanceof AuthError && e.status !== 401) {
+      return res.status(e.status).json({ error: e.message });
+    }
+    return res.status(401).json({ error: extractToken(req) ? 'Invalid token' : 'Not authenticated' });
   }
 };
 
@@ -317,7 +341,7 @@ exports.register = async (req, res, next) => {
     await user.save();
 
     // Generate 6-digit OTP
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const code = otpUtil.generateOTP();
     const codeHash = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
@@ -357,7 +381,7 @@ exports.login = async (req, res, next) => {
         ? { phone }
         : { email: emailLower }
     );
-    if (!user) {
+    if (!user || user.isDeleted) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -367,8 +391,8 @@ exports.login = async (req, res, next) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Check if blocked
-    if (user.blocked) {
+    // Check if blocked / banned
+    if (isAccountBlocked(user)) {
       return res.status(403).json({ error: 'Account blocked' });
     }
 
@@ -393,6 +417,9 @@ exports.login = async (req, res, next) => {
   }
 };
 
+// Legacy flow: verify the email of an account that exists but is still unverified.
+// It never signs in an already-verified account, so an OTP can not be used as a
+// password-less login for someone else's verified account.
 exports.verifyEmailOTP = async (req, res, next) => {
   try {
     const { email, code } = req.body;
@@ -402,37 +429,33 @@ exports.verifyEmailOTP = async (req, res, next) => {
       return res.status(400).json({ error: 'Email and OTP code are required' });
     }
 
-    // Find the OTP record
-    const otp = await Otp.findOne({ identifier: sanitizedEmail, type: 'email' }).sort({ createdAt: -1 });
-    if (!otp) {
-      return res.status(400).json({ error: 'No OTP found for this email. Please request a new one.' });
+    const invalid = () => res.status(400).json({ error: 'Invalid or expired OTP. Please request a new one.' });
+    const otpFilter = { identifier: sanitizedEmail, type: 'email', purpose: 'verify-email' };
+
+    const otp = await Otp.findOne(otpFilter).sort({ createdAt: -1 });
+    if (!otp) return invalid();
+
+    if (otp.expiresAt < new Date() || (otp.attempts || 0) >= MAX_OTP_ATTEMPTS) {
+      await Otp.deleteMany(otpFilter);
+      return invalid();
     }
 
-    // Check if OTP is expired
-    if (otp.expiresAt < new Date()) {
-      await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
-      return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
-    }
-
-    // Verify OTP code
-    const match = await bcrypt.compare(code.toString(), otp.codeHash);
+    const match = await bcrypt.compare(String(code), otp.codeHash);
     if (!match) {
-      return res.status(400).json({ error: 'Invalid OTP code' });
+      await Otp.updateOne({ _id: otp._id }, { $inc: { attempts: 1 } });
+      return invalid();
     }
 
-    // OTP is valid - mark user as email verified
     const user = await User.findOne({ email: sanitizedEmail });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    if (!user || user.isDeleted || user.emailVerified || isAccountBlocked(user)) {
+      await Otp.deleteMany(otpFilter);
+      return invalid();
     }
 
     user.emailVerified = true;
     await user.save();
+    await Otp.deleteMany(otpFilter);
 
-    // Delete used OTP
-    await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
-
-    // Create token and log user in
     const { token, cookieOptions } = await exports.createTokenForUser(user);
     res.cookie('token', token, cookieOptions);
 
@@ -455,33 +478,25 @@ exports.resendEmailOTP = async (req, res, next) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    // Check if user exists
+    // Same answer whether or not the address belongs to an (unverified) account.
+    const generic = { message: 'If this email needs verification, an OTP has been sent.', emailSent: true };
+
     const user = await User.findOne({ email: sanitizedEmail });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
+    if (!user || user.isDeleted || user.emailVerified) {
+      return res.json(generic);
     }
 
-    // Check if already verified
-    if (user.emailVerified) {
-      return res.status(400).json({ error: 'Email is already verified' });
-    }
-
-    // Generate new OTP
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const codeHash = await bcrypt.hash(code, 10);
+    const code = otpUtil.generateOTP();
+    const codeHash = await otpUtil.hashOTP(code);
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpFilter = { identifier: sanitizedEmail, type: 'email', purpose: 'verify-email' };
 
-    // Save OTP to database
-    await Otp.deleteMany({ identifier: sanitizedEmail, type: 'email' });
-    await Otp.create({ identifier: sanitizedEmail, type: 'email', codeHash, expiresAt });
+    await Otp.deleteMany(otpFilter);
+    await Otp.create({ ...otpFilter, codeHash, expiresAt });
 
-    // Send OTP via email
-    const emailResult = await sendEmailOTP(sanitizedEmail, code);
+    await sendEmailOTP(sanitizedEmail, code);
 
-    res.json({
-      message: 'OTP sent successfully! Please check your email.',
-      emailSent: emailResult.success
-    });
+    res.json(generic);
   } catch (err) {
     next(err);
   }
@@ -490,88 +505,40 @@ exports.resendEmailOTP = async (req, res, next) => {
 // Verify Google idToken and sign in or create user
 exports.signInWithGoogle = async (req, res, next) => {
   try {
-    const { idToken } = req.body;
+    const { idToken } = req.body || {};
 
-    if (!idToken) {
+    if (!idToken || typeof idToken !== 'string') {
       return res.status(400).json({ error: 'idToken is required' });
     }
 
-    const { OAuth2Client } = require('google-auth-library');
-    const client = new OAuth2Client();
-    
-    // Define ALL accepted client IDs (both website and app)
-    const ACCEPTED_CLIENT_IDS = [
-      process.env.GOOGLE_CLIENT_ID,        // Primary Web Client ID
-      process.env.GOOGLE_APP_CLIENT_ID_1,  // Flutter App Client ID 1
-      process.env.GOOGLE_APP_CLIENT_ID_2,  // Flutter App Client ID 2
-      '72023349261-71l2pk4f8vptk9vgpll8iutjql0qj9ia.apps.googleusercontent.com',
-      '1000596440300-qpmt33mqedhlgsk435dov0o2g95hn8h9.apps.googleusercontent.com'
-    ].filter(Boolean); // Remove any undefined/null values
-
-    let ticket;
+    // Signature, issuer, expiry AND audience are all enforced. There is no
+    // fallback path: a token minted for any other OAuth client is rejected.
     let payload;
-    let usedClientId = null;
-    
-    // Try verification with each client ID until one works
-    for (const clientId of ACCEPTED_CLIENT_IDS) {
-      try {
-        ticket = await client.verifyIdToken({
-          idToken: idToken,
-          audience: clientId,
-        });
-        payload = ticket.getPayload();
-        usedClientId = clientId;
-        break; // Success! Exit the loop
-      } catch (err) {
-        // Continue to next client ID
-        console.log(`⚠️ Verification failed with client ID: ${clientId.substring(0, 20)}...`);
+    try {
+      payload = await verifyGoogleIdToken(idToken);
+    } catch (err) {
+      if (err instanceof GoogleAuthError) {
+        if (err.status >= 500) logger.error(`Google sign-in unavailable: ${err.reason}`);
+        else logger.warn(`Google sign-in rejected: ${err.reason}`);
+        return res.status(err.status).json({ success: false, error: err.message });
       }
-    }
-    
-    // If no client ID worked, try one last verification without specifying audience
-    if (!payload) {
-      try {
-        console.log('🔄 Trying verification without audience specification...');
-        ticket = await client.verifyIdToken({
-          idToken: idToken,
-          // No audience specified - accepts any valid Google token
-        });
-        payload = ticket.getPayload();
-        
-        // Log the actual audience for debugging
-        console.log(`📝 Token has audience: ${payload.aud}`);
-        
-        // Check if this audience should be trusted
-        const actualAudience = payload.aud;
-        if (!ACCEPTED_CLIENT_IDS.includes(actualAudience)) {
-          console.log(`⚠️ Token has untrusted audience: ${actualAudience}`);
-          // Still accept it, but log a warning
-        }
-      } catch (err) {
-        console.error('❌ All verification attempts failed:', err.message);
-        return res.status(401).json({ error: 'Invalid Google token' });
-      }
+      throw err;
     }
 
-    // Extract user info from payload
     const email = normalizeEmail(payload.email);
-    const name = payload.name || payload.email.split('@')[0];
+    const name = payload.name || email.split('@')[0];
     const picture = payload.picture;
     const googleId = payload.sub;
-
-    console.log(`✅ Google token verified for: ${email}`);
-    console.log(`🔑 Used client ID: ${usedClientId || 'None (audience: ' + payload.aud + ')'}`);
 
     // Find or create user (maintains backward compatibility)
     let user = await User.findOne({ email });
 
     if (!user) {
       // Create new user
-      const pwd = Math.random().toString(36).slice(-12);
       user = new User({
         name,
         email,
-        password: pwd,
+        password: randomPassword(),
         emailVerified: true,
         avatar: picture || null,
         roles: [],
@@ -581,8 +548,10 @@ exports.signInWithGoogle = async (req, res, next) => {
         isPasswordSet: false // Mark that they haven't explicitly set a password yet
       });
       await user.save();
-      console.log(`✅ New user created from Google: ${email}`);
     } else {
+      if (user.isDeleted || isAccountBlocked(user)) {
+        return res.status(403).json({ success: false, error: 'Account blocked' });
+      }
       // Update existing user if needed (preserves existing data)
       let updated = false;
       const hadLocalPassword = user.authProvider !== 'google' && !!user.password;
@@ -618,11 +587,10 @@ exports.signInWithGoogle = async (req, res, next) => {
       if (updated) {
         await user.save();
       }
-      console.log(`✅ Existing user accessed via Google: ${email}`);
     }
 
     // Generate JWT token (same for website and app)
-    const { token, cookieOptions } = await exports.createTokenForUser(user);
+    const { token } = await exports.createTokenForUser(user);
 
     // Return response (compatible with both website and app)
     return res.json({
@@ -640,8 +608,7 @@ exports.signInWithGoogle = async (req, res, next) => {
     });
     
   } catch (err) {
-    console.error('❌ signInWithGoogle error:', err.message);
-    console.error('📝 Stack trace:', err.stack);
+    logger.error('signInWithGoogle error', err);
     return res.status(500).json({ 
       success: false,
       error: 'Failed to sign in with Google' 
@@ -652,7 +619,7 @@ exports.signInWithGoogle = async (req, res, next) => {
 // Verify Apple identityToken and sign in or create user (for Flutter/iOS/mobile apps)
 exports.signInWithApple = async (req, res, next) => {
   try {
-    const { identityToken, userIdentifier, name, fullName, email: fallbackEmail } = req.body || {};
+    const { identityToken, name, fullName } = req.body || {};
 
     if (!identityToken) {
       return res.status(400).json({ success: false, error: 'identityToken is required' });
@@ -664,10 +631,11 @@ exports.signInWithApple = async (req, res, next) => {
       verified = await verifyAppleIdToken(identityToken);
     } catch (verifyErr) {
       logger.error('Apple token verification failed:', verifyErr.message);
-      return res.status(401).json({ success: false, error: verifyErr.message || 'Invalid Apple identity token' });
+      return res.status(401).json({ success: false, error: 'Invalid Apple identity token' });
     }
 
-    const appleId = verified.appleId || userIdentifier;
+    // Identity comes only from the verified token, never from the request body.
+    const appleId = verified.appleId;
     if (!appleId) {
       return res.status(400).json({ success: false, error: 'Could not extract Apple user identifier' });
     }
@@ -692,9 +660,8 @@ exports.signInWithApple = async (req, res, next) => {
     let user = await User.findOne({ appleId });
 
     // 2. If not found by appleId, try finding by email
-    const tokenEmail = verified.email ? normalizeEmail(verified.email) : null;
-    const clientEmail = fallbackEmail ? normalizeEmail(fallbackEmail) : null;
-    const targetEmail = tokenEmail || clientEmail;
+    // Only an email that Apple itself asserts as verified may link to an existing account.
+    const targetEmail = verified.email && verified.emailVerified ? normalizeEmail(verified.email) : null;
 
     if (!user && targetEmail) {
       user = await User.findOne({ email: targetEmail });
@@ -704,12 +671,11 @@ exports.signInWithApple = async (req, res, next) => {
       // If we don't have an email at all (very rare edge case), fallback to private relay alias
       const userEmail = targetEmail || `${appleId}@privaterelay.appleid.com`;
       const finalName = resolvedName || (targetEmail ? targetEmail.split('@')[0] : 'Apple User');
-      const randomPassword = Math.random().toString(36).slice(-12) + Math.random().toString(36).slice(-12);
 
       user = new User({
         name: finalName,
         email: userEmail,
-        password: randomPassword,
+        password: randomPassword(),
         emailVerified: true,
         appleId,
         authProvider: 'apple',
@@ -718,8 +684,11 @@ exports.signInWithApple = async (req, res, next) => {
         isPasswordSet: false
       });
       await user.save();
-      logger.info(`✅ New user created via Sign In with Apple: ${user.email} (${appleId})`);
+      logger.info(`New user created via Sign In with Apple: ${user._id}`);
     } else {
+      if (user.isDeleted || isAccountBlocked(user)) {
+        return res.status(403).json({ success: false, error: 'Account blocked' });
+      }
       // Existing user found - link Apple ID and update missing fields
       let updated = false;
       if (!user.appleId) {
@@ -737,7 +706,7 @@ exports.signInWithApple = async (req, res, next) => {
       if (updated) {
         await user.save();
       }
-      logger.info(`✅ Existing user authenticated via Apple: ${user.email} (${appleId})`);
+      logger.info(`Existing user authenticated via Apple: ${user._id}`);
     }
 
     // Generate JWT token
@@ -772,30 +741,19 @@ exports.signInWithApple = async (req, res, next) => {
 
 exports.me = async (req, res, next) => {
   try {
-    let token = null;
-    if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
-    }
-    if (!token && req.headers.authorization) {
-      const parts = req.headers.authorization.split(' ');
-      if (parts.length === 2 && parts[0] === 'Bearer') {
-        token = parts[1];
-      }
-    }
-    if (!token) {
+    let user;
+    try {
+      ({ user } = await authenticateRequest(req));
+    } catch (authErr) {
       return res.json({ authenticated: false });
     }
-
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret');
-    const user = await User.findById(payload.id, '-refreshToken');
-    if (!user) return res.json({ authenticated: false });
     const isPasswordSet = hasUserSetPassword(user);
 
-    return res.json({ 
+    return res.json({
       authenticated: true,
-      _id: user._id, 
-      name: user.name, 
-      email: user.email, 
+      _id: user._id,
+      name: user.name,
+      email: user.email,
       roles: user.roles,
       avatar: user.avatar,
       phone: user.phone || null,
@@ -811,7 +769,28 @@ exports.me = async (req, res, next) => {
   }
 };
 
+// Server-side revocation: the presented token is put on a denylist until it
+// would have expired, so a copied token stops working the moment the user logs out.
 exports.logout = async (req, res) => {
+  const token = extractToken(req);
+  if (token) {
+    try {
+      const payload = verifyJwt(token);
+      if (payload && payload.id && !payload.purpose && payload.exp) {
+        await RevokedToken.updateOne(
+          { tokenHash: hashToken(token) },
+          { $setOnInsert: { tokenHash: hashToken(token), user: payload.id, expiresAt: new Date(payload.exp * 1000) } },
+          { upsert: true }
+        );
+      }
+    } catch (err) {
+      // Invalid/expired token: nothing to revoke. A storage failure must be visible though.
+      if (err && err.name !== 'JsonWebTokenError' && err.name !== 'TokenExpiredError' && err.code !== 11000) {
+        logger.error('Failed to revoke token on logout', err);
+        return res.status(500).json({ error: 'Failed to log out' });
+      }
+    }
+  }
   res.clearCookie('token');
   res.json({ ok: true });
 };
@@ -819,20 +798,8 @@ exports.logout = async (req, res) => {
 
 exports.uploadAvatar = async (req, res, next) => {
   try {
-    const jwt = require('jsonwebtoken');
-    const User = require('../models/User');
-    let token = null;
-    if (req.cookies && req.cookies.token) token = req.cookies.token;
-    if (!token && req.headers.authorization) {
-      const parts = req.headers.authorization.split(' ');
-      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
-    }
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) return res.status(500).json({ error: 'Server configuration error' });
-    const payload = jwt.verify(token, jwtSecret);
-    const user = await User.findById(payload.id);
-    if (!user) return res.status(401).json({ error: 'Invalid token user' });
+    const user = await requireUser(req, res);
+    if (!user) return;
 
     const { avatar } = req.body || {};
     if (!avatar || typeof avatar !== 'string') return res.status(400).json({ error: 'No avatar provided' });
@@ -887,20 +854,8 @@ exports.uploadAvatar = async (req, res, next) => {
 
 exports.updateProfile = async (req, res, next) => {
   try {
-    const jwt = require('jsonwebtoken');
-    const User = require('../models/User');
-    let token = null;
-    if (req.cookies && req.cookies.token) token = req.cookies.token;
-    if (!token && req.headers.authorization) {
-      const parts = req.headers.authorization.split(' ');
-      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
-    }
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
-    const jwtSecretProfile = process.env.JWT_SECRET;
-    if (!jwtSecretProfile) return res.status(500).json({ error: 'Server configuration error' });
-    const payload = jwt.verify(token, jwtSecretProfile);
-    const user = await User.findById(payload.id);
-    if (!user) return res.status(401).json({ error: 'Invalid token user' });
+    const user = await requireUser(req, res);
+    if (!user) return;
 
     const { name, phone, address } = req.body || {};
     if (typeof name === 'string' && name.trim()) user.name = name.trim();
@@ -932,20 +887,8 @@ exports.updateProfile = async (req, res, next) => {
 
 exports.changePassword = async (req, res, next) => {
   try {
-    const jwt = require('jsonwebtoken');
-    const User = require('../models/User');
-    let token = null;
-    if (req.cookies && req.cookies.token) token = req.cookies.token;
-    if (!token && req.headers.authorization) {
-      const parts = req.headers.authorization.split(' ');
-      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
-    }
-    if (!token) return res.status(401).json({ error: 'Not authenticated' });
-    const jwtSecretPwd = process.env.JWT_SECRET;
-    if (!jwtSecretPwd) return res.status(500).json({ error: 'Server configuration error' });
-    const payload = jwt.verify(token, jwtSecretPwd);
-    const user = await User.findById(payload.id);
-    if (!user) return res.status(401).json({ error: 'Invalid token user' });
+    const user = await requireUser(req, res);
+    if (!user) return;
 
     const { currentPassword, newPassword } = req.body || {};
     if (!newPassword) return res.status(400).json({ error: 'New password is required' });
@@ -965,133 +908,151 @@ exports.changePassword = async (req, res, next) => {
     user.password = newPassword;
     user.isPasswordSet = true;
     user.skipPasswordHash = false;
+    // Changing the password ends every OTHER session. The session making the change
+    // stays valid (clients that ignore the fresh token below are not signed out).
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    user.keepTokenHash = hashToken(extractToken(req));
     await user.save();
-    return res.json({ ok: true, message: 'Password updated' });
+    const { token, cookieOptions } = await exports.createTokenForUser(user);
+    res.cookie('token', token, cookieOptions);
+    return res.json({ ok: true, message: 'Password updated', token });
   } catch (e) {
     logger.error('change-password error', e);
     return res.status(500).json({ error: 'Failed to change password' });
   }
 }
 
+// Contact verification for the SIGNED-IN user only.
+// The caller can request/confirm an OTP for their own email, or for a phone
+// number they are attaching to their own account. Nothing here can touch another
+// account: the identifier is never used to look up a different user.
+const CONTACT_OTP_PURPOSE = 'verify-contact';
+
+const resolveOwnContact = async (user, { phone, email }) => {
+  if (phone) {
+    const normalized = normalizePhone(phone);
+    if (!/^[6-9]\d{9}$/.test(normalized)) return { error: 'Invalid phone number' };
+    const owner = await User.findOne({ phone: normalized, _id: { $ne: user._id } }).select('_id').lean();
+    if (owner) return { error: 'Phone number already registered' };
+    return { type: 'phone', identifier: normalized };
+  }
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail || normalizedEmail !== user.email) {
+    return { error: 'You can only verify the email address of your own account' };
+  }
+  return { type: 'email', identifier: normalizedEmail };
+};
+
 exports.sendOtp = async (req, res, next) => {
   try {
-    const { phone, email } = req.body || {}
-    if (!phone && !email) return res.status(400).json({ error: 'Phone or email is required' })
+    const user = await requireUser(req, res);
+    if (!user) return;
 
-    // Generate 6-digit code
-    const code = Math.floor(100000 + Math.random() * 900000).toString()
-    const salt = await bcrypt.genSalt(10)
-    const codeHash = await bcrypt.hash(code, salt)
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000) // 5 minutes
+    const { phone, email } = req.body || {};
+    if (!phone && !email) return res.status(400).json({ error: 'Phone or email is required' });
 
-    const responses = []
+    const contact = await resolveOwnContact(user, { phone, email });
+    if (contact.error) return res.status(400).json({ error: contact.error });
 
-    // Send to phone if provided
-    if (phone) {
-      if (!/^[6-9]\d{9}$/.test(phone)) return res.status(400).json({ error: 'Invalid phone number' })
-      // Save OTP for phone (remove previous entries)
-      await Otp.deleteMany({ identifier: phone, type: 'phone' })
-      await Otp.create({ identifier: phone, type: 'phone', codeHash, expiresAt })
+    const code = otpUtil.generateOTP();
+    const codeHash = await otpUtil.hashOTP(code);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    const otpFilter = { identifier: contact.identifier, type: contact.type, purpose: CONTACT_OTP_PURPOSE, user: user._id };
 
+    await Otp.deleteMany(otpFilter);
+    await Otp.create({ ...otpFilter, codeHash, expiresAt });
+
+    const responses = [];
+    if (contact.type === 'phone') {
       if (TWILIO_SID && TWILIO_TOKEN && TWILIO_FROM) {
         try {
-          const client = require('twilio')(TWILIO_SID, TWILIO_TOKEN)
-          await client.messages.create({ body: `Your OTP code is ${code}`, from: TWILIO_FROM, to: `+91${phone}` })
-          responses.push({ to: phone, via: 'sms' })
+          const client = require('twilio')(TWILIO_SID, TWILIO_TOKEN);
+          await client.messages.create({ body: `Your OTP code is ${code}`, from: TWILIO_FROM, to: `+91${contact.identifier}` });
+          responses.push({ to: contact.identifier, via: 'sms' });
         } catch (e) {
           logger.error('Twilio send failed', e);
-          responses.push({ to: phone, via: 'sms', error: 'Twilio send failed' })
+          responses.push({ to: contact.identifier, via: 'sms', error: 'SMS send failed' });
         }
       } else {
-        logger.debug(`OTP for ${phone}: ${code}`);
-        responses.push({ to: phone, via: 'log' })
+        // The code itself is never written to logs.
+        logger.warn('SMS provider is not configured; phone OTP was not delivered');
+        responses.push({ to: contact.identifier, via: 'none', error: 'SMS delivery is not configured' });
       }
+    } else {
+      const emailResult = await sendEmailOTP(contact.identifier, code);
+      responses.push({ to: contact.identifier, via: 'email', ...(emailResult && emailResult.success === false ? { error: 'Email send failed' } : {}) });
     }
 
-    // Send to email if provided
-    if (email) {
-      // Save OTP for email (remove previous entries)
-      await Otp.deleteMany({ identifier: email, type: 'email' })
-      await Otp.create({ identifier: email, type: 'email', codeHash, expiresAt })
-
-      if (smtpHost && smtpUser && smtpPass) {
-        try {
-          const transporter = nodemailer.createTransport({
-            host: smtpHost,
-            port: parseInt(smtpPort, 10),
-            secure: smtpSecure,
-            auth: { user: smtpUser, pass: smtpPass }
-          })
-          const mailFrom = process.env.MAIL_FROM || smtpUser
-          await transporter.sendMail({ from: mailFrom, to: email, subject: 'Your OTP code', text: `Your OTP code is ${code}` })
-          responses.push({ to: email, via: 'email' })
-        } catch (e) {
-          logger.error('Email send failed', e);
-          responses.push({ to: email, via: 'email', error: 'Email send failed' })
-        }
-      } else {
-        logger.debug(`OTP for ${email}: ${code}`);
-        responses.push({ to: email, via: 'log' })
-      }
-    }
-
-    return res.json({ ok: true, message: 'OTP sent', results: responses })
+    return res.json({ ok: true, message: 'OTP sent', results: responses });
   } catch (e) {
     logger.error('send-otp error', e);
-    return res.status(500).json({ error: 'Failed to send OTP' })
+    return res.status(500).json({ error: 'Failed to send OTP' });
   }
-}
+};
 
 exports.verifyOtp = async (req, res, next) => {
   try {
-    const { phone, email, code } = req.body || {}
-    const identifier = phone || email
-    if (!identifier || !code) return res.status(400).json({ error: 'Identifier and code are required' })
+    const user = await requireUser(req, res);
+    if (!user) return;
 
-    const type = phone ? 'phone' : 'email'
+    const { phone, email, code } = req.body || {};
+    if ((!phone && !email) || !code) return res.status(400).json({ error: 'Identifier and code are required' });
 
-    const otp = await Otp.findOne({ identifier, type }).sort({ createdAt: -1 })
-    if (!otp) return res.status(400).json({ error: 'No OTP requested for this phone' })
-    if (otp.expiresAt < new Date()) {
-      await Otp.deleteMany({ identifier, type })
-      return res.status(400).json({ error: 'OTP expired' })
+    const contact = await resolveOwnContact(user, { phone, email });
+    if (contact.error) return res.status(400).json({ error: contact.error });
+
+    const invalid = () => res.status(400).json({ error: 'Invalid or expired OTP' });
+    const otpFilter = { identifier: contact.identifier, type: contact.type, purpose: CONTACT_OTP_PURPOSE, user: user._id };
+
+    const otp = await Otp.findOne(otpFilter).sort({ createdAt: -1 });
+    if (!otp) return invalid();
+    if (otp.expiresAt < new Date() || (otp.attempts || 0) >= MAX_OTP_ATTEMPTS) {
+      await Otp.deleteMany(otpFilter);
+      return invalid();
     }
 
-    const match = await bcrypt.compare(code.toString(), otp.codeHash)
-    if (!match) return res.status(400).json({ error: 'Invalid OTP' })
-
-    // OTP valid - remove entries
-    await Otp.deleteMany({ identifier, type })
-
-    // If a user exists with this identifier, mark verified
-    const User = require('../models/User')
-    const user = phone ? await User.findOne({ phone }) : await User.findOne({ email })
-    if (user) {
-      if (type === 'phone') user.phoneVerified = true
-      else user.emailVerified = true
-      await user.save()
+    const match = await bcrypt.compare(String(code), otp.codeHash);
+    if (!match) {
+      await Otp.updateOne({ _id: otp._id }, { $inc: { attempts: 1 } });
+      return invalid();
     }
 
-    // Issue a short-lived verification token that proves the phone was verified
-    const jwt = require('jsonwebtoken')
-    const jwtSecretOtp = process.env.JWT_SECRET;
-    if (!jwtSecretOtp) return res.status(500).json({ error: 'Server configuration error' });
-    const verificationToken = jwt.sign({ phone }, jwtSecretOtp, { expiresIn: '10m' })
+    await Otp.deleteMany(otpFilter);
 
-    return res.json({ ok: true, message: 'OTP verified', verificationToken })
+    if (contact.type === 'phone') {
+      user.phone = contact.identifier;
+      user.phoneVerified = true;
+    } else {
+      user.emailVerified = true;
+    }
+    try {
+      await user.save();
+    } catch (saveErr) {
+      if (saveErr && saveErr.code === 11000) return res.status(400).json({ error: 'Phone number already registered' });
+      throw saveErr;
+    }
+
+    // Short-lived proof that THIS user verified THIS contact. Not usable as a session token.
+    const verificationToken = signPurposeToken(
+      { sub: String(user._id), [contact.type]: contact.identifier },
+      'contact-verification',
+      '10m'
+    );
+
+    return res.json({ ok: true, message: 'OTP verified', verificationToken });
   } catch (e) {
     logger.error('verify-otp error', e);
-    return res.status(500).json({ error: 'Failed to verify OTP' })
+    return res.status(500).json({ error: 'Failed to verify OTP' });
   }
-}
+};
 
 exports.forgotPassword = async (req, res, next) => {
   try {
     const { email } = req.body;
 
-    if (!email) {
-      return res.status(400).json({ 
-        error: 'Email address is required' 
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({
+        error: 'Email address is required'
       });
     }
 
@@ -1103,35 +1064,21 @@ exports.forgotPassword = async (req, res, next) => {
     // Always return success (prevent user enumeration attack)
     const successMessage = 'If this email is registered, you will receive password reset instructions.';
 
-    if (!user) {
-      // Log for security monitoring
-      logger.warn(`Password reset requested for non-existent email: ${otpUtil.maskEmail(sanitizedEmail)}`);
+    if (!user || user.isDeleted) {
       return res.json({ message: successMessage });
-    }
-
-    // Require JWT secret for secure token issuance
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      logger.error('JWT_SECRET is not set; cannot issue reset token');
-      return res.status(500).json({ error: 'Server configuration error' });
     }
 
     // Generate password reset token (JWT)
     // Token payload includes user ID and purpose
-    const resetToken = jwt.sign(
-      { 
-        id: user._id, 
-        purpose: 'password-reset',
-        // Add timestamp to make each token unique without overriding JWT NumericDate iat
-        resetIssuedAt: Date.now()
-      },
-      jwtSecret,
-      { expiresIn: '1h' } // 1 hour expiration
+    const resetToken = signPurposeToken(
+      { id: String(user._id), nonce: crypto.randomBytes(16).toString('hex') },
+      'password-reset',
+      '1h'
     );
 
     // Store reset token hash in user document (for validation)
     // This allows us to invalidate the token after use
-    const tokenHash = require('crypto')
+    const tokenHash = crypto
       .createHash('sha256')
       .update(resetToken)
       .digest('hex');
@@ -1176,7 +1123,7 @@ exports.resetPassword = async (req, res, next) => {
   try {
     const { token, newPassword } = req.body;
 
-    if (!token || !newPassword) {
+    if (!token || !newPassword || typeof token !== 'string' || typeof newPassword !== 'string') {
       return res.status(400).json({ 
         error: 'Token and new password are required' 
       });
@@ -1189,39 +1136,25 @@ exports.resetPassword = async (req, res, next) => {
       });
     }
 
-    const jwtSecret = process.env.JWT_SECRET;
-    if (!jwtSecret) {
-      logger.error('JWT_SECRET is not set; cannot validate reset token');
-      return res.status(500).json({ error: 'Server configuration error' });
-    }
-
-    // Verify JWT token
+    // Verify signature, expiry and purpose
     let decoded;
     try {
-      decoded = jwt.verify(token, jwtSecret);
+      decoded = verifyPurposeToken(token, 'password-reset');
     } catch (err) {
-      return res.status(400).json({ 
-        error: 'Invalid or expired reset token' 
-      });
-    }
-
-    // Check token purpose
-    if (decoded.purpose !== 'password-reset') {
-      return res.status(400).json({ 
-        error: 'Invalid token type' 
+      return res.status(400).json({
+        error: 'Invalid or expired reset token'
       });
     }
 
     // Find user
     const user = await User.findById(decoded.id);
-    if (!user) {
-      return res.status(404).json({ 
-        error: 'User not found' 
+    if (!user || user.isDeleted) {
+      return res.status(400).json({
+        error: 'Invalid or expired reset token'
       });
     }
 
     // Verify token hash matches (prevents token reuse)
-    const crypto = require('crypto');
     const tokenHash = crypto
       .createHash('sha256')
       .update(token)
@@ -1263,6 +1196,9 @@ exports.resetPassword = async (req, res, next) => {
     user.isPasswordSet = true;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+    // A password reset signs the account out everywhere.
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
+    user.keepTokenHash = null;
     await user.save();
 
     logger.info(`Password reset successful for user: ${user._id}`);
@@ -1288,64 +1224,36 @@ exports.resetPassword = async (req, res, next) => {
 
 /**
  * Delete Account
- * Deletes the authenticated user account and cascades cleanup of personal data.
- * Supports both web (cookies) and mobile apps (Bearer token / req.user).
+ * See services/accountDeletion.service.js for what is removed, anonymised and retained.
+ * Idempotent: repeating the call with the same credential after a successful
+ * deletion answers 200 again instead of an error.
  */
 exports.deleteAccount = async (req, res, next) => {
   try {
-    let token = null;
-    if (req.cookies && req.cookies.token) token = req.cookies.token;
-    if (!token && req.headers.authorization) {
-      const parts = req.headers.authorization.split(' ');
-      if (parts.length === 2 && parts[0] === 'Bearer') token = parts[1];
-    }
-
-    let userId = req.user?._id || req.user?.id;
-
-    if (!userId) {
-      if (!token) return res.status(401).json({ error: 'Not authenticated' });
-      const jwtSecret = process.env.JWT_SECRET;
-      if (!jwtSecret) return res.status(500).json({ error: 'Server configuration error' });
-      try {
-        const payload = jwt.verify(token, jwtSecret);
-        userId = payload.id;
-      } catch (err) {
-        return res.status(401).json({ error: 'Invalid or expired token' });
+    let user;
+    try {
+      ({ user } = await authenticateRequest(req, { allowDeleted: true }));
+    } catch (authErr) {
+      if (authErr instanceof AuthError) {
+        // A token that predates the deletion (older token version) still identifies
+        // the tombstoned account: treat the retry as already done.
+        const prior = await findDeletedUserForToken(req);
+        if (prior) {
+          res.clearCookie('token');
+          return res.json({ success: true, message: 'Account deleted successfully' });
+        }
+        return res.status(authErr.status).json({ error: authErr.status === 401 ? 'Not authenticated' : authErr.message });
       }
+      throw authErr;
     }
 
-    if (!userId) {
-      return res.status(401).json({ error: 'Not authenticated' });
+    if (!user.isDeleted) {
+      const { deleteUserAccount } = require('../services/accountDeletion.service');
+      await deleteUserAccount(user._id);
+      logger.info(`Account deleted for user ID: ${user._id}`);
     }
 
-    const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Lazy load related models for cascade clean-up
-    const Cart = require('../models/Cart');
-    const Wishlist = require('../models/Wishlist');
-    const Address = require('../models/Address');
-
-    // Cascade clean-up for user's ephemeral / private data
-    const identifiers = [user.email, user.phone].filter(Boolean);
-    await Promise.allSettled([
-      Cart.deleteMany({ user: userId }),
-      Wishlist.deleteMany({ user: userId }),
-      Address.deleteMany({ userId: userId }),
-      Otp.deleteMany({ identifier: { $in: identifiers } }),
-      PendingUser.deleteMany({ email: user.email })
-    ]);
-
-    // Delete user document
-    await User.findByIdAndDelete(userId);
-
-    // Clear session cookie
     res.clearCookie('token');
-
-    logger.info(`Account deleted successfully for user ID: ${userId} (${user.email})`);
-
     return res.json({
       success: true,
       message: 'Account deleted successfully'
@@ -1358,3 +1266,15 @@ exports.deleteAccount = async (req, res, next) => {
     });
   }
 };
+
+async function findDeletedUserForToken(req) {
+  const token = extractToken(req);
+  if (!token) return null;
+  try {
+    const payload = verifyJwt(token);
+    if (!payload || !payload.id || payload.purpose || !mongoose.Types.ObjectId.isValid(payload.id)) return null;
+    return await User.findOne({ _id: payload.id, isDeleted: true }).select('_id').lean();
+  } catch (err) {
+    return null;
+  }
+}
