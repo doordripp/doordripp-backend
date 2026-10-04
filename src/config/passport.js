@@ -95,6 +95,9 @@ const googleStrategyVerify = async (accessToken, refreshToken, profile, done) =>
       await user.save()
       logger.info('New user created from Google OAuth.')
     } else {
+      if (user.isDeleted || user.isBanned || user.blocked) {
+        return done(null, false)
+      }
       // Update existing user with Google data if not already set
       let updated = false
       const hadLocalPassword = user.authProvider !== 'google' && !!user.password

@@ -41,6 +41,13 @@ const UserSchema = new mongoose.Schema({
   termsAccepted: { type: Boolean, default: false },
   blocked: { type: Boolean, default: false }, // Legacy field, use isBanned
   refreshToken: { type: String, default: null },
+  // Bumped to invalidate every session token issued so far (password change/reset, ban, deletion)
+  tokenVersion: { type: Number, default: 0 },
+  // SHA-256 of the one session allowed to survive the last tokenVersion bump (the session that changed the password)
+  keepTokenHash: { type: String, default: null },
+  // Account deletion tombstone: personal data is wiped, the row is kept so order/invoice references stay valid
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
   isPasswordSet: { type: Boolean, default: false },
   // OAuth fields
   googleId: { type: String, unique: true, sparse: true },

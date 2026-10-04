@@ -163,9 +163,12 @@ async function verifyAppleIdToken(identityToken, options = {}) {
       logger.error(`Apple token audience mismatch. Token aud: '${tokenAudience}', Expected one of: ${acceptedAudiences.join(', ')}`);
       throw new Error('Apple token audience mismatch (invalid Bundle ID / Client ID)');
     }
+  } else if (process.env.NODE_ENV === 'production') {
+    // Fail closed: without a configured audience any app's Apple token would be accepted.
+    logger.error('[Apple Auth] APPLE_BUNDLE_ID is not configured; refusing Apple sign-in');
+    throw new Error('Apple sign-in is not configured');
   } else {
-    // Development fallback notice
-    logger.warn(`[Apple Auth] No APPLE_BUNDLE_ID configured in env. Token accepted with audience '${tokenAudience}'. Set APPLE_BUNDLE_ID in .env for strict validation.`);
+    logger.warn('[Apple Auth] No APPLE_BUNDLE_ID configured. Audience is NOT validated outside production. Set APPLE_BUNDLE_ID for strict validation.');
   }
 
   // 6. Return structured user claims

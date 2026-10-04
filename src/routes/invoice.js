@@ -38,9 +38,9 @@ router.get(
 );
 
 // Download invoice PDF
+// Authorisation happens inside the handler: signed link or session + ownership.
 router.get(
   '/:invoiceId/download',
-  verifyToken,
   InvoiceController.downloadInvoice
 );
 

@@ -4,6 +4,9 @@
  * Fails fast with a clear error if any required variable is missing.
  */
 
+const { isWeakJwtSecret, MIN_SECRET_LENGTH } = require('./auth');
+const { getAcceptedGoogleAudiences } = require('../utils/googleAuth');
+
 const requiredEnvVars = [
   'MONGO_URI',
   'JWT_SECRET',
@@ -46,23 +49,6 @@ function hasAnyConfig(keys) {
   return keys.some(key => Boolean(process.env[key] && process.env[key].trim()));
 }
 
-function isWeakJwtSecret(secret) {
-  if (!secret || !secret.trim()) {
-    return true;
-  }
-
-  const normalized = secret.trim();
-  if (normalized === 'secret') {
-    return true;
-  }
-
-  if (normalized.includes('CHANGE-THIS-IN-PRODUCTION')) {
-    return true;
-  }
-
-  return normalized.length < 32;
-}
-
 function validateEnv() {
   const missing = requiredEnvVars.filter(v => !process.env[v]);
 
@@ -74,7 +60,7 @@ function validateEnv() {
   }
 
   if (isWeakJwtSecret(process.env.JWT_SECRET)) {
-    const message = '[Startup] JWT_SECRET is weak or still using the placeholder value.';
+    const message = `[Startup] JWT_SECRET is weak, a known default, or shorter than ${MIN_SECRET_LENGTH} characters.`;
     if (process.env.NODE_ENV === 'production') {
       throw new Error(`${message} Configure a strong secret before starting the server.`);
     }
@@ -92,16 +78,20 @@ function validateEnv() {
     );
   }
 
-  // App client IDs are optional and only needed when accepting mobile app idTokens.
-  const hasWebGoogleClientId = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID.trim());
-  const hasAnyGoogleAppAudience = googleAppAudienceVars.some(
-    v => Boolean(process.env[v] && process.env[v].trim())
-  );
-
-  if (hasWebGoogleClientId && !hasAnyGoogleAppAudience) {
+  // Google idToken sign-in only accepts audiences listed in the environment.
+  if (getAcceptedGoogleAudiences().length === 0) {
     process.stderr.write(
-      '[Startup] Info: GOOGLE_APP_CLIENT_ID_1/GOOGLE_APP_CLIENT_ID_2 not set; mobile Google idTokens will be rejected.\n'
+      '[Startup] Warning: no valid Google OAuth client ID is configured (GOOGLE_CLIENT_ID / GOOGLE_APP_CLIENT_ID_1 / GOOGLE_APP_CLIENT_ID_2 / GOOGLE_ACCEPTED_CLIENT_IDS); Google idToken sign-in will be refused.\n'
     );
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    if (process.env.DISABLE_RATE_LIMIT === 'true') {
+      process.stderr.write('[Startup] Warning: DISABLE_RATE_LIMIT is ignored in production.\n');
+    }
+    if (!process.env.APPLE_BUNDLE_ID) {
+      process.stderr.write('[Startup] Warning: APPLE_BUNDLE_ID is not set; Sign in with Apple will be refused.\n');
+    }
   }
 
   const smtpKeys = ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS'];

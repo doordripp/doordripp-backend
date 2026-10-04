@@ -17,7 +17,10 @@
     "diagnose:brevo": "node scripts/diagnose-brevo.js",
     "backfill:product-listed-by": "node scripts/backfill-product-listed-by.js",
     "update:delivery-cost": "node scripts/update-product-delivery-cost.js",
-    "deploy:webhook": "node scripts/github-deploy-webhook.js"
+    "deploy:webhook": "node scripts/github-deploy-webhook.js",
+    "test": "npm run check:secrets && jest --runInBand",
+    "test:unit": "jest --runInBand",
+    "check:secrets": "node scripts/check-secrets.js"
   },
   "keywords": [],
   "author": "doordripp",
@@ -45,20 +48,33 @@
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "natural": "^8.1.1",
-    "nodemailer": "^7.0.13",
+    "nodemailer": "^10.0.14",
     "passport": "^0.7.0",
     "passport-google-oauth20": "^2.0.0",
     "pdfkit": "^0.17.2",
     "razorpay": "^2.9.6",
     "redis": "^5.11.0",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "sib-api-v3-sdk": "^8.5.0",
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "cross-env": "^10.1.0",
     "eslint": "^8.47.0",
+    "jest": "^30.5.2",
+    "mongodb-memory-server": "^11.3.0",
     "nodemon": "^3.1.11",
-    "prettier": "^3.5.0"
+    "prettier": "^3.5.0",
+    "supertest": "^7.3.1"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/tests/**/*.test.js"
+    ],
+    "setupFiles": [
+      "<rootDir>/tests/helpers/env.js"
+    ],
+    "testTimeout": 60000
   }
 }

@@ -117,10 +117,8 @@ node-backend/
 
 ## 🗄️ Database
 
-**MongoDB Atlas** cluster is already configured in `.env.example`:
-- **Connection String:** `mongodb+srv://tyagi729:Tyagi123@cluster0.gri9xvc.mongodb.net/doordripp`
-- **Database Name:** `doordripp`
-- **Shared Access:** All team members can use this database
+MongoDB (Atlas replica set — transactions are required for orders, stock and vouchers).
+The connection string is a secret: it is supplied through `MONGO_URI` and is never written in this repository.
 
 ### Collections
 - `users` - User accounts and authentication
@@ -131,29 +129,14 @@ node-backend/
 
 ## 🔑 Environment Variables
 
-All credentials are **pre-configured** in `.env.example`:
+Copy `.env.example` to `.env` and fill in your own values. `.env.example` contains
+placeholders only. **Never commit real credentials** — `npm run check:secrets` (also run by
+`npm test`) fails if a credential-shaped value appears in a tracked file.
 
-```env
-# MongoDB (Shared Atlas Cluster)
-MONGO_URI=mongodb+srv://tyagi729:Tyagi123@cluster0.gri9xvc.mongodb.net/doordripp
-
-# JWT Secret
-JWT_SECRET=your-super-secret-jwt-key-here
-
-# Server URLs
-FRONTEND_URL=http://localhost:5173
-BACKEND_URL=http://localhost:4000/
-
-# ImageKit (Cloud Image Storage)
-IMAGEKIT_PUBLIC_KEY=public_eZEGOkMzOtu8aYnlvXf0CGYz5gA=
-IMAGEKIT_PRIVATE_KEY=private_o3CNVPdB4gDY8eYuvDPF/hmEpo8=
-IMAGEKIT_URL_ENDPOINT=https://ik.imagekit.io/xeuci3es7
-
-# Google OAuth
-GOOGLE_CLIENT_ID=435840667821-ibluemm3j9cvlaj3pslt2pgj8aklms7n.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=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
-GOOGLE_CALLBACK_URL=http://localhost:4000//api/auth/google/callback
-```
+Required to start: `MONGO_URI`, `JWT_SECRET` (at least 32 characters, no default),
+`IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_PRIVATE_KEY`, `IMAGEKIT_URL_ENDPOINT`.
+Production additionally requires live Razorpay keys, at least one accepted Google client ID
+if Google sign-in is offered, and `APPLE_BUNDLE_ID` if Apple sign-in is offered.
 
 ## 🛠️ Scripts
 
@@ -162,6 +145,7 @@ npm run dev          # Start development server with nodemon
 npm start            # Start production server
 npm run seed         # Seed MongoDB with sample products
 npm run create-admin # Create admin user
+npm test             # Secret scan + full test suite (in-memory MongoDB, never touches a real database)
 ```
 
 ## 🔒 Authentication Flow

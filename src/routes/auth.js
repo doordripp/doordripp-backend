@@ -1,10 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const rateLimit = require('express-rate-limit');
-const { ipKeyGenerator } = require('express-rate-limit');
 const router = express.Router();
 const logger = require('../utils/logger');
-const { hasUserSetPassword, verifyPasswordAndUpgrade } = require('../utils/password.util');
 // Primary auth controller (MongoDB-backed)
 const authController = require('../controllers/authController');
 // Password reset and legacy handlers
@@ -52,71 +49,21 @@ function getFrontendUrlForRequest(req) {
   return normalizeOrigin(FRONTEND_URL)
 }
 
-const bcrypt = require('bcryptjs')
-const Otp = require('../models/Otp')
-const nodemailer = require('nodemailer')
-const TWILIO_SID = process.env.TWILIO_ACCOUNT_SID
-const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN
-const TWILIO_FROM = process.env.TWILIO_FROM
-const smtpHost = process.env.MAIL_HOST || process.env.SMTP_HOST
-const smtpPort = process.env.MAIL_PORT || process.env.SMTP_PORT || '587'
-const smtpUser = process.env.MAIL_USER || process.env.SMTP_USER
-const smtpPass = process.env.MAIL_PASS || process.env.SMTP_PASS
-const smtpSecure = process.env.MAIL_SECURE === 'true' || process.env.SMTP_PORT === '465'
+const {
+  loginLimiters,
+  otpSendLimiters,
+  otpVerifyLimiters,
+  passwordLimiters,
+  passwordResetRequestLimiters,
+  googleOAuthLimiter,
+  appleOAuthLimiter,
+  sensitiveIpLimiter
+} = require('../middleware/rateLimiters');
 
-const normalizePhone = (phone) => String(phone || '').replace(/\D/g, '')
-const isStrongEnoughPassword = (password) => typeof password === 'string' && password.length >= 8
-
-// Check if rate limiting is disabled (for development)
-const DISABLE_RATE_LIMIT = process.env.DISABLE_RATE_LIMIT === 'true'
-
-// Middleware to skip rate limiting if disabled
-const skipIfDisabled = (limiter) => {
-  return (req, res, next) => {
-    if (DISABLE_RATE_LIMIT) {
-      return next()
-    }
-    return limiter(req, res, next)
-  }
-}
-
-// Rate limiter: max 10 OTP requests per email per hour for registration (increased for development)
-const registerOtpLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => (req.body?.email ? req.body.email.toLowerCase() : ipKeyGenerator(req)),
-  handler: (req, res) => res.status(429).json({ error: 'Too many OTP requests. Please try again in an hour.' }),
-});
-
-// OAuth limiter: protect callback and initiation endpoints from abuse
-const googleOAuthLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => ipKeyGenerator(req),
-  handler: (req, res) => res.status(429).json({ error: 'Too many Google auth attempts. Please try again later.' }),
-});
-
-const appleOAuthLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => ipKeyGenerator(req),
-  handler: (req, res) => res.status(429).json({ error: 'Too many Apple auth attempts. Please try again later.' }),
-});
-
-const passwordLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => ipKeyGenerator(req),
-  handler: (req, res) => res.status(429).json({ error: 'Too many password operations. Please try again later.' }),
-});
+// Kept for the call sites below; the production-safe disable switch lives in the limiters themselves.
+const skipIfDisabled = (limiter) => limiter;
+const registerOtpLimiter = otpSendLimiters;
+const passwordLimiter = passwordLimiters;
 
 const hasGoogleOAuthProd = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
 const hasGoogleOAuthDev = Boolean(process.env.GOOGLE_CLIENT_ID_DEV && process.env.GOOGLE_CLIENT_SECRET_DEV)
@@ -141,14 +88,14 @@ const handleOAuthCallback = (strategyName) => async (req, res, next) => {
     if (!user) {
       logger.warn(`Google OAuth (${strategyName}): no user returned from strategy`);
     }
-    if (err || !user) {
+    if (err || !user || user.isDeleted || user.isBanned || user.blocked) {
       const redirect = `${frontendUrl}/login?error=oauth_failed`;
       return res.redirect(redirect);
     }
     try {
       // create token + set cookie or redirect with token
       const { token, cookieOptions } = await authController.createTokenForUser(user);
-      logger.info(`Google OAuth (${strategyName}) success for: ${user.email}`);
+      logger.info(`Google OAuth (${strategyName}) success for user ${user._id}`);
       // Set httpOnly cookie for token (frontend will rely on cookies)
       res.cookie('token', token, cookieOptions);
       // Redirect back to the frontend (SPA) home page
@@ -194,6 +141,9 @@ router.post(
 
 router.post(
   '/login',
+  loginLimiters,
+  body('email').isString().notEmpty(),
+  body('password').isString().notEmpty(),
   body('email').notEmpty(),
   body('password').notEmpty(),
   async (req, res, next) => {
@@ -207,21 +157,22 @@ router.post(
 router.get('/me', authController.me);
 
 // Logout
-router.post('/logout', authController.logout);
+router.post('/logout', sensitiveIpLimiter, authController.logout);
 
 // Refresh auth token (re-issue token if current token is valid)
-router.post('/refresh', authController.refresh);
+router.post('/refresh', sensitiveIpLimiter, authController.refresh);
 // Profile endpoint - returns current user data
 router.get('/profile', authController.me);
 
 // Forgot password - request password reset
-router.post('/forgot-password', skipIfDisabled(passwordLimiter), authController.forgotPassword);
+router.post('/forgot-password', passwordResetRequestLimiters, authController.forgotPassword);
 
 // Reset password with token
 router.post('/reset-password', skipIfDisabled(passwordLimiter), authController.resetPassword);
 // Email verification endpoints
 router.post(
   '/verify-email-otp',
+  otpVerifyLimiters,
   body('email').isEmail(),
   body('code').isLength({ min: 6, max: 6 }),
   async (req, res, next) => {
@@ -234,6 +185,7 @@ router.post(
 // Step 2: Verify OTP and create user
 router.post(
   '/verify-email',
+  otpVerifyLimiters,
   body('email').isEmail().withMessage('Valid email is required'),
   body('otp').isLength({ min: 6, max: 6 }).withMessage('OTP must be 6 digits').isNumeric(),
   async (req, res, next) => {
@@ -257,6 +209,7 @@ router.post(
 
 router.post(
   '/resend-email-otp',
+  otpSendLimiters,
   body('email').isEmail(),
   async (req, res, next) => {
     const errors = validationResult(req);
@@ -275,28 +228,19 @@ router.put('/profile', authController.updateProfile);
 router.put('/change-password', skipIfDisabled(passwordLimiter), authController.changePassword);
 
 // Delete account (authenticated) - Web and Mobile App endpoint
-router.delete('/account', authController.deleteAccount);
-router.delete('/delete-account', authController.deleteAccount);
-router.post('/delete-account', authController.deleteAccount);
+router.delete('/account', sensitiveIpLimiter, authController.deleteAccount);
+router.delete('/delete-account', sensitiveIpLimiter, authController.deleteAccount);
+router.post('/delete-account', sensitiveIpLimiter, authController.deleteAccount);
 
 // POST /api/auth/send-otp
-router.post('/send-otp', authController.sendOtp);
+router.post('/send-otp', otpSendLimiters, authController.sendOtp);
 
 // POST /api/auth/verify-otp
-router.post('/verify-otp', authController.verifyOtp);
+router.post('/verify-otp', otpVerifyLimiters, authController.verifyOtp);
 
 // Google Sign-In with idToken (POST - for Flutter/mobile apps)
 // Receives idToken from client, verifies it, and signs in or creates user
-if (hasGoogleOAuthProd) {
-  router.post('/google', skipIfDisabled(googleOAuthLimiter), async (req, res, next) => {
-    try {
-      return authController.signInWithGoogle(req, res, next);
-    } catch (e) {
-      logger.error('google idToken sign-in error', e);
-      return res.status(500).json({ error: 'Failed to sign in with Google' });
-    }
-  });
-}
+router.post('/google', googleOAuthLimiter, (req, res, next) => authController.signInWithGoogle(req, res, next));
 
 // Sign-In with Apple (POST - for Flutter iOS/Android mobile apps)
 // Receives identityToken & userIdentifier from client, verifies RS256 signature with Apple JWKS, and signs in or creates user

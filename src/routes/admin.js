@@ -11,6 +11,7 @@ const adminDeliveryChargeController = require('../controllers/adminDeliveryCharg
 const analyticsController = require('../controllers/analyticsController');
 const advancedAnalyticsController = require('../controllers/advancedAnalyticsController');
 const adminVoucherController = require('../controllers/adminVoucherController');
+const adminRefundController = require('../controllers/adminRefundController');
 const notificationController = require('../controllers/notificationController');
 const { verifyToken, requireAdmin, requireAnyRole, requireAdminOrManager } = require('../middleware/auth');
 
@@ -38,6 +39,11 @@ router.get('/orders/:id', adminManagerOrDP, adminOrderController.getOrder);
 router.get('/orders/:id/bill', requireAdminOrManager, adminOrderController.getOrderBill);
 router.put('/orders/:id/status', adminManagerOrDP, adminOrderController.updateOrderStatus);
 router.post('/orders/:id/accept', requireAnyRole('delivery_partner'), adminOrderController.acceptDelivery);
+
+// Manual refunds — admin only. Refunds are issued by hand in the Razorpay dashboard;
+// these endpoints only list what is owed and record that it was done.
+router.get('/refunds', requireAdmin, adminRefundController.listRefunds);
+router.post('/orders/:id/refund/complete', requireAdmin, adminRefundController.completeRefund);
 
 // Order Assignment — admin & manager
 router.post('/orders/:id/assign', adminOrManager, adminOrderController.assignDeliveryPartner);
