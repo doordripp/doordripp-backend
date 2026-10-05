@@ -161,6 +161,34 @@ describe('stock reservation is atomic', () => {
     expect((await Product().collection.findOne({ _id: product._id })).stock).toBe(0);
   });
 
+  test('order items carry a snapshot of the product image, for COD and online orders', async () => {
+    const product = await h.createProduct({
+      sizeInventory: [{ size: 'M', stock: 5 }],
+      images: ['https://ik.imagekit.io/test/first.jpg', 'https://ik.imagekit.io/test/second.jpg']
+    });
+    const user = await h.createUser();
+
+    const cod = await place(user, h.orderBody(product));
+    expect(cod.status).toBe(201);
+    expect(cod.body.order.items[0].image).toBe('https://ik.imagekit.io/test/first.jpg');
+
+    const online = await place(user, h.orderBody(product, { paymentMethod: 'online' }));
+    expect(online.status).toBe(201);
+    expect(online.body.order.items[0].image).toBe('https://ik.imagekit.io/test/first.jpg');
+
+    // stored on the order itself, so it survives the product being removed
+    await Product().deleteOne({ _id: product._id });
+    const saved = await Order().findById(cod.body.order._id).lean();
+    expect(saved.items[0].image).toBe('https://ik.imagekit.io/test/first.jpg');
+  });
+
+  test('a product without images still orders normally', async () => {
+    const product = await h.createProduct({ sizeInventory: [{ size: 'M', stock: 5 }], images: [] });
+    const res = await place(await h.createUser(), h.orderBody(product));
+    expect(res.status).toBe(201);
+    expect(res.body.order.items[0].image).toBeUndefined();
+  });
+
   test('successful order keeps the response contract (order, paymentMethod, pricing)', async () => {
     const product = await h.createProduct({ sizeInventory: [{ size: 'M', stock: 2 }], price: 1000 });
     const res = await place(await h.createUser(), h.orderBody(product));
