@@ -344,6 +344,9 @@ exports.create = async (req, res, next) => {
       orderItems.push({
         product: product._id,
         name: product.name,
+        // Snapshot of the product image, so the confirmation screen, order emails and
+        // old orders still show it even if the product is later edited or removed.
+        image: (Array.isArray(product.images) && product.images[0]) || undefined,
         quantity,
         size: selectedSize,
         price, // Original inclusive unit price
