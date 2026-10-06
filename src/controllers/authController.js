@@ -63,12 +63,18 @@ exports.createTokenForUser = async (user) => {
   const secure = process.env.COOKIE_SECURE === 'true' || isProdLike;
   const cookieOptions = {
     httpOnly: true,
-    sameSite: 'strict',
+    sameSite: 'lax',
     secure,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    domain: process.env.COOKIE_DOMAIN || undefined,
+    domain: process.env.COOKIE_DOMAIN || (isProdLike ? '.doordripp.com' : undefined),
   };
   return { token, cookieOptions };
+};
+
+const getClearCookieOptions = () => {
+  const isProdLike = process.env.NODE_ENV === 'production' || (process.env.BACKEND_URL || '').startsWith('https://');
+  const domain = process.env.COOKIE_DOMAIN || (isProdLike ? '.doordripp.com' : undefined);
+  return domain ? { domain } : {};
 };
 
 // Step 1: Initiate registration with email OTP, without creating a user record yet
@@ -309,7 +315,7 @@ exports.register = async (req, res, next) => {
   try {
     const { name, email, password, termsAccepted } = req.body;
     const sanitizedEmail = normalizeEmail(email);
-    
+
     if (!termsAccepted) {
       return res.status(400).json({ error: 'You must accept Terms & Privacy Policy' });
     }
@@ -352,7 +358,7 @@ exports.register = async (req, res, next) => {
     // Send OTP via email
     const emailResult = await sendEmailOTP(sanitizedEmail, code);
 
-    res.json({ 
+    res.json({
       message: 'Registration successful! Please check your email for verification code.',
       email: sanitizedEmail,
       userId: user._id,
@@ -398,7 +404,7 @@ exports.login = async (req, res, next) => {
 
     // Check if email is verified
     if (!user.emailVerified) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         error: 'Email not verified',
         message: 'Please verify your email before logging in',
         email: user.email,
@@ -408,9 +414,9 @@ exports.login = async (req, res, next) => {
 
     const { token, cookieOptions } = await exports.createTokenForUser(user);
     res.cookie('token', token, cookieOptions);
-    res.json({ 
+    res.json({
       user: { id: user._id, email: user.email, name: user.name, roles: user.roles },
-      token 
+      token
     });
   } catch (err) {
     next(err);
@@ -555,24 +561,24 @@ exports.signInWithGoogle = async (req, res, next) => {
       // Update existing user if needed (preserves existing data)
       let updated = false;
       const hadLocalPassword = user.authProvider !== 'google' && !!user.password;
-      
+
       if (!user.emailVerified) {
         user.emailVerified = true;
         updated = true;
       }
-      
+
       // Update avatar if missing or if it's a Google avatar (but preserve custom avatars)
       if (picture && (!user.avatar || user.avatar.includes('googleusercontent.com'))) {
         user.avatar = picture;
         updated = true;
       }
-      
+
       // Store Google ID if not already present
       if (!user.googleId) {
         user.googleId = googleId;
         updated = true;
       }
-      
+
       // Set auth provider once Google is linked
       if (user.authProvider !== 'google') {
         user.authProvider = 'google';
@@ -583,7 +589,7 @@ exports.signInWithGoogle = async (req, res, next) => {
         user.isPasswordSet = true;
         updated = true;
       }
-      
+
       if (updated) {
         await user.save();
       }
@@ -606,12 +612,12 @@ exports.signInWithGoogle = async (req, res, next) => {
         emailVerified: user.emailVerified,
       },
     });
-    
+
   } catch (err) {
     logger.error('signInWithGoogle error', err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      error: 'Failed to sign in with Google' 
+      error: 'Failed to sign in with Google'
     });
   }
 };
@@ -791,7 +797,7 @@ exports.logout = async (req, res) => {
       }
     }
   }
-  res.clearCookie('token');
+  res.clearCookie('token', getClearCookieOptions());
   res.json({ ok: true });
 };
 
@@ -1082,16 +1088,16 @@ exports.forgotPassword = async (req, res, next) => {
       .createHash('sha256')
       .update(resetToken)
       .digest('hex');
-    
+
     user.resetPasswordToken = tokenHash;
     user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
-    
+
     try {
       await user.save();
     } catch (saveError) {
       logger.error('Failed to save password reset token to user:', saveError);
-      return res.status(500).json({ 
-        error: 'Failed to process password reset request' 
+      return res.status(500).json({
+        error: 'Failed to process password reset request'
       });
     }
 
@@ -1102,7 +1108,7 @@ exports.forgotPassword = async (req, res, next) => {
         resetToken,
         user.name
       );
-      
+
       logger.info(`Password reset email sent to ${otpUtil.maskEmail(sanitizedEmail)}`);
     } catch (emailError) {
       logger.error('Failed to send reset email:', emailError);
@@ -1113,7 +1119,7 @@ exports.forgotPassword = async (req, res, next) => {
 
   } catch (error) {
     logger.error('Forgot password error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to process password reset request'
     });
   }
@@ -1124,15 +1130,15 @@ exports.resetPassword = async (req, res, next) => {
     const { token, newPassword } = req.body;
 
     if (!token || !newPassword || typeof token !== 'string' || typeof newPassword !== 'string') {
-      return res.status(400).json({ 
-        error: 'Token and new password are required' 
+      return res.status(400).json({
+        error: 'Token and new password are required'
       });
     }
 
     // Validate password strength
     if (newPassword.length < 8) {
-      return res.status(400).json({ 
-        error: 'Password must be at least 8 characters long' 
+      return res.status(400).json({
+        error: 'Password must be at least 8 characters long'
       });
     }
 
@@ -1171,22 +1177,22 @@ exports.resetPassword = async (req, res, next) => {
         error: 'Invalid or already used reset token'
       });
     }
-    
+
     let isValidToken = false;
     if (storedHash.length === providedHash.length) {
       isValidToken = crypto.timingSafeEqual(storedHash, providedHash);
     }
 
     if (!user.resetPasswordToken || !isValidToken) {
-      return res.status(400).json({ 
-        error: 'Invalid or already used reset token' 
+      return res.status(400).json({
+        error: 'Invalid or already used reset token'
       });
     }
 
     // Check token expiration
     if (!user.resetPasswordExpires || user.resetPasswordExpires < new Date()) {
-      return res.status(400).json({ 
-        error: 'Reset token has expired. Please request a new one.' 
+      return res.status(400).json({
+        error: 'Reset token has expired. Please request a new one.'
       });
     }
 
@@ -1210,14 +1216,14 @@ exports.resetPassword = async (req, res, next) => {
       logger.error('Failed to send password reset success email:', notifyErr);
     }
 
-    res.json({ 
-      message: 'Password reset successful. You can now login with your new password.' 
+    res.json({
+      message: 'Password reset successful. You can now login with your new password.'
     });
 
   } catch (error) {
     logger.error('Reset password error:', error);
-    res.status(500).json({ 
-      error: 'Failed to reset password' 
+    res.status(500).json({
+      error: 'Failed to reset password'
     });
   }
 };
@@ -1239,7 +1245,7 @@ exports.deleteAccount = async (req, res, next) => {
         // the tombstoned account: treat the retry as already done.
         const prior = await findDeletedUserForToken(req);
         if (prior) {
-          res.clearCookie('token');
+          res.clearCookie('token', getClearCookieOptions());
           return res.json({ success: true, message: 'Account deleted successfully' });
         }
         return res.status(authErr.status).json({ error: authErr.status === 401 ? 'Not authenticated' : authErr.message });
@@ -1253,7 +1259,7 @@ exports.deleteAccount = async (req, res, next) => {
       logger.info(`Account deleted for user ID: ${user._id}`);
     }
 
-    res.clearCookie('token');
+    res.clearCookie('token', getClearCookieOptions());
     return res.json({
       success: true,
       message: 'Account deleted successfully'

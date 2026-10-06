@@ -64,12 +64,9 @@ const normalizeOrigin = (url) => {
 
 const defaultOrigins = [
   'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  'http://localhost:5176',
-  'http://localhost:5177',
   'https://doordripp.com',
-  'https://www.doordripp.com'
+  'https://www.doordripp.com',
+  'https://doordripp-frontend-298631308831.us-central1.run.app'
 ];
 
 const allowedOrigins = Array.from(
@@ -115,46 +112,46 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: [
-        "'self'", 
-        "'unsafe-inline'", 
-        "'unsafe-eval'", 
-        "https://checkout.razorpay.com", 
-        "https://maps.googleapis.com", 
+        "'self'",
+        "'unsafe-inline'",
+        "'unsafe-eval'",
+        "https://checkout.razorpay.com",
+        "https://maps.googleapis.com",
         "https://maps.gstatic.com",
         "https://*.gstatic.com",
         "https://cdn.onesignal.com"
       ],
       styleSrc: [
-        "'self'", 
-        "'unsafe-inline'", 
+        "'self'",
+        "'unsafe-inline'",
         "https://fonts.googleapis.com"
       ],
       imgSrc: [
-        "'self'", 
-        "data:", 
-        "blob:", 
-        "https://ik.imagekit.io", 
-        "https://lh3.googleusercontent.com", 
-        "https://*.tile.openstreetmap.org", 
+        "'self'",
+        "data:",
+        "blob:",
+        "https://ik.imagekit.io",
+        "https://lh3.googleusercontent.com",
+        "https://*.tile.openstreetmap.org",
         "https://maps.googleapis.com",
         "https://maps.gstatic.com",
         "https://*.gstatic.com",
         "https://*.googleapis.com",
         "https://*.google.com",
         "https://*.ggpht.com",
-        "https://via.placeholder.com", 
+        "https://via.placeholder.com",
         "https://placeholder.com"
       ],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       connectSrc: [
-        "'self'", 
-        "https://checkout.razorpay.com", 
-        "https://router.project-osrm.org", 
-        "https://maps.googleapis.com", 
+        "'self'",
+        "https://checkout.razorpay.com",
+        "https://router.project-osrm.org",
+        "https://maps.googleapis.com",
         "https://*.googleapis.com",
         "https://maps.gstatic.com",
         "https://*.gstatic.com",
-        "https://cdn.onesignal.com", 
+        "https://cdn.onesignal.com",
         "https://onesignal.com"
       ],
       frameSrc: ["'self'", "https://checkout.razorpay.com", "https://*.google.com"],
