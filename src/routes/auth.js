@@ -14,6 +14,7 @@ const defaultFrontendUrls = [
   'http://localhost:5174',
   'https://doordripp.com',
   'https://www.doordripp.com',
+  'https://doordripp-frontend-298631308831.us-central1.run.app',
 ]
 
 const normalizeOrigin = (url) => {

@@ -17,11 +17,14 @@ const rawDevCallbackUrl = (process.env.GOOGLE_CALLBACK_URL_DEV || '').trim()
 const rawBackendUrl = normalizeBaseUrl(process.env.BACKEND_URL)
 const isProd = process.env.NODE_ENV === 'production'
 
-const fallbackBackendUrl = isProd ? 'https://doordripp.com' : 'http://localhost:4000'
+const fallbackBackendUrl = isProd ? 'https://api.doordripp.com' : 'http://localhost:4000'
 const safeBackendUrl = rawBackendUrl || fallbackBackendUrl
 
-// Callback URL determination
-const GOOGLE_CALLBACK_URL = rawCallbackUrl || `${safeBackendUrl}/api/auth/google/callback`
+// Callback URL determination: always ensure callback routes to backend (api.doordripp.com) in production
+let GOOGLE_CALLBACK_URL = rawCallbackUrl || `${safeBackendUrl}/api/auth/google/callback`
+if (isProd && GOOGLE_CALLBACK_URL.startsWith('https://doordripp.com/api')) {
+  GOOGLE_CALLBACK_URL = GOOGLE_CALLBACK_URL.replace('https://doordripp.com/api', 'https://api.doordripp.com/api')
+}
 const GOOGLE_CALLBACK_URL_DEV = rawDevCallbackUrl || `http://localhost:4000/login/oauth2/code/google-auth-dev`
 
 if (isProd && GOOGLE_CALLBACK_URL.includes('localhost')) {
