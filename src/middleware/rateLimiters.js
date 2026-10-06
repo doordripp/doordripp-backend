@@ -72,6 +72,16 @@ const oauthLimiter = (provider) => build({ windowMs: 15 * MINUTE, max: 30, keyGe
 // Token refresh / account deletion and other authenticated-but-sensitive calls.
 const sensitiveIpLimiter = build({ windowMs: 15 * MINUTE, max: 60, keyGenerator: ipKey, message: TOO_MANY_ATTEMPTS });
 
+// Dedicated limiters for sensitive / quota-consuming endpoints:
+// Geocoding (prevents draining Google Maps API billing/quota)
+const geocodeLimiter = build({ windowMs: 15 * MINUTE, max: 60, keyGenerator: ipKey, message: 'Too many location requests. Please try again later.' });
+
+// Support ticket submissions (prevents database spam and SMTP flooding)
+const supportTicketLimiter = build({ windowMs: 15 * MINUTE, max: 10, keyGenerator: ipKey, message: 'Too many support tickets submitted. Please try again later.' });
+
+// Newsletter subscriptions (prevents spamming newsletter list)
+const newsletterLimiter = build({ windowMs: 15 * MINUTE, max: 5, keyGenerator: ipKey, message: 'Too many subscription attempts. Please try again later.' });
+
 module.exports = {
   loginLimiters: [loginIpLimiter, loginAccountLimiter],
   otpSendLimiters: [otpSendIpLimiter, otpSendAccountLimiter],
@@ -80,5 +90,8 @@ module.exports = {
   passwordResetRequestLimiters: [passwordIpLimiter, passwordResetAccountLimiter],
   googleOAuthLimiter: oauthLimiter('Google'),
   appleOAuthLimiter: oauthLimiter('Apple'),
-  sensitiveIpLimiter
+  sensitiveIpLimiter,
+  geocodeLimiter,
+  supportTicketLimiter,
+  newsletterLimiter
 };

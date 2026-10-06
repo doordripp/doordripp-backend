@@ -32,7 +32,10 @@ router.get('/featured', async (req, res) => {
 
 router.get('/all', async (req, res) => {
   try {
-    const products = await Product.find({ status: 'Active' }).limit(100).lean()
+    const products = await Product.find({ status: 'Active' })
+      .select('-costPrice -deliveryCost -pricingMode -productSource -listedBy')
+      .limit(100)
+      .lean()
     res.json(products)
   } catch (error) {
     res.json([])

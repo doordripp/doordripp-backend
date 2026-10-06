@@ -174,23 +174,15 @@ function extractEntities(message) {
  */
 async function queryOrderInfo(entities, userId = null) {
   try {
-    const query = {}
+    // Privacy & Security: Never expose order details or shipping addresses without authentication
+    if (!userId) {
+      return { requiresAuth: true }
+    }
+
+    const query = { customer: userId }
     
     if (entities.orderId) {
       query._id = entities.orderId
-    } else if (entities.email) {
-      // Find user by email first
-      const User = require('../models/User')
-      const user = await User.findOne({ email: entities.email })
-      if (user) {
-        query.customer = user._id
-      } else {
-        return null
-      }
-    } else if (userId) {
-      query.customer = userId
-    } else {
-      return null
     }
 
     const orders = await Order.find(query)
@@ -201,7 +193,7 @@ async function queryOrderInfo(entities, userId = null) {
 
     if (!orders.length) return null
 
-    // Format order information
+    // Format order information - NEVER expose full address or personal info in chat responses
     return orders.map(order => ({
       orderId: order._id,
       status: order.status,
@@ -209,8 +201,7 @@ async function queryOrderInfo(entities, userId = null) {
       items: order.items.map(item => item.name).join(', '),
       deliveryETA: order.deliveryETA,
       paymentStatus: order.payment?.status,
-      createdAt: order.createdAt,
-      address: order.shippingAddress
+      createdAt: order.createdAt
     }))
   } catch (error) {
     logger.error('Error querying order info:', error)
@@ -301,14 +292,18 @@ function generateEnhancedResponse(intent, dbData, faqMatch) {
 
   switch (intent.intent) {
     case 'ORDER_STATUS':
-      if (dbData && dbData.length > 0) {
+      if (dbData?.requiresAuth) {
+        response.reply = 'To protect your privacy and view your order details, please log in to your DoorDripp account. You can also track your shipment using the tracking link sent to your registered email or phone.'
+        response.shouldEscalate = false
+        response.quickReplies = ['Sign In', 'Contact Support']
+      } else if (Array.isArray(dbData) && dbData.length > 0) {
         const order = dbData[0]
         response.reply = `Your order ${order.orderId.toString().substring(0, 8)}... is currently "${order.status}". `
         
         if (order.status === 'delivered') {
           response.reply += `It was delivered successfully.`
         } else if (order.status === 'shipped') {
-          response.reply += `Expected delivery: ${order.deliveryETA}.`
+          response.reply += `Expected delivery: ${order.deliveryETA || 'Soon'}.`
         } else {
           response.reply += `We're processing your order and will update you soon.`
         }
@@ -320,7 +315,7 @@ function generateEnhancedResponse(intent, dbData, faqMatch) {
         response.reply = faqMatch.answer
         response.shouldEscalate = false
       } else {
-        response.reply = 'I couldn\'t find your order. Please provide your Order ID or email address, and I\'ll help you track it.'
+        response.reply = 'I couldn\'t find any orders for your account. Please log in or contact our support team.'
         response.shouldEscalate = true
       }
       break
@@ -375,13 +370,17 @@ function generateEnhancedResponse(intent, dbData, faqMatch) {
     case 'RETURNS':
       if (faqMatch) {
         response.reply = faqMatch.answer
-        if (dbData && dbData.length > 0) {
+        if (Array.isArray(dbData) && dbData.length > 0) {
           response.reply += `\n\nRegarding your order: ${dbData[0].orderId.toString().substring(0, 8)}..., the payment status is "${dbData[0].paymentStatus}".`
           response.orderData = dbData[0]
         }
         response.shouldEscalate = false
+      } else if (dbData?.requiresAuth) {
+        response.reply = `For ${intent.intent === 'PAYMENT' ? 'payment' : 'return'} queries regarding your orders, please log in to your DoorDripp account or contact support.`
+        response.shouldEscalate = false
+        response.quickReplies = ['Sign In', 'Contact Support']
       } else {
-        response.reply = `For ${intent.intent === 'PAYMENT' ? 'payment' : 'return'} related queries, please provide your order ID so I can assist you better.`
+        response.reply = `For ${intent.intent === 'PAYMENT' ? 'payment' : 'return'} related queries, please make sure you are logged in or contact support.`
         response.shouldEscalate = true
       }
       break

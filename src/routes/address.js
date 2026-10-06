@@ -32,10 +32,12 @@ router.delete('/addresses/:id', verifyToken, addressController.deleteAddress);
 // Set an address as default
 router.patch('/addresses/:id/set-default', verifyToken, addressController.setDefaultAddress);
 
+const { geocodeLimiter } = require('../middleware/rateLimiters');
+
 // Geocode a location (lat/lng to address)
-router.post('/geocode', addressController.geocodeLocation);
+router.post('/geocode', geocodeLimiter, addressController.geocodeLocation);
 
 // Reverse geocode (address to lat/lng)
-router.post('/reverse-geocode', addressController.reverseGeocode);
+router.post('/reverse-geocode', geocodeLimiter, addressController.reverseGeocode);
 
 module.exports = router;

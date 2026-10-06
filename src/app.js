@@ -63,11 +63,14 @@ const normalizeOrigin = (url) => {
 };
 
 const defaultOrigins = [
-  'http://localhost:5173',
   'https://doordripp.com',
   'https://www.doordripp.com',
   'https://doordripp-frontend-298631308831.us-central1.run.app'
 ];
+
+if (process.env.NODE_ENV !== 'production') {
+  defaultOrigins.push('http://localhost:5173');
+}
 
 const allowedOrigins = Array.from(
   new Set([...defaultOrigins, FRONTEND_URL].map(normalizeOrigin).filter(Boolean))

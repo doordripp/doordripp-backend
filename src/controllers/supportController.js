@@ -1,4 +1,4 @@
-﻿const logger = require('../utils/logger')
+const logger = require('../utils/logger')
 
 const SupportFaq = require('../models/SupportFaq')
 const SupportTicket = require('../models/SupportTicket')
@@ -108,15 +108,16 @@ function setCachedResponse(language, normalizedMessage, response) {
 exports.handleChat = async (req, res, next) => {
   try {
     await ensureSeedFaqs()
-    const { message, language = 'en', questionId, userId } = req.body || {}
+    const { message, language = 'en', questionId } = req.body || {}
+    const authenticatedUserId = req.user?.id || req.user?._id || null
     const lang = String(language || 'en').toLowerCase()
 
     if (!message && !questionId) {
       return res.status(400).json({ error: 'Message or questionId is required' })
     }
 
-    // Check response cache for message queries (only for simple FAQ lookups)
-    if (message && !userId) {
+    // Check response cache for message queries (only for unauthenticated simple FAQ lookups)
+    if (message && !authenticatedUserId) {
       const normalizedMessage = normalizeText(message)
       const cached = getCachedResponse(lang, normalizedMessage)
       if (cached && !cached.requiresFreshData) {
@@ -172,7 +173,7 @@ exports.handleChat = async (req, res, next) => {
     } else if (message) {
       // Use intelligent response system for natural language queries
       try {
-        response = await getIntelligentResponse(message, faqs, userId)
+        response = await getIntelligentResponse(message, faqs, authenticatedUserId)
       } catch (intelligenceError) {
         // Fallback to FAQ keyword matching so chat still works for common questions.
         const normalized = normalizeText(message)
